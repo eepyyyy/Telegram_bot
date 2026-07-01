@@ -1,4 +1,5 @@
 import asyncio
+from email.mime import text
 from urllib.parse import urlparse, parse_qs
 
 from gamdl.api import AppleMusicApi
@@ -35,9 +36,11 @@ async def get_track_schema(url: str) -> list[TrackSchema]:
     song = await api.get_song(song_id)
     data = song["data"][0]
     attrs = data["attributes"]
+    album_id = data["relationships"]["albums"]["data"][0]["id"]
 
     return [
         TrackSchema(
+            album_id=album_id,
             song_id=data["id"],
             title=attrs["name"],
             artist=attrs["artistName"],
@@ -63,6 +66,7 @@ async def get_album_urls(url: str) -> list[TrackSchema]:
 
         lists_of_tracks.append(
             TrackSchema(
+                album_id=album["data"][0]["id"],
                 song_id=track["id"],
                 title=attrs["name"],
                 artist=attrs["artistName"],
@@ -87,9 +91,12 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
 
     for track in tracks:
         attrs = track["attributes"]
-
+        song_url = album_url_to_song_url(attrs["url"])
+        get_album_id = await get_track_schema(song_url)
+        print(get_album_id)
         lists_of_tracks.append(
             TrackSchema(
+                album_id="jhasd",
                 song_id=track["id"],
                 title=attrs["name"],
                 artist=attrs["artistName"],
@@ -119,4 +126,6 @@ async def get_any_url(url: str) -> list[TrackSchema]:
 
 
 if __name__ == "__main__":
-    asyncio.run(get_track_schema("https://music.apple.com/in/song/apocalypse/1217977755"))
+    test = asyncio.run(get_any_url("https://music.apple.com/in/playlist/夢刃/pl.u-38oWZ6esZbL0EGY"))
+
+    print(test)
