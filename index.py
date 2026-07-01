@@ -12,6 +12,7 @@ from gamdlUrl import get_album_urls, get_any_url, get_playlist_urls
 import re
 import glob
 from aiogram.utils.markdown import hbold
+import Schema
 
 dp = Dispatcher()
 
@@ -33,7 +34,9 @@ async def cmd_start(msg: types.Message) -> None:
     unique_task_id = str(msg.message_id)
     task_output_dir = os.path.join("./downloads", unique_task_id)
 
-    urls = await get_any_url(message)
+    songs = await get_any_url(message)
+
+    urls = [song.url for song in songs]
 
     process = await asyncio.create_subprocess_exec(
         "gamdl",

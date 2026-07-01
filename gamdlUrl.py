@@ -3,10 +3,11 @@ from urllib.parse import urlparse, parse_qs
 from typing import Any
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
+import Schema
+from Schema import TrackSchema
 
 
-
-def album_url_to_song_url(url:str) -> str:
+def album_url_to_song_url(url:str) -> list[Any]:
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
 
@@ -16,11 +17,36 @@ def album_url_to_song_url(url:str) -> str:
     query = parse_qs(parsed.query)
     song_id = query.get("i", [parts[-1]])[0]
 
-    return f"https://music.apple.com/{storefront}/song/{slug}/{song_id}"
+    return [f"https://music.apple.com/{storefront}/song/{slug}/{song_id}"]
+
+def extract_song_id_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    parts = parsed.path.strip("/").split("/")
+    query = parse_qs(parsed.query)
+
+    return query.get("i", [parts[-1]])[0]
 
 
+async def get_track_schema(url: str) -> list[TrackSchema]:
+    api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
-async def get_album_urls(url: str) -> list[Any]:
+    song_id = extract_song_id_from_url(url)
+
+    song = await api.get_song(song_id)
+    data = song["data"][0]
+    attrs = data["attributes"]
+
+    return [
+        TrackSchema(
+            song_id=data["id"],
+            title=attrs["name"],
+            artist=attrs["artistName"],
+            album=attrs.get("albumName", ""),
+            url=attrs["url"],
+        )
+    ]
+
+async def get_album_urls(url: str) -> list[Schema.TrackSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
     info = AppleMusicInterface.get_url_info(url)
@@ -43,7 +69,7 @@ async def get_album_urls(url: str) -> list[Any]:
     return lists_of_tracks
 
 
-async def get_playlist_urls(url: str) -> list[Any]:
+async def get_playlist_urls(url: str) -> list[Schema.TrackSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
     info = AppleMusicInterface.get_url_info(url)
@@ -66,7 +92,7 @@ async def get_playlist_urls(url: str) -> list[Any]:
     return lists_of_tracks
 
 
-async def get_any_url(url: str) -> list[str] | str:
+async def get_any_url(url: str) -> list[TrackSchema]:
     info = AppleMusicInterface.get_url_info(url)
 
     if info.type == "album":
@@ -74,7 +100,7 @@ async def get_any_url(url: str) -> list[str] | str:
     if info.type == "playlist":
         return await get_playlist_urls(url)
     if info.type == "song":
-        return url
+        return get_track_schema(url)
     raise ValueError(f"Unsupported URL type: {info.type}")
 
 
