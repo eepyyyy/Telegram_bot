@@ -100,7 +100,6 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
         attrs = track["attributes"]
         song_url = album_url_to_song_url(attrs["url"])
 
-        print(get_album_id)
         lists_of_tracks.append(
             TrackSchema(
                 album_id=extract_album_id_from_url(song_url),
