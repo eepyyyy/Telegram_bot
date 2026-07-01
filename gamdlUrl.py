@@ -28,6 +28,13 @@ def extract_song_id_from_url(url: str) -> str:
     return query.get("i", [parts[-1]])[0]
 
 
+def extract_album_id_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    parts = parsed.path.strip("/").split("/")
+
+    # The album ID is always the last segment of the URL path
+    return parts[-1]
+
 async def get_track_schema(url: str) -> list[TrackSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
@@ -92,11 +99,11 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
     for track in tracks:
         attrs = track["attributes"]
         song_url = album_url_to_song_url(attrs["url"])
-        get_album_id = await get_track_schema(song_url)
+
         print(get_album_id)
         lists_of_tracks.append(
             TrackSchema(
-                album_id="jhasd",
+                album_id=get_album_id(song_url),
                 song_id=track["id"],
                 title=attrs["name"],
                 artist=attrs["artistName"],
