@@ -65,29 +65,19 @@ async def cmd_start(msg: types.Message) -> None:
                 sent_msg = await msg.answer_audio(audio=FSInputFile(upload))
                 file_id = sent_msg.audio.file_id 
                 unique_file_id = sent_msg.audio.file_unique_id
-                
-                print(file_id,unique_file_id) 
+                file_name = sent_msg.audio.file_name
+
+                print(file_id,unique_file_id, file_name)
                 already_downloaded.add(upload) 
 
 
     return_code = await process.wait()
 
-    if return_code == 0:
-        donwloaded_files = glob.glob(
-            f"{task_output_dir}/**/*.m4a*", recursive=True
-        )
-        print(donwloaded_files)
-
-    else:
-        await status.edit_text("❌ Download failed")
 
     if return_code == 0:
         await status.edit_text("✅ Download finished")
     else:
         await status.edit_text("❌ Download failed") 
-
-
-
 
 async def main()-> None:
     """Entry Point"""
