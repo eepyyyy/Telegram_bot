@@ -1,9 +1,9 @@
 import asyncio
-from email.mime import text
 from urllib.parse import urlparse, parse_qs
 
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
+
 from Schema import TrackSchema
 
 
@@ -98,11 +98,24 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
 
     for track in tracks:
         attrs = track["attributes"]
-        song_url = album_url_to_song_url(attrs["url"])
+        track_url = attrs.get("url", "")
+
+        if not track_url or "name" not in attrs:
+            continue
+
+        # --- EXTRACT ALBUM ID ---
+        # Example URL: https://music.apple.com/in/album/falling-behind/1641539616?i=1641540030
+        try:
+            parsed_url = urlparse(track_url)
+            path_parts = parsed_url.path.strip("/").split("/")
+            # The ID (1641539616) is always the last element in the URL path layout
+            album_id = path_parts[-1] if path_parts else ""
+        except:
+            album_id = ""
 
         lists_of_tracks.append(
             TrackSchema(
-                album_id=extract_album_id_from_url(song_url),
+                album_id=album_id,
                 song_id=track["id"],
                 title=attrs["name"],
                 artist=attrs["artistName"],
