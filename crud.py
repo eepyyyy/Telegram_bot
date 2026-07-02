@@ -1,5 +1,5 @@
-import aiogram
-from database import get_session_maker
+from database import get_session_maker, Tracks
+from sqlmodel import select, col
 import database, sqlmodel, asyncio
 import pydantic, Schema, gamdlUrl
 from typing import List
@@ -10,7 +10,6 @@ async_session = get_session_maker()
 async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
     async with async_session() as session:
         async with session.begin():
-
             for track_data in track_lists:
                 album_obj = database.Albums(
                     album_id=track_data.album_id,
@@ -31,11 +30,44 @@ async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
                 )
                 await session.merge(track_obj)
 
+async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
+    # get list of urls
+    incoming = [track.song_id for track in track_lists]
+
+    async with async_session() as session:
+        print(incoming)
+
+        statement = select(Tracks).where(col(Tracks.song_id).in_(incoming))
+        result = await session.exec(statement)
+
+        db_Tracks = result.all()
+        print((db_Tracks))
+
+    cache_dict = {
+        track.song_id: track.file_id
+        for track in db_Tracks
+        if track.file_id is not None
+        }
+    file_ids_to_send = []
+    urls_to_download = []
+
+    for track in track_lists:
+        if track.song_id in cache_dict:
+            file_ids_to_send.append(cache_dict[track.song_id])
+        else:
+            urls_to_download.append(str(track.url))
+
+    print(file_ids_to_send, urls_to_download)
+
+
+
+
 async def main():
     await database.init_db()
     test = await gamdlUrl.get_any_url("https://music.apple.com/us/album/cigarettes-after-sex/1217977525")
 
-    await save_track_to_bot_db(test)
+    await check_db_for_urls(test)
+
 
 
 if __name__ == "__main__":
