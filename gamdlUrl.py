@@ -145,6 +145,6 @@ async def get_any_url(url: str) -> list[TrackSchema]:
 
 
 if __name__ == "__main__":
-    test = asyncio.run(get_any_url("https://music.apple.com/us/album/cigarettes-after-sex/1217977525"))
+    test = asyncio.run(get_any_url("https://music.apple.com/in/playlist/夢刃/pl.u-38oWZ6esZbL0EGY"))
 
     print(test)
