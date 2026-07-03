@@ -54,6 +54,7 @@ async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInput
         url=track_lists.url
     )
     await session.merge(track_obj)
+    await session.commit()
 
 
 async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):

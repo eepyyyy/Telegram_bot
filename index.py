@@ -1,3 +1,5 @@
+import shutil
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import FSInputFile
 from token_tl import TOKEN_API
@@ -35,72 +37,76 @@ async def cmd_start(msg: types.Message) -> None:
     message = msg.text
 
     status = await msg.answer('Donwloading.....')
-    unique_task_id = str(msg.message_id)
+    unique_task_id = str(msg.chat.id)
     task_output_dir = os.path.join("./downloads", unique_task_id)
+    try:
+        songs = await get_any_url(message)
 
-    songs = await get_any_url(message)
+        urls = [song.url for song in songs]
 
-    urls = [song.url for song in songs]
+        process = await asyncio.create_subprocess_exec(
+            "gamdl",
+            "--output-path",
+            task_output_dir,
+            *urls,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            )
 
-    process = await asyncio.create_subprocess_exec(
-        "gamdl",
-        "--output-path",
-        task_output_dir,
-        *urls,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        )
+        ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
-    ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        already_downloaded = set()
 
-    already_downloaded = set()
+        async with async_session() as session:
+            while True:
+                line_bytes = await process.stdout.readline()
+                if not line_bytes:
+                    break
+                line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
+                print(line)
+                downloaded_files = glob.glob(f"{task_output_dir}/**/*.m4a*", recursive=True)
+                for upload in downloaded_files:
+                    if upload not in already_downloaded:
 
-    async with async_session() as session:
-        while True:
-            line_bytes = await process.stdout.readline()
-            if not line_bytes:
-                break
-            line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
-            print(line)
-            downloaded_files = glob.glob(f"{task_output_dir}/**/*.m4a*", recursive=True)
-            for upload in downloaded_files:
-                if upload not in already_downloaded:
+                        sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
 
-                    sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
+                        raw_title = sent_msg.audio.file_name.removesuffix(".m4a").strip()
 
-                    raw_title = sent_msg.audio.file_name.removesuffix(".m4a").strip()
-
-                    clean_title = re.sub(r'^\d+[\s.-]*', '', raw_title).strip()
-                    tbot = Schema.TrackInputSchema(
-                        file_id=sent_msg.audio.file_id,
-                        unique_file_id=sent_msg.audio.file_unique_id,
-                        title=clean_title
-                    )
-                    print(tbot)
-                    for track in songs:
-                        print(track)
-                        if track.title == tbot.title:
+                        clean_title = re.sub(r'^\d+[\s.-]*', '', raw_title).strip()
+                        tbot = Schema.TrackInputSchema(
+                            file_id=sent_msg.audio.file_id,
+                            unique_file_id=sent_msg.audio.file_unique_id,
+                            title=clean_title
+                        )
+                        print(tbot)
+                        for track in songs:
                             print(track)
+                            if track.title == tbot.title:
+                                print(track)
 
-                            track_input = Schema.TrackInputSchema(**track.model_dump())
-                            track_input.file_id = tbot.file_id
-                            track_input.file_unique_id = tbot.file_unique_id
+                                track_input = Schema.TrackInputSchema(**track.model_dump())
+                                track_input.file_id = tbot.file_id
+                                track_input.file_unique_id = tbot.file_unique_id
 
-                            await crud.save_single_track(session=session, track_lists=track_input)
-                            print(track_input)
+                                await crud.save_single_track(session=session, track_lists=track_input)
+                                print(track_input)
 
-                            #
-                            already_downloaded.add(upload)
-                            break
+                                #
+                                already_downloaded.add(upload)
+                                break
 
-
-    return_code = await process.wait()
-
-
-    if return_code == 0:
-        await status.edit_text("✅ Download finished")
-    else:
-        await status.edit_text("❌ Download failed")
+                            return_code = await process.wait()
+                            if return_code == 0:
+                                await status.edit_text("✅ Download finished")
+                            else:
+                                await status.edit_text("❌ Download failed")
+    except Exception as e:
+        print(f"An error occurred")
+        await status.edit_text("An unexpected error occurred.")
+    finally:
+        if os.path.exists(task_output_dir):
+            shutil.rmtree(task_output_dir)
+            print(f"cleaned up temp directory: {task_output_dir}")
 
 async def main()-> None:
     """Entry Point"""
