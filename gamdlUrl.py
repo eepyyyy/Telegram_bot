@@ -4,7 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
 
-from Schema import TrackSchema
+from Schema import TrackSchema, TrackInputSchema
 
 
 def album_url_to_song_url(url: str) -> str:
@@ -126,7 +126,7 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
     return lists_of_tracks
 
 
-async def get_any_url(url: str) -> list[TrackSchema]:
+async def get_any_url(url: str) -> list[TrackInputSchema]:
     info = AppleMusicInterface.get_url_info(url)
 
     if info.type == "album":

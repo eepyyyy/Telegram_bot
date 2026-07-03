@@ -70,11 +70,16 @@ async def cmd_start(msg: types.Message) -> None:
                 tbot = Schema.TrackInputSchema(
                     file_id=sent_msg.audio.file_id,
                     unique_file_id=sent_msg.audio.file_unique_id,
-                    title=sent_msg.audio.file_name
+                    title=sent_msg.audio.file_name.removesuffix(".m4a").strip().removesuffix(".m4a")
                 )
 
                 print(tbot)
-
+                for track in songs:
+                    if track.title == tbot.title:
+                        print(track)
+                        track.file_id = tbot.file_id
+                        track.file_unique_id = tbot.file_unique_id
+                        break
                 already_downloaded.add(upload) 
 
 
