@@ -66,7 +66,7 @@ async def cmd_start(msg: types.Message) -> None:
 
         for upload in downloaded_files:
             if upload not in already_downloaded:
-                sent_msg = await msg.answer_audio(audio=FSInputFile(upload))
+                sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
                 tbot = Schema.TrackInputSchema(
                     file_id=sent_msg.audio.file_id,
                     unique_file_id=sent_msg.audio.file_unique_id,
@@ -75,7 +75,6 @@ async def cmd_start(msg: types.Message) -> None:
 
                 print(tbot)
 
-                print(file_id,unique_file_id, file_name)
                 already_downloaded.add(upload) 
 
 
