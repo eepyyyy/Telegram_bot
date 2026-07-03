@@ -1,6 +1,7 @@
 from database import get_session_maker, Tracks
 from sqlmodel import select, col
 import database, sqlmodel, asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 import pydantic, Schema, gamdlUrl
 from typing import List
 
@@ -26,9 +27,34 @@ async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
                     file_id=None,
                     file_unique_id=None,
                     title=track_data.title,
-                    url=track_data.url
+                    url=track_data.title
                 )
                 await session.merge(track_obj)
+                await session.commit()
+
+async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInputSchema):
+    """
+    Note: Doesn't call the Session
+    Takes a track schema object and handles the async database save/merge operations.
+    """
+    album_obj = database.Albums(
+        album_id=track_lists.album_id,
+        album=track_lists.album,
+        artist=track_lists.artist
+    )
+    await session.merge(album_obj)
+    track_obj = database.Tracks(
+        artist=track_lists.artist,
+        album=track_lists.album,
+        album_id=track_lists.album_id,
+        song_id=track_lists.song_id,
+        file_id=track_lists.file_id,
+        file_unique_id=track_lists.file_unique_id,
+        title=track_lists.title,
+        url=track_lists.url
+    )
+    await session.merge(track_obj)
+
 
 async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
     # get list of urls
@@ -66,7 +92,7 @@ async def main():
     await database.init_db()
     test = await gamdlUrl.get_any_url("https://music.apple.com/in/album/everything-i-know-about-love/1641539616")
 
-    await check_db_for_urls(test)
+    await save_track_to_bot_db(test)
 
 
 

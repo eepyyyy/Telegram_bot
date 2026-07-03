@@ -4,7 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
 
-from Schema import TrackSchema, TrackInputSchema
+from Schema import TrackInputSchema, TrackInputSchema
 
 
 def album_url_to_song_url(url: str) -> str:
@@ -35,7 +35,7 @@ def extract_album_id_from_url(url: str) -> str:
     # The album ID is always the last segment of the URL path
     return parts[-1]
 
-async def get_track_schema(url: str) -> list[TrackSchema]:
+async def get_track_schema(url: str) -> list[TrackInputSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
     song_id = extract_song_id_from_url(url)
@@ -46,7 +46,7 @@ async def get_track_schema(url: str) -> list[TrackSchema]:
     album_id = data["relationships"]["albums"]["data"][0]["id"]
 
     return [
-        TrackSchema(
+        TrackInputSchema(
             album_id=album_id,
             song_id=data["id"],
             title=attrs["name"],
@@ -57,7 +57,7 @@ async def get_track_schema(url: str) -> list[TrackSchema]:
     ]
 
 
-async def get_album_urls(url: str) -> list[TrackSchema]:
+async def get_album_urls(url: str) -> list[TrackInputSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
     info = AppleMusicInterface.get_url_info(url)
@@ -66,13 +66,13 @@ async def get_album_urls(url: str) -> list[TrackSchema]:
     album = await api.get_album(album_id)
     tracks = album["data"][0]["relationships"]["tracks"]["data"]
 
-    lists_of_tracks: list[TrackSchema] = []
+    lists_of_tracks: list[TrackInputSchema] = []
 
     for track in tracks:
         attrs = track["attributes"]
 
         lists_of_tracks.append(
-            TrackSchema(
+            TrackInputSchema(
                 album_id=album["data"][0]["id"],
                 song_id=track["id"],
                 title=attrs["name"],
@@ -85,7 +85,7 @@ async def get_album_urls(url: str) -> list[TrackSchema]:
     return lists_of_tracks
 
 
-async def get_playlist_urls(url: str) -> list[TrackSchema]:
+async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
     api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
 
     info = AppleMusicInterface.get_url_info(url)
@@ -94,7 +94,7 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
     playlist = await api.get_playlist(playlist_id)
     tracks = playlist["data"][0]["relationships"]["tracks"]["data"]
 
-    lists_of_tracks: list[TrackSchema] = []
+    lists_of_tracks: list[TrackInputSchema] = []
 
     for track in tracks:
         attrs = track["attributes"]
@@ -113,7 +113,7 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
             album_id = ""
 
         lists_of_tracks.append(
-            TrackSchema(
+            TrackInputSchema(
                 album_id=album_id,
                 song_id=track["id"],
                 title=attrs["name"],
@@ -126,7 +126,7 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
     return lists_of_tracks
 
 
-async def get_any_url(url: str) -> list[TrackSchema]:
+async def get_any_url(url: str) -> list[TrackInputSchema]:
     info = AppleMusicInterface.get_url_info(url)
 
     if info.type == "album":
