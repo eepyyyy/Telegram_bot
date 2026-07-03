@@ -104,11 +104,10 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
             continue
 
         # --- EXTRACT ALBUM ID ---
-        # Example URL: https://music.apple.com/in/album/falling-behind/1641539616?i=1641540030
         try:
             parsed_url = urlparse(track_url)
             path_parts = parsed_url.path.strip("/").split("/")
-            # The ID (1641539616) is always the last element in the URL path layout
+
             album_id = path_parts[-1] if path_parts else ""
         except:
             album_id = ""

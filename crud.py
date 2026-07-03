@@ -64,7 +64,7 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
 
 async def main():
     await database.init_db()
-    test = await gamdlUrl.get_any_url("https://music.apple.com/us/album/cigarettes-after-sex/1217977525")
+    test = await gamdlUrl.get_any_url("https://music.apple.com/in/album/everything-i-know-about-love/1641539616")
 
     await check_db_for_urls(test)
 

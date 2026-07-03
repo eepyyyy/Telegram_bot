@@ -13,6 +13,8 @@ import re
 import glob
 from aiogram.utils.markdown import hbold
 import Schema
+from crud import save_track_to_bot_db, check_db_for_urls
+
 
 dp = Dispatcher()
 
@@ -64,11 +66,14 @@ async def cmd_start(msg: types.Message) -> None:
 
         for upload in downloaded_files:
             if upload not in already_downloaded:
-            
                 sent_msg = await msg.answer_audio(audio=FSInputFile(upload))
-                file_id = sent_msg.audio.file_id 
-                unique_file_id = sent_msg.audio.file_unique_id
-                file_name = sent_msg.audio.file_name
+                tbot = Schema.TrackInputSchema(
+                    file_id=sent_msg.audio.file_id,
+                    unique_file_id=sent_msg.audio.file_unique_id,
+                    title=sent_msg.audio.file_name
+                )
+
+                print(tbot)
 
                 print(file_id,unique_file_id, file_name)
                 already_downloaded.add(upload) 
