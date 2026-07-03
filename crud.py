@@ -1,3 +1,4 @@
+from mypy.types import Any
 from database import get_session_maker, Tracks
 from sqlmodel import select, col
 import database, sqlmodel, asyncio
@@ -59,6 +60,15 @@ async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInput
 
 async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
     # get list of urls
+    """
+        Gets List of objects to be downloaded and to be send seperately
+    Args:
+        track_lists: Checks in db
+
+    Returns:
+        file_ids_to_send: list for fie_ids to be uploaded
+        urls_to_download: List of urls to be downloaded,
+    """
     incoming = [track.song_id for track in track_lists]
 
     async with async_session() as session:
@@ -75,8 +85,8 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
         for track in db_Tracks
         if track.file_id is not None
         }
-    file_ids_to_send = []
-    urls_to_download = []
+    file_ids_to_send: List[Any] = []
+    urls_to_download: List[Any] = []
 
     for track in track_lists:
         if track.song_id in cache_dict:
@@ -84,7 +94,7 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
         else:
             urls_to_download.append(str(track.url))
 
-    print(file_ids_to_send, urls_to_download)
+    return [file_ids_to_send, urls_to_download]
 
 
 
@@ -93,7 +103,7 @@ async def main():
     await database.init_db()
     test = await gamdlUrl.get_any_url("https://music.apple.com/in/album/everything-i-know-about-love/1641539616")
 
-    await save_track_to_bot_db(test)
+    await check_db_for_urls(test)
 
 
 

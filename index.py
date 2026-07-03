@@ -1,14 +1,18 @@
 import shutil
+from typing import List
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import FSInputFile
+from librt.vecs import append
+from mypy.types import Any
+
 from token_tl import TOKEN_API
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from database import get_session_maker
 import database
-import crud
+import crud, utils
 import asyncio
 import os
 from gamdlUrl import get_album_urls, get_any_url, get_playlist_urls
@@ -42,7 +46,9 @@ async def cmd_start(msg: types.Message) -> None:
     try:
         songs = await get_any_url(message)
 
-        urls = [song.url for song in songs]
+        file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
+
+        urls: List[str] = tracks_to_download
 
         process = await asyncio.create_subprocess_exec(
             "gamdl",
@@ -81,7 +87,7 @@ async def cmd_start(msg: types.Message) -> None:
                     async with async_session() as session:
                         for track in songs:
                             print(track)
-                            if track.title == tbot.title:
+                            if utils.convert_text(track.title) == utils.convert_text(tbot.title):
                                 print(track)
                                 track_input = Schema.TrackInputSchema(**track.model_dump())
                                 track_input.file_id = tbot.file_id
