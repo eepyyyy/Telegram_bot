@@ -4,6 +4,8 @@ from token_tl import TOKEN_API
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from database import get_session_maker
+import database
 import asyncio
 import os
 from gamdlUrl import get_album_urls, get_any_url, get_playlist_urls
@@ -16,6 +18,7 @@ from crud import save_track_to_bot_db, check_db_for_urls
 
 dp = Dispatcher()
 
+async_session = get_session_maker()
 
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
@@ -61,25 +64,29 @@ async def cmd_start(msg: types.Message) -> None:
         print(line)
 
         downloaded_files = glob.glob(f"{task_output_dir}/**/*.m4a*", recursive=True)
+        async with async_session() as session:
+            for upload in downloaded_files:
+                if upload not in already_downloaded:
+                    sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
+                    tbot = Schema.TrackInputSchema(
+                        file_id=sent_msg.audio.file_id,
+                        unique_file_id=sent_msg.audio.file_unique_id,
+                        title=sent_msg.audio.file_name.removesuffix(".m4a").strip().removesuffix(".m4a")
+                    )
 
-        for upload in downloaded_files:
-            if upload not in already_downloaded:
-                sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
-                tbot = Schema.TrackInputSchema(
-                    file_id=sent_msg.audio.file_id,
-                    unique_file_id=sent_msg.audio.file_unique_id,
-                    title=sent_msg.audio.file_name.removesuffix(".m4a").strip().removesuffix(".m4a")
-                )
+                    print(tbot)
+                    for track in songs:
+                        track_input = Schema.TrackInputSchema(**track.model_dump())
+                        if track_input.title == tbot.title:
+                            track_input.file_id = tbot.file_id
+                            track_input.file_unique_id = tbot.file_unique_id
+                            db_update = database.Tracks(track_input)
+                            session.add(db_update)
 
-                print(tbot)
-                for track in songs:
-                    track = Schema.TrackInputSchema(**track.model_dump())
-                    if track.title == tbot.title:
-                        track.file_id = tbot.file_id
-                        track.file_unique_id = tbot.file_unique_id
-                        print(track)
-                        break
-                already_downloaded.add(upload) 
+                            await session.commit()
+                            print(track)
+                            break
+                    already_downloaded.add(upload)
 
 
     return_code = await process.wait()
