@@ -126,7 +126,7 @@ async def get_playlist_urls(url: str) -> list[TrackSchema]:
     return lists_of_tracks
 
 
-async def get_any_url(url: str) -> list[TrackInputSchema]:
+async def get_any_url(url: str) -> list[TrackSchema]:
     info = AppleMusicInterface.get_url_info(url)
 
     if info.type == "album":

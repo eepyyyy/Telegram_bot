@@ -5,9 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 import asyncio
-import json
 import os
-import shutil
 from gamdlUrl import get_album_urls, get_any_url, get_playlist_urls
 import re
 import glob
@@ -75,10 +73,11 @@ async def cmd_start(msg: types.Message) -> None:
 
                 print(tbot)
                 for track in songs:
+                    track = Schema.TrackInputSchema(**track.model_dump())
                     if track.title == tbot.title:
-                        print(track)
                         track.file_id = tbot.file_id
                         track.file_unique_id = tbot.file_unique_id
+                        print(track)
                         break
                 already_downloaded.add(upload) 
 
