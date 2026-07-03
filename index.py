@@ -67,13 +67,16 @@ async def cmd_start(msg: types.Message) -> None:
             for upload in downloaded_files:
                 if upload not in already_downloaded:
                     sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
+
                     raw_title = sent_msg.audio.file_name.removesuffix(".m4a").strip()
                     clean_title = re.sub(r'^\d+[\s.-]*', '', raw_title).strip()
+
                     tbot = Schema.TrackInputSchema(
                         file_id=sent_msg.audio.file_id,
                         unique_file_id=sent_msg.audio.file_unique_id,
                         title=clean_title
                     )
+
                     print(tbot)
                     async with async_session() as session:
                         for track in songs:
@@ -88,6 +91,7 @@ async def cmd_start(msg: types.Message) -> None:
                                 #
                                 already_downloaded.add(upload)
                                 break
+
         return_code = await process.wait()
         if return_code == 0:
             await status.edit_text("✅ Download finished")
