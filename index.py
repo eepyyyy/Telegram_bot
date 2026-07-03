@@ -48,6 +48,9 @@ async def cmd_start(msg: types.Message) -> None:
 
         file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
 
+        for file in file_ids:
+            await msg.answer_audio(audio=file)
+
         urls: List[str] = tracks_to_download
 
         process = await asyncio.create_subprocess_exec(
@@ -72,7 +75,7 @@ async def cmd_start(msg: types.Message) -> None:
             downloaded_files = glob.glob(f"{task_output_dir}/**/*.m4a*", recursive=True)
             for upload in downloaded_files:
                 if upload not in already_downloaded:
-                    sent_msg = await msg.answer_audio(audio=FSInputFile(upload), caption="test")
+                    sent_msg = await msg.answer_audio(audio=FSInputFile(upload))
 
                     raw_title = sent_msg.audio.file_name.removesuffix(".m4a").strip()
                     clean_title = re.sub(r'^\d+[\s.-]*', '', raw_title).strip()
