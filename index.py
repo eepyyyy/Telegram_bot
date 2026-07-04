@@ -1,26 +1,14 @@
-import shutil
 from typing import List
-
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import FSInputFile
-from librt.vecs import append
-from mypy.types import Any
-
+from gamdlUrl import get_any_url
 from token_tl import TOKEN_API
+from database import get_session_maker
+from aiogram.enums import ParseMode
+from aiogram.types import FSInputFile
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from database import get_session_maker
-import database
-import crud, utils
-import asyncio
-import os
-from gamdlUrl import get_album_urls, get_any_url, get_playlist_urls
-import re
-import glob
 from aiogram.utils.markdown import hbold
-import Schema
-from crud import save_track_to_bot_db, check_db_for_urls
+import crud, utils, asyncio, os, re, glob, Schema, shutil
 
 
 dp = Dispatcher()
@@ -29,7 +17,7 @@ async_session = get_session_maker()
 
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
-    """Process the commond 'start'"""
+    """Process the command 'start'"""
     text_md = f"hello, {hbold(msg.from_user.first_name)}"
     print(msg.chat.id)
     await msg.answer(
@@ -40,7 +28,7 @@ async def cmd_start(msg: types.Message) -> None:
 async def cmd_start(msg: types.Message) -> None:
     message = msg.text
 
-    status = await msg.answer('Donwloading.....')
+    status = await msg.answer('Downloading.....')
     unique_task_id = str(msg.chat.id)
     task_output_dir = os.path.join("./downloads", unique_task_id)
     try:
@@ -82,7 +70,7 @@ async def cmd_start(msg: types.Message) -> None:
 
                     tbot = Schema.TrackInputSchema(
                         file_id=sent_msg.audio.file_id,
-                        unique_file_id=sent_msg.audio.file_unique_id,
+                        file_unique_id=sent_msg.audio.file_unique_id,
                         title=clean_title
                     )
 
@@ -103,9 +91,9 @@ async def cmd_start(msg: types.Message) -> None:
 
         return_code = await process.wait()
         if return_code == 0:
-            await status.edit_text("✅ Download finished")
+            await status.answer("✅ Download finished")
         else:
-            await status.edit_text("❌ Download failed")
+            await status.answer("❌ Download failed")
 
     except Exception as e:
         print(f"An error occurred")

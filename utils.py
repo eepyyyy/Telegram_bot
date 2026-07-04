@@ -3,6 +3,13 @@ import re
 
 
 def convert_text(s: str) -> str:
+    """
+        Takes any Language string and converts to alphanumeric characters in Unicode
+    Args:
+        s: String input
+    Returns:
+        alphanumeric characters in Unicode
+    """
     # 1. Decompose characters (e.g., 'é' becomes 'e' + '´')
     nfkd_form = unicodedata.normalize('NFKD', s)
 
@@ -13,4 +20,3 @@ def convert_text(s: str) -> str:
     #    \w matches alphanumeric characters in Unicode
     return "".join(re.findall(r'\w+', only_ascii))
 
-print(normalize("First Love / Late Spring"))

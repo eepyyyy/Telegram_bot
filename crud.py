@@ -1,15 +1,22 @@
 from mypy.types import Any
 from database import get_session_maker, Tracks
 from sqlmodel import select, col
-import database, sqlmodel, asyncio
+import database, asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-import pydantic, Schema, gamdlUrl
+import Schema, gamdlUrl
 from typing import List
 
 async_session = get_session_maker()
 
 
 async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
+    """
+    Takes a track schema object and handles the async database save/merge operations.
+    Args:
+        track_lists: Lists of Track schema
+    Returns:
+        commits to db
+    """
     async with async_session() as session:
         async with session.begin():
             for track_data in track_lists:
@@ -37,7 +44,13 @@ async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInput
     """
     Note: Doesn't call the Session
     Takes a track schema object and handles the async database save/merge operations.
+    Args:
+        session:
+        track_lists:
+    Returns:
+        Saves the track to db
     """
+
     album_obj = database.Albums(
         album_id=track_lists.album_id,
         album=track_lists.album,
@@ -59,9 +72,8 @@ async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInput
 
 
 async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
-    # get list of urls
     """
-        Gets List of objects to be downloaded and to be send seperately
+        Gets List of objects to be downloaded and to be sent
     Args:
         track_lists: Checks in db
 
