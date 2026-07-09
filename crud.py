@@ -4,7 +4,7 @@ from sqlmodel import select, col
 import database, asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 import Schema, gamdlUrl
-from typing import List
+from typing import List, Tuple
 
 async_session = get_session_maker()
 
@@ -65,13 +65,16 @@ async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInput
         file_id=track_lists.file_id,
         file_unique_id=track_lists.file_unique_id,
         title=track_lists.title,
-        url=track_lists.url
+        url=track_lists.url,
+        size=track_lists.size,
+        storefront=track_lists.storefront,
+        isrc=track_lists.isrc,
     )
     await session.merge(track_obj)
     await session.commit()
 
 
-async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
+async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]) -> Tuple[List[str], List[Schema.TrackInputSchema]]:
     """
         Gets List of objects to be downloaded and to be sent
     Args:
@@ -81,28 +84,28 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
         file_ids_to_send: list for fie_ids to be uploaded
         urls_to_download: List of urls to be downloaded,
     """
-    incoming = [track.song_id for track in track_lists]
+    incoming = [track.isrc for track in track_lists]
 
     async with async_session() as session:
         print(incoming)
 
-        statement = select(Tracks).where(col(Tracks.song_id).in_(incoming))
-        result = await session.exec(statement)
+        statement = select(Tracks).where(Tracks.isrc.in_(incoming))
 
-        db_Tracks = result.all()
-        print((db_Tracks))
+        result = await session.exec(statement)
+        db_tracks = result.all()
+        print(db_tracks)
 
     cache_dict = {
-        track.song_id: track.file_id
-        for track in db_Tracks
+        track.isrc: track.file_id
+        for track in db_tracks
         if track.file_id is not None
         }
-    file_ids_to_send: List[Any] = []
-    urls_to_download: List[Any] = []
+    file_ids_to_send: List[str] = []
+    urls_to_download: List[Schema.TrackInputSchema] = []
 
     for track in track_lists:
-        if track.song_id in cache_dict:
-            file_ids_to_send.append(cache_dict[track.song_id])
+        if track.isrc in cache_dict:
+            file_ids_to_send.append(cache_dict[track.isrc])
         else:
             urls_to_download.append(str(track.url))
 

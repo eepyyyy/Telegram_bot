@@ -1,5 +1,7 @@
 from datetime import date
 from typing import List
+
+from Crypto.Util.number import size
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -86,6 +88,7 @@ async def handle_download(msg: types.Message) -> None:
 
     try:
         songs = await get_any_url(message)
+        print(songs)
 
         file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
 
@@ -111,6 +114,7 @@ async def handle_download(msg: types.Message) -> None:
                     await msg.answer(
                         text="❌ You have reached your daily limit of 30 downloads! Support us on Ko-fi to unlock unlimited tier.")
                     return
+            #     Acutal Upload loop
             for file in file_ids:
                 if not user.is_premium and user.downloaded_today >= user.daily_limit:
                     await msg.answer("❌ Quota exhausted mid-delivery! Remaining tracks cancelled.")
@@ -158,7 +162,6 @@ async def handle_download(msg: types.Message) -> None:
                     abs_upload_path = os.path.abspath(upload)
                     # upload file and check db
                     track_title, artist, thumbnail, duration = utils.extract_track_metadata(upload)
-
                     if not user.is_premium and user.downloaded_today >= user.daily_limit:
                         await msg.answer("❌ Quota exhausted mid-delivery! Remaining tracks cancelled.")
                         process.terminate()
@@ -181,7 +184,8 @@ async def handle_download(msg: types.Message) -> None:
                     tbot = Schema.TrackInputSchema(
                         file_id=sent_msg.audio.file_id,
                         file_unique_id=sent_msg.audio.file_unique_id,
-                        title=track_title
+                        title=track_title,
+                        size=sent_msg.audio.file_size
                     )
                     print(tbot)
                     async with async_session() as session:
@@ -192,6 +196,7 @@ async def handle_download(msg: types.Message) -> None:
                                 track_input = Schema.TrackInputSchema(**track.model_dump())
                                 track_input.file_id = tbot.file_id
                                 track_input.file_unique_id = tbot.file_unique_id
+                                track_input.size = tbot.size
                                 await crud.save_single_track(session=session, track_lists=track_input)
                                 print(f"Saved to DB: {track_input.title}")
                                 break

@@ -61,6 +61,9 @@ async def get_track_schema(url: str) -> list[TrackInputSchema]:
     data = song["data"][0]
     attrs = data["attributes"]
     album_id = data["relationships"]["albums"]["data"][0]["id"]
+    # Safely extract storefront code from the track's API href segment
+    href_parts = data.get("href", "").split("/")
+    storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
     return [
         TrackInputSchema(
@@ -70,6 +73,8 @@ async def get_track_schema(url: str) -> list[TrackInputSchema]:
             artist=attrs["artistName"],
             album=attrs.get("albumName", ""),
             url=attrs["url"],
+            storefront=storefront,
+            isrc=attrs.get("isrc")
         )
     ]
 
@@ -98,7 +103,12 @@ async def get_album_urls(url: str) -> list[TrackInputSchema]:
     album_id = info.id
 
     album = await api.get_album(album_id)
+    album_node = album["data"][0]
     tracks = album["data"][0]["relationships"]["tracks"]["data"]
+
+    # Safely extract storefront code from the track's API href segment
+    href_parts = album_node.get("href", "").split("/")
+    storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
     lists_of_tracks: list[TrackInputSchema] = []
 
@@ -113,6 +123,8 @@ async def get_album_urls(url: str) -> list[TrackInputSchema]:
                 artist=attrs["artistName"],
                 album=attrs.get("albumName", ""),
                 url=album_url_to_song_url(attrs["url"]),
+                storefront=storefront,
+                isrc=attrs.get("isrc")
             )
         )
 
@@ -142,7 +154,12 @@ async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
     playlist_id = info.id
 
     playlist = await api.get_playlist(playlist_id)
+    playlist_node = playlist["data"][0]
     tracks = playlist["data"][0]["relationships"]["tracks"]["data"]
+
+    # Safely extract storefront code from the track's API href segment
+    href_parts = playlist_node.get("href", "").split("/")
+    playlist_storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
     lists_of_tracks: list[TrackInputSchema] = []
 
@@ -170,6 +187,8 @@ async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
                 artist=attrs["artistName"],
                 album=attrs.get("albumName", ""),
                 url=album_url_to_song_url(attrs["url"]),
+                storefront=playlist_storefront,
+                isrc=attrs.get("isrc")
             )
         )
 
@@ -212,6 +231,6 @@ async def get_any_url(url: str) -> list[TrackInputSchema]:
 
 
 if __name__ == "__main__":
-    test = asyncio.run(get_any_url("https://music.apple.com/us/album/cigarettes-after-sex/1217977525"))
+    test = asyncio.run(get_any_url("https://music.apple.com/us/song/wicked-games/1714908987"))
 
     print(test)

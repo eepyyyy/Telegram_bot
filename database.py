@@ -28,6 +28,9 @@ class Tracks(SQLModel, table=True):
     artist: Optional[str] = None
     url: Optional[str] = None
     album_id:Optional[str] = Field(default=None, foreign_key="albums.album_id")
+    size: Optional[int] = Field(sa_type=BigInteger)
+    storefront: Optional[str] = None
+    isrc: Optional[str] = None
 
 class User(SQLModel, table=True):
     __tablename__ = "user"

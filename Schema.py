@@ -18,3 +18,6 @@ class TrackInputSchema(BaseModel):
     url: str | None = None
     file_id: str | None = None
     file_unique_id: str | None = None
+    size: int | None = None
+    storefront: str | None = None
+    isrc: str | None = None
