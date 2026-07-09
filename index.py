@@ -1,36 +1,84 @@
+from datetime import date
 from typing import List
-from aiogram import Bot, Dispatcher, types
-from debugpy.common.stacks import dump_after
-
-from gamdlUrl import get_any_url
-from database import get_session_maker
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.types import FSInputFile
 from aiogram.filters import CommandStart
-from aiogram.utils.markdown import hbold
-import crud, utils, asyncio, os, re, glob, Schema, shutil
-from token_tl import TOKEN_API
+from aiogram.utils.markdown import hbold, hunderline, hcode
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from aiogram.client.telegram import TelegramAPIServer
-from aiogram.client.default import DefaultBotProperties
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.enums import ParseMode
+import Schema
+import asyncio
+import crud
+import glob
+import os
+import re
+import shutil
+import utils
+import database
+from database import get_session_maker, User
+from gamdlUrl import get_any_url
+from token_tl import TOKEN_API
+from aiogram import types
+from sqlmodel import Session, select
 
 dp = Dispatcher()
 
 async_session = get_session_maker()
 
+
+
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
-    """Process the command 'start'"""
-    text_md = f"hello, {hbold(msg.from_user.first_name)}"
-    print(msg.chat.id)
-    await msg.answer(
-        text=text_md
+    """Renders the elegant main landing dashboard for the bot."""
+
+    # Clean, sectioned typography for maximum readability
+    welcome_text = (
+        f"✨ {hbold('APPLE MUSIC DOWNLOADER')} ✨\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Your high-fidelity portal for pulling studio-grade audio and crisp cinematic visuals directly from Apple Music.\n\n"
+
+        f"⚡ {hunderline('SUPPORTED FORMATS')}\n"
+        f"📂 {hbold('Tracks:')} AAC (256kbps), Spatial Dolby Atmos, Binaural, and pure Lossless ALAC up to 24-bit/192kHz.\n"
+        f"🎬 {hbold('Videos:')} Video support coming soon\n\n"
+
+        f"🚀 {hunderline('HOW TO USE')}\n"
+        f"Drop up to 3 links simultaneously into this chat.\n\n"
+
+        f"👑 {hunderline('TIER ACCESS')}\n"
+        f"• {hbold('Standard tier:')} 30 track downloads daily (AAC profile).\n"
+        f"• {hbold('Premium tier:')} Unlimited requests, full master-codec suite (ALAC/Atmos),videos coming soon, and priority processing queues.\n\n"
+
+        f"💡 {hunderline('SHORTCUTS')}\n"
+        f"Trigger instant search across any conversation window by typing: @applemusicdw_bot\n\n"
+        f"Explore full features via /help • Check network regions via /countries"
     )
+
+    # Modern, balanced grid layout for navigation buttons
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="💎 Upgrade to Premium", callback_data="menu_premium"),
+    )
+    builder.row(
+        types.InlineKeyboardButton(text="🌍 Region Status", callback_data="menu_regions"),
+        types.InlineKeyboardButton(text="📖 Guide / FAQ", callback_data="menu_faq")
+    )
+    builder.row(
+        types.InlineKeyboardButton(text="🔍 Inline Search", switch_inline_query_current_chat="")
+    )
+
+    await msg.answer(
+        text=welcome_text,
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+    print(msg.from_user.id)
 
 @dp.message()
 async def handle_download(msg: types.Message) -> None:
     message = msg.text
+    user_id_local = msg.from_user.id
 
     status = await msg.answer('Downloading.....')
     unique_task_id = str(msg.message_id)
@@ -41,14 +89,42 @@ async def handle_download(msg: types.Message) -> None:
 
         file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
 
-        for file in file_ids:
-            await msg.answer_audio(audio=file)
-
-        if not tracks_to_download:
-            await msg.answer("✅ All tracks loaded from cache!")
-            return
-
         urls: List[str] = tracks_to_download
+        async with async_session() as session:
+            statement = select(User).where(User.user_id == user_id_local)
+            result = await session.exec(statement)
+            user = result.first()
+
+            if not user:
+                user = User(user_id = user_id_local)
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+
+            if not user.is_premium:
+                if user.last_download != date.today():
+                    user.downloaded_today = 0
+                    user.last_download = date.today()
+                    session.add(user)
+                    await session.commit()
+                if user.downloaded_today >= user.daily_limit:
+                    await msg.answer(
+                        text="❌ You have reached your daily limit of 30 downloads! Support us on Ko-fi to unlock unlimited tier.")
+                    return
+            for file in file_ids:
+                if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                    await msg.answer("❌ Quota exhausted mid-delivery! Remaining tracks cancelled.")
+                    return
+
+                sent_db_msg = await msg.answer_audio(audio=file)
+                if sent_db_msg and not user.is_premium:
+                    user.downloaded_today += 1
+                    session.add(user)
+                    await session.commit()
+            if not tracks_to_download:
+                await msg.answer("✅ All tracks loaded from cache!")
+                return
+
 
         process = await asyncio.create_subprocess_exec(
             "gamdl",
@@ -80,8 +156,13 @@ async def handle_download(msg: types.Message) -> None:
                     print(upload)
 
                     abs_upload_path = os.path.abspath(upload)
-                    # upload file
+                    # upload file and check db
                     track_title, artist, thumbnail, duration = utils.extract_track_metadata(upload)
+
+                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                        await msg.answer("❌ Quota exhausted mid-delivery! Remaining tracks cancelled.")
+                        process.terminate()
+                        return
 
                     sent_msg = await msg.answer_audio(
                         audio=FSInputFile(abs_upload_path),
@@ -90,6 +171,12 @@ async def handle_download(msg: types.Message) -> None:
                         performer=artist,
                         duration=duration
                     )
+
+                    if sent_msg and not user.is_premium:
+                        user.downloaded_today += 1
+                        session.add(user)
+                        await session.commit()
+
 
                     tbot = Schema.TrackInputSchema(
                         file_id=sent_msg.audio.file_id,
@@ -101,7 +188,6 @@ async def handle_download(msg: types.Message) -> None:
                         for track in songs:
                             print(track)
                             if utils.convert_text(track.title) == utils.convert_text(tbot.title):
-
                                 print(track)
                                 track_input = Schema.TrackInputSchema(**track.model_dump())
                                 track_input.file_id = tbot.file_id
@@ -122,9 +208,10 @@ async def handle_download(msg: types.Message) -> None:
         else:
             await status.answer("❌ Download failed")
 
+
     except Exception as e:
-        print(f"An error occurred: {e}")
-        await status.edit_text("An unexpected error occurred.")
+        print(f"Error handling download: {e}")
+        await msg.answer("⚠️ An unexpected error occurred while processing your request.")
     finally:
         if os.path.exists(task_output_dir):
             shutil.rmtree(task_output_dir)
@@ -145,7 +232,7 @@ async def main()-> None:
     #     local_server = TelegramAPIServer.from_base("http://127.0.0.1:8081", is_local=True)
     #
     # # 2. Attach to a session
-    #     session = AiohttpSession(api=local_server)
+    #      = AiohttpSession(api=local_server)
     #
     #     bot = Bot(
     #         token=TOKEN_API,
@@ -154,7 +241,7 @@ async def main()-> None:
     #     )
     #     print("connecting to local server")
     # except Exception as e:
-    #     print(f"local server failed ({e}) falling back to to cloud")
+    #     print(f"local server failed ({e}) falling back to cloud")
     #
     #     bot = Bot(
     #         token=TOKEN_API,

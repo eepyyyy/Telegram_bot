@@ -1,5 +1,5 @@
 from mypy.types import Any
-from database import get_session_maker, Tracks
+from database import get_session_maker, Tracks, User
 from sqlmodel import select, col
 import database, asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,8 +108,7 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]):
 
     return [file_ids_to_send, urls_to_download]
 
-
-
+statement = select()
 
 async def main():
     await database.init_db()

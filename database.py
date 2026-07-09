@@ -1,4 +1,9 @@
 from typing import Optional
+
+from datetime import date
+
+from sqlalchemy import BigInteger
+from sqlalchemy.dialects.mysql import BIGINT
 from sqlmodel import SQLModel, Field, select
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -24,6 +29,15 @@ class Tracks(SQLModel, table=True):
     url: Optional[str] = None
     album_id:Optional[str] = Field(default=None, foreign_key="albums.album_id")
 
+class User(SQLModel, table=True):
+    __tablename__ = "user"
+    user_id: Optional[int] = Field(sa_type=BigInteger,primary_key=True)
+    is_premium: Optional[bool] = Field(default=False)
+    daily_limit: Optional[int] = Field(default=30)
+    downloaded_today: Optional[int] = Field(default=0)
+    last_download: date = Field(default=date.today())
+
+
 
 DATABASE_URL = "postgresql+asyncpg://postgres:user@localhost:5432/test_Tbot"
 engine = create_async_engine(DATABASE_URL, echo=True)
@@ -36,7 +50,6 @@ def get_session_maker():
     return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 async_session = get_session_maker()
-
 
 async def main():
     await init_db()
