@@ -108,14 +108,13 @@ async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]) -> Tuple
             file_ids_to_send.append(cache_dict[track.isrc])
         else:
             urls_to_download.append(str(track.url))
-
+    print(file_ids_to_send)
     return [file_ids_to_send, urls_to_download]
 
-statement = select()
 
 async def main():
     await database.init_db()
-    test = await gamdlUrl.get_any_url("https://music.apple.com/in/album/everything-i-know-about-love/1641539616")
+    test = await gamdlUrl.get_any_url("https://music.apple.com/in/playlist/%E5%A4%A2%E5%88%83/pl.u-38oWZ6esZbL0EGY")
 
     await check_db_for_urls(test)
 

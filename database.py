@@ -38,7 +38,7 @@ class User(SQLModel, table=True):
     is_premium: Optional[bool] = Field(default=False)
     daily_limit: Optional[int] = Field(default=30)
     downloaded_today: Optional[int] = Field(default=0)
-    last_download: date = Field(default=date.today())
+    last_download: date = Field(default_factory=date.today)
 
 
 

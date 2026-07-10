@@ -29,7 +29,8 @@ dp = Dispatcher()
 
 async_session = get_session_maker()
 
-
+download_queue: asyncio.Queue = asyncio.Queue()
+user_in_queue: set[int] = set()
 
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
@@ -78,7 +79,20 @@ async def cmd_start(msg: types.Message) -> None:
     print(msg.from_user.id)
 
 @dp.message()
-async def handle_download(msg: types.Message) -> None:
+async def download_handle(msg: types.Message) -> None:
+    user_id_local = msg.from_user.id
+
+    if user_id_local in user_in_queue:
+        await msg.answer("⏳ You already have a download in progress. Send more links once it's done.")
+        return
+    user_in_queue.add(user_id_local)
+    position = download_queue.qsize()
+    await msg.answer(f"✅ Queued (position {position + 1}).")
+    await download_queue.put(msg)
+
+
+
+async def process_download(msg: types.Message) -> None:
     message = msg.text
     user_id_local = msg.from_user.id
 
@@ -176,9 +190,10 @@ async def handle_download(msg: types.Message) -> None:
                     )
 
                     if sent_msg and not user.is_premium:
-                        user.downloaded_today += 1
-                        session.add(user)
-                        await session.commit()
+                        async with async_session() as update_session:
+                            user.downloaded_today += 1
+                            update_session.add(user)
+                            await update_session.commit()
 
 
                     tbot = Schema.TrackInputSchema(
@@ -222,6 +237,17 @@ async def handle_download(msg: types.Message) -> None:
             shutil.rmtree(task_output_dir)
             print(f"cleaned up temp directory: {task_output_dir}")
 
+
+async def worker() -> None:
+    while True:
+        msg = await download_queue.get()
+        try:
+            await process_download(msg)
+        finally:
+            user_in_queue.discard(msg.from_user.id)
+            download_queue.task_done()
+
+
 async def main()-> None:
     """Entry Point"""
 
@@ -229,6 +255,10 @@ async def main()-> None:
         token=TOKEN_API,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
         )
+
+    for _ in range(3):
+        asyncio.create_task(worker())
+
     await dp.start_polling(bot)
     # Change "localhost" to your docker container_name
 
