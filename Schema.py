@@ -1,23 +1,31 @@
 from typing import Optional
 from pydantic import BaseModel
 
+
 class TrackSchema(BaseModel):
+    """
+    Schema representing a track's basic information.
+    """
     song_id: str
-    album_id:str
+    album_id: str
     title: str
-    artist: str | None = None
-    album: str | None = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
     url: str
 
+
 class TrackInputSchema(BaseModel):
-    album_id: str | None = None
-    album: str | None = None
-    artist: str | None = None
-    song_id: str | None = None
-    title: str | None = None
-    url: str | None = None
-    file_id: str | None = None
-    file_unique_id: str | None = None
-    size: int | None = None
-    storefront: str | None = None
-    isrc: str | None = None
+    """
+    Schema for track input data, including optional fields for database caching and metadata.
+    """
+    album_id: Optional[str] = None
+    album: Optional[str] = None
+    artist: Optional[str] = None
+    song_id: Optional[str] = None
+    title: Optional[str] = None
+    url: Optional[str] = None
+    file_id: Optional[str] = None
+    file_unique_id: Optional[str] = None
+    size: Optional[int] = None
+    storefront: Optional[str] = None
+    isrc: Optional[str] = None

@@ -1,15 +1,21 @@
+import os
+import re
 import unicodedata
-import re, os
+from typing import Tuple, Optional
+
 from mutagen.mp4 import MP4
-from aiogram.types import FSInputFile, BufferedInputFile
+from aiogram.types import BufferedInputFile
+
 
 def convert_text(s: str) -> str:
     """
-        Takes any Language string and converts to alphanumeric characters in Unicode
+    Normalizes a string by converting it to ASCII, removing accents, and stripping non-alphanumeric characters.
+    
     Args:
-        s: String input
+        s: The input string to normalize.
+        
     Returns:
-        alphanumeric characters in Unicode
+        A normalized alphanumeric string in lowercase.
     """
     # 1. Decompose characters (e.g., 'é' becomes 'e' + '´')
     nfkd_form = unicodedata.normalize('NFKD', s)
@@ -17,22 +23,25 @@ def convert_text(s: str) -> str:
     # 2. Strip out accents/diacritics and force lowercase
     only_ascii = nfkd_form.encode('ASCII', 'ignore').decode('utf-8').lower()
 
-    # 3. Keep only core alphanumeric characters across any language script
-    #    \w matches alphanumeric characters in Unicode
+    # 3. Keep only core alphanumeric characters
     return "".join(re.findall(r'\w+', only_ascii))
 
-def extract_track_metadata(file_path: str):
+
+def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedInputFile], Optional[int]]:
     """
-        Extracts pristine tags directly from the .m4a metadata container.
-        No regex, no filename string stripping.
+    Extracts track metadata (title, artist, cover, duration) directly from an .m4a file.
+    
+    Args:
+        file_path: The path to the .m4a file.
+        
+    Returns:
+        A tuple containing (title, artist, thumbnail, duration).
     """
     try:
         audio = MP4(file_path)
 
         artist = audio.tags.get('\xa9ART', ['Unknown Artist'])[0]
-
         title = audio.tags.get('\xa9nam', [os.path.basename(file_path).removesuffix('.m4a')])[0]
-
         duration = int(audio.info.length) if audio.info else None
 
         thumbnail = None
@@ -40,8 +49,9 @@ def extract_track_metadata(file_path: str):
             cover_item = audio.tags['covr'][0]
             cover_data = bytes(cover_item)
             thumbnail = BufferedInputFile(cover_data, filename='thumb.jpg')
+            
         return title, artist, thumbnail, duration
     except Exception as e:
-        print(f"Failed to read metadata tags: {e}")
+        print(f"Failed to read metadata tags from {file_path}: {e}")
         fallback_title = os.path.basename(file_path).removesuffix(".m4a")
         return fallback_title, "Unknown Artist", None, None

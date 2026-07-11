@@ -1,4 +1,5 @@
 import asyncio
+from typing import List, Optional
 from urllib.parse import urlparse, parse_qs
 
 from gamdl.api import AppleMusicApi
@@ -6,8 +7,27 @@ from gamdl.interface import AppleMusicInterface
 
 from Schema import TrackInputSchema
 
+# Shared API instance to avoid repeated initialization
+_api_instance: Optional[AppleMusicApi] = None
+_api_lock = asyncio.Lock()
+
+
+async def get_api() -> AppleMusicApi:
+    """
+    Returns a shared AppleMusicApi instance, initializing it if necessary.
+    """
+    global _api_instance
+    async with _api_lock:
+        if _api_instance is None:
+            # Assumes cookies.txt is in the root directory
+            _api_instance = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
+        return _api_instance
+
 
 def album_url_to_song_url(url: str) -> str:
+    """
+    Converts an Apple Music album URL with a song parameter to a direct song URL.
+    """
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
 
@@ -21,6 +41,9 @@ def album_url_to_song_url(url: str) -> str:
 
 
 def extract_song_id_from_url(url: str) -> str:
+    """
+    Extracts the song ID from an Apple Music URL.
+    """
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
     query = parse_qs(parsed.query)
@@ -29,39 +52,26 @@ def extract_song_id_from_url(url: str) -> str:
 
 
 def extract_album_id_from_url(url: str) -> str:
+    """
+    Extracts the album ID from an Apple Music URL.
+    """
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
-
-    # The album ID is always the last segment of the URL path
     return parts[-1]
 
-async def get_track_schema(url: str) -> list[TrackInputSchema]:
-    """
-    Takes an Apple Music track url and get single TrackInputSchema
-    Args:
-        url: "https://music.apple.com/in/song/night-light/1641540227"
 
-    Returns:
-        list[TrackInputSchema]:
-        class TrackInputSchema(BaseModel):
-            album_id: str | None = None
-            album: str | None = None
-            artist: str | None = None
-            song_id: str | None = None
-            title: str | None = None
-            url: str | None = None
-            file_id: str | None = None
-            file_unique_id: str | None = None
+async def get_track_schema(url: str) -> List[TrackInputSchema]:
     """
-    api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
-
+    Fetches metadata for a single track and returns it as a list containing one TrackInputSchema.
+    """
+    api = await get_api()
     song_id = extract_song_id_from_url(url)
 
     song = await api.get_song(song_id)
     data = song["data"][0]
     attrs = data["attributes"]
     album_id = data["relationships"]["albums"]["data"][0]["id"]
-    # Safely extract storefront code from the track's API href segment
+    
     href_parts = data.get("href", "").split("/")
     storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
@@ -79,25 +89,11 @@ async def get_track_schema(url: str) -> list[TrackInputSchema]:
     ]
 
 
-async def get_album_urls(url: str) -> list[TrackInputSchema]:
+async def get_album_urls(url: str) -> List[TrackInputSchema]:
     """
-        Takes an Apple Music track url and get List of TrackInputSchema of a Album
-        Args:
-            url: "https://music.apple.com/in/song/night-light/1641540227"
-
-        Returns:
-            list[TrackInputSchema]:
-            class TrackInputSchema(BaseModel):
-                album_id: str | None = None
-                album: str | None = None
-                artist: str | None = None
-                song_id: str | None = None
-                title: str | None = None
-                url: str | None = None
-                file_id: str | None = None
-                file_unique_id: str | None = None
-        """
-    api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
+    Fetches metadata for all tracks in an album.
+    """
+    api = await get_api()
 
     info = AppleMusicInterface.get_url_info(url)
     album_id = info.id
@@ -106,15 +102,13 @@ async def get_album_urls(url: str) -> list[TrackInputSchema]:
     album_node = album["data"][0]
     tracks = album["data"][0]["relationships"]["tracks"]["data"]
 
-    # Safely extract storefront code from the track's API href segment
     href_parts = album_node.get("href", "").split("/")
     storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
-    lists_of_tracks: list[TrackInputSchema] = []
+    lists_of_tracks: List[TrackInputSchema] = []
 
     for track in tracks:
         attrs = track["attributes"]
-
         lists_of_tracks.append(
             TrackInputSchema(
                 album_id=album["data"][0]["id"],
@@ -131,24 +125,11 @@ async def get_album_urls(url: str) -> list[TrackInputSchema]:
     return lists_of_tracks
 
 
-async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
+async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     """
-    Takes an Apple Music track url and get List of TrackInputSchema of a playlist
-    Args:
-        url: "https://music.apple.com/in/song/night-light/1641540227"
-    Returns:
-        list[TrackInputSchema]:
-        class TrackInputSchema(BaseModel):
-            album_id: str | None = None
-            album: str | None = None
-            artist: str | None = None
-            song_id: str | None = None
-            title: str | None = None
-            url: str | None = None
-            file_id: str | None = None
-            file_unique_id: str | None = None
+    Fetches metadata for all tracks in a playlist.
     """
-    api = await AppleMusicApi.create_from_netscape_cookies("./cookies.txt")
+    api = await get_api()
 
     info = AppleMusicInterface.get_url_info(url)
     playlist_id = info.id
@@ -157,11 +138,10 @@ async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
     playlist_node = playlist["data"][0]
     tracks = playlist["data"][0]["relationships"]["tracks"]["data"]
 
-    # Safely extract storefront code from the track's API href segment
     href_parts = playlist_node.get("href", "").split("/")
     playlist_storefront = href_parts[3] if len(href_parts) > 3 else "us"
 
-    lists_of_tracks: list[TrackInputSchema] = []
+    lists_of_tracks: List[TrackInputSchema] = []
 
     for track in tracks:
         attrs = track["attributes"]
@@ -170,13 +150,11 @@ async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
         if not track_url or "name" not in attrs:
             continue
 
-        # --- EXTRACT ALBUM ID ---
         try:
             parsed_url = urlparse(track_url)
             path_parts = parsed_url.path.strip("/").split("/")
-
             album_id = path_parts[-1] if path_parts else ""
-        except:
+        except Exception:
             album_id = ""
 
         lists_of_tracks.append(
@@ -195,24 +173,9 @@ async def get_playlist_urls(url: str) -> list[TrackInputSchema]:
     return lists_of_tracks
 
 
-async def get_any_url(url: str) -> list[TrackInputSchema]:
+async def get_any_url(url: str) -> List[TrackInputSchema]:
     """
-    Takes any type of Apple Music track url and get List of TrackInputSchema
-    Args:
-        url: example "https://music.apple.com/in/song/night-light/1641540227"
-    Returns:
-        list[TrackInputSchema]:
-        class TrackInputSchema(BaseModel):
-            album_id: str | None = None
-            album: str | None = None
-            artist: str | None = None
-            song_id: str | None = None
-            title: str | None = None
-            url: str | None = None
-            file_id: str | None = None
-            file_unique_id: str | None = None
-        If not Raise:
-            ValueError(f"Unsupported URL type: {info.type}")
+    Determines the URL type (song, album, or playlist) and fetches the corresponding metadata.
     """
     info = AppleMusicInterface.get_url_info(url)
 

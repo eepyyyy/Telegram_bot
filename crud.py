@@ -1,21 +1,19 @@
-from mypy.types import Any
-from database import get_session_maker, Tracks, User
-from sqlmodel import select, col
-import database, asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
-import Schema, gamdlUrl
-from typing import List, Tuple
+import asyncio
+from typing import List, Tuple, Any
 
-async_session = get_session_maker()
+import database
+import gamdlUrl
+import Schema
+from database import Tracks, User, async_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 
 async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
     """
-    Takes a track schema object and handles the async database save/merge operations.
+    Takes a list of track schema objects and handles the async database save/merge operations.
     Args:
-        track_lists: Lists of Track schema
-    Returns:
-        commits to db
+        track_lists: List of TrackInputSchema objects.
     """
     async with async_session() as session:
         async with session.begin():
@@ -35,81 +33,81 @@ async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
                     file_id=None,
                     file_unique_id=None,
                     title=track_data.title,
-                    url=track_data.title
+                    url=track_data.url,
+                    isrc=track_data.isrc,
+                    storefront=track_data.storefront
                 )
                 await session.merge(track_obj)
-                await session.commit()
+            # The context manager session.begin() will automatically commit at the end.
 
-async def save_single_track(session:AsyncSession, track_lists: Schema.TrackInputSchema):
+
+async def save_single_track(session: AsyncSession, track_data: Schema.TrackInputSchema):
     """
-    Note: Doesn't call the Session
-    Takes a track schema object and handles the async database save/merge operations.
+    Saves or updates a single track in the database.
+    Note: It does not call commit directly; it's expected to be managed by the session context.
     Args:
-        session:
-        track_lists:
-    Returns:
-        Saves the track to db
+        session: The active database session.
+        track_data: The track data schema to save.
     """
-
     album_obj = database.Albums(
-        album_id=track_lists.album_id,
-        album=track_lists.album,
-        artist=track_lists.artist
+        album_id=track_data.album_id,
+        album=track_data.album,
+        artist=track_data.artist
     )
     await session.merge(album_obj)
+    
     track_obj = database.Tracks(
-        artist=track_lists.artist,
-        album=track_lists.album,
-        album_id=track_lists.album_id,
-        song_id=track_lists.song_id,
-        file_id=track_lists.file_id,
-        file_unique_id=track_lists.file_unique_id,
-        title=track_lists.title,
-        url=track_lists.url,
-        size=track_lists.size,
-        storefront=track_lists.storefront,
-        isrc=track_lists.isrc,
+        artist=track_data.artist,
+        album=track_data.album,
+        album_id=track_data.album_id,
+        song_id=track_data.song_id,
+        file_id=track_data.file_id,
+        file_unique_id=track_data.file_unique_id,
+        title=track_data.title,
+        url=track_data.url,
+        size=track_data.size,
+        storefront=track_data.storefront,
+        isrc=track_data.isrc,
     )
     await session.merge(track_obj)
-    await session.commit()
 
 
-async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]) -> Tuple[List[str], List[Schema.TrackInputSchema]]:
+async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]) -> Tuple[List[str], List[str]]:
     """
-        Gets List of objects to be downloaded and to be sent
+    Checks the database for existing tracks by ISRC to avoid re-downloading.
     Args:
-        track_lists: Checks in db
-
+        track_lists: List of tracks to check.
     Returns:
-        file_ids_to_send: list for fie_ids to be uploaded
-        urls_to_download: List of urls to be downloaded,
+        A tuple containing:
+            - List of file_ids for tracks already in the database.
+            - List of URLs for tracks that need to be downloaded.
     """
-    incoming = [track.isrc for track in track_lists]
+    isrcs = [track.isrc for track in track_lists if track.isrc]
 
     async with async_session() as session:
-        print(incoming)
+        if not isrcs:
+            return [], [str(track.url) for track in track_lists if track.url]
 
-        statement = select(Tracks).where(Tracks.isrc.in_(incoming))
-
+        statement = select(Tracks).where(Tracks.isrc.in_(isrcs))
         result = await session.exec(statement)
         db_tracks = result.all()
-        print(db_tracks)
 
     cache_dict = {
         track.isrc: track.file_id
         for track in db_tracks
         if track.file_id is not None
-        }
+    }
+    
     file_ids_to_send: List[str] = []
-    urls_to_download: List[Schema.TrackInputSchema] = []
+    urls_to_download: List[str] = []
 
     for track in track_lists:
         if track.isrc in cache_dict:
             file_ids_to_send.append(cache_dict[track.isrc])
-        else:
+        elif track.url:
             urls_to_download.append(str(track.url))
-    print(file_ids_to_send)
-    return [file_ids_to_send, urls_to_download]
+            
+    return file_ids_to_send, urls_to_download
 
 
 async def main():
