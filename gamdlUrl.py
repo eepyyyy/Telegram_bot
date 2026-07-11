@@ -7,16 +7,27 @@ from gamdl.interface import AppleMusicInterface
 
 from Schema import TrackInputSchema
 
-# Shared API instance to avoid repeated initialization
+# Shared API instance to avoid repeated initialization.
+# We store the instance, the lock, and the loop to handle multiple event loops safely.
 _api_instance: Optional[AppleMusicApi] = None
-_api_lock = asyncio.Lock()
+_api_lock: Optional[asyncio.Lock] = None
+_api_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 async def get_api() -> AppleMusicApi:
     """
     Returns a shared AppleMusicApi instance, initializing it if necessary.
+    Ensures the instance is valid for the current event loop.
     """
-    global _api_instance
+    global _api_instance, _api_lock, _api_loop
+    current_loop = asyncio.get_running_loop()
+
+    # If the loop has changed (e.g., between asyncio.run calls), reset the singleton
+    if _api_loop != current_loop:
+        _api_instance = None
+        _api_lock = asyncio.Lock()
+        _api_loop = current_loop
+
     async with _api_lock:
         if _api_instance is None:
             # Assumes cookies.txt is in the root directory
@@ -193,7 +204,27 @@ async def get_any_url(url: str) -> List[TrackInputSchema]:
     raise ValueError(f"Unsupported URL type: {info.type}")
 
 
-if __name__ == "__main__":
-    test = asyncio.run(get_any_url("https://music.apple.com/us/song/wicked-games/1714908987"))
+async def _main_test():
+    """
+    Runs a suite of tests to verify metadata fetching and shared API handling.
+    """
+    url = "https://music.apple.com/us/song/wicked-games/1714908987"
+    print(f"Testing URL: {url}")
+    
+    # 1. Sequential calls in the same loop
+    test1 = await get_any_url(url)
+    print(f"Sequential call 1: Success (ISRC: {test1[0].isrc})")
+    
+    # 2. Concurrent calls in the same loop
+    results = await asyncio.gather(get_any_url(url), get_any_url(url))
+    print(f"Concurrent calls: Success (Count: {len(results)})")
 
-    print(test)
+
+if __name__ == "__main__":
+    # Test 1: First asyncio.run call
+    print("--- Event Loop 1 ---")
+    asyncio.run(_main_test())
+    
+    # Test 2: Second asyncio.run call (verifies loop-aware singleton recovery)
+    print("\n--- Event Loop 2 ---")
+    asyncio.run(_main_test())
