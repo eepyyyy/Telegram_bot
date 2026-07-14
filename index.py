@@ -8,6 +8,9 @@ import sys
 from datetime import date
 from typing import List
 
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
+
 from ui import ui_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
@@ -263,7 +266,20 @@ async def main() -> None:
     Main entry point for the bot.
     """
     await database.init_db()
-    
+
+    # local_server = TelegramAPIServer.from_base("http://localhost:8081")
+
+    # 2. Use aiogram's AiohttpSession wrapper instead of raw aiohttp
+    # session = AiohttpSession(api=local_server)
+    #
+    # # 3. Initialize bot with the wrapped session
+    # bot = Bot(
+    #     token=TOKEN_API,
+    #     session=session,
+    #     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    # )
+
+
     bot = Bot(
         token=TOKEN_API,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
