@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict
 from urllib.parse import urlparse, parse_qs
 
 from gamdl.api import AppleMusicApi
@@ -135,6 +135,46 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
 
     return lists_of_tracks
 
+async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """
+
+    Returns:
+        List[Dict]:
+    """
+    api = await get_api()
+
+    info = AppleMusicInterface.get_url_info(url)
+    artist_id = info.id
+
+    artist = await api.get_artist(artist_id=artist_id)
+    artist_data = artist["data"][0]
+
+    selection = {
+        "full-albums": [],
+        'singles': [],
+        'live-albums': [],
+        'compilation-albums': [],
+    }
+
+    for section in selection:
+        for album_item in artist_data['views'].get(section, {}).get("data", []):
+            attrs = album_item["attributes"]
+            album_dict = {
+                "name": attrs["name"],
+                "trackCount": attrs.get("trackCount"),
+                "url": attrs.get("url"),
+                "artwork": attrs.get("artwork", {}).get("url"),
+            }
+            selection[section].append(album_dict)
+
+    return (
+        selection["full-albums"],
+        selection["singles"],
+        selection["live-albums"],
+        selection["compilation-albums"],
+    )
+
+
 
 async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     """
@@ -208,23 +248,21 @@ async def _main_test():
     """
     Runs a suite of tests to verify metadata fetching and shared API handling.
     """
-    url = "https://music.apple.com/us/song/wicked-games/1714908987"
-    print(f"Testing URL: {url}")
-    
-    # 1. Sequential calls in the same loop
-    test1 = await get_any_url(url)
-    print(f"Sequential call 1: Success (ISRC: {test1[0].isrc})")
-    
-    # 2. Concurrent calls in the same loop
-    results = await asyncio.gather(get_any_url(url), get_any_url(url))
-    print(f"Concurrent calls: Success (Count: {len(results)})")
+    # url = "https://music.apple.com/us/song/wicked-games/1714908987"
+    # print(f"Testing URL: {url}")
+    #
+    # # 1. Sequential calls in the same loop
+    # test1 = await get_any_url(url)
+    # print(f"Sequential call 1: Success (ISRC: {test1[0].isrc})")
+    #
+    # # 2. Concurrent calls in the same loop
+    # results = await asyncio.gather(get_any_url(url), get_any_url(url))
+    # print(f"Concurrent calls: Success (Count: {len(results)})")
+    url = "https://music.apple.com/us/artist/laufey/1504424880"
+    await get_artist_uls(url)
 
 
 if __name__ == "__main__":
     # Test 1: First asyncio.run call
     print("--- Event Loop 1 ---")
-    asyncio.run(_main_test())
-    
-    # Test 2: Second asyncio.run call (verifies loop-aware singleton recovery)
-    print("\n--- Event Loop 2 ---")
     asyncio.run(_main_test())

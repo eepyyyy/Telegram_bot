@@ -3,13 +3,16 @@ import glob
 import os
 import re
 import shutil
+import logging
+import sys
 from datetime import date
 from typing import List
 
+from ui import ui_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode, hunderline
@@ -19,7 +22,7 @@ import crud
 import database
 import Schema
 import utils
-from database import User, async_session, get_session_maker
+from database import User, get_session_maker
 from gamdlUrl import get_any_url
 from token_tl import TOKEN_API
 
@@ -68,7 +71,8 @@ async def cmd_start(msg: types.Message) -> None:
     )
 
 
-@dp.message()
+@dp.message(Command("test"))
+# @dp.message()
 async def download_handle(msg: types.Message) -> None:
     """
     Handles incoming messages by adding them to the download queue if the user doesn't already have a task in progress.
@@ -264,6 +268,7 @@ async def main() -> None:
         token=TOKEN_API,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+    dp.include_router(ui_router)
 
     # Start 3 concurrent workers
     for _ in range(3):
@@ -274,4 +279,5 @@ async def main() -> None:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     asyncio.run(main())
