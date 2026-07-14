@@ -166,7 +166,12 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
                 "artwork": attrs.get("artwork", {}).get("url"),
             }
             selection[section].append(album_dict)
-
+    print(
+        selection["full-albums"],
+        selection["singles"],
+        selection["live-albums"],
+        selection["compilation-albums"],
+    )
     return (
         selection["full-albums"],
         selection["singles"],
