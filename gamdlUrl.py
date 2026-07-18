@@ -166,12 +166,6 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
                 "artwork": attrs.get("artwork", {}).get("url"),
             }
             selection[section].append(album_dict)
-    print(
-        selection["full-albums"],
-        selection["singles"],
-        selection["live-albums"],
-        selection["compilation-albums"],
-    )
     return (
         selection["full-albums"],
         selection["singles"],
@@ -263,8 +257,9 @@ async def _main_test():
     # # 2. Concurrent calls in the same loop
     # results = await asyncio.gather(get_any_url(url), get_any_url(url))
     # print(f"Concurrent calls: Success (Count: {len(results)})")
-    url = "https://music.apple.com/us/artist/laufey/1504424880"
-    await get_artist_uls(url)
+    url = "https://music.apple.com/us/artist/drake/271256"
+    test = await get_artist_uls(url)
+    print(test)
 
 
 if __name__ == "__main__":

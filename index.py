@@ -5,6 +5,7 @@ import re
 import shutil
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import date
 from typing import List
 
@@ -12,11 +13,12 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 
 from ui import ui_router
+from test1 import test_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode, hunderline
 from sqlmodel import select
@@ -28,14 +30,12 @@ import utils
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
 from token_tl import TOKEN_API
+from queues import download_queue, user_in_queue, user_locks
 
 dp = Dispatcher()
 async_session = get_session_maker()
 
 # Queue management for concurrent downloads
-download_queue: asyncio.Queue = asyncio.Queue()
-user_in_queue: set[int] = set()
-
 
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
@@ -91,15 +91,22 @@ async def download_handle(msg: types.Message) -> None:
     user_in_queue.add(user_id_local)
     position = download_queue.qsize()
     await msg.answer(f"✅ Queued (position {position + 1}).")
-    await download_queue.put(msg)
+
+    payload = {
+        "url": msg.text,
+        "msg": msg,
+        "user_id": user_id_local
+    }
+    await download_queue.put(payload)
 
 
-async def process_download(msg: types.Message) -> None:
+async def process_download(task: dict) -> None:
     """
     Core logic for processing a download request: fetching metadata, checking cache, downloading via gamdl, and uploading to Telegram.
     """
-    message = msg.text
-    user_id_local = msg.from_user.id
+    message = task["url"]  # The specific target album/track URL
+    msg: Message = task["msg"]  # The aiogram message context used to reply
+    user_id_local = task["user_id"]
     status_msg = await msg.answer('🔍 Processing request...')
     unique_task_id = str(msg.message_id)
     task_output_dir = os.path.join("./downloads", unique_task_id)
@@ -238,7 +245,7 @@ async def process_download(msg: types.Message) -> None:
         if return_code == 0:
             await status_msg.edit_text("✅ All tracks processed successfully.")
         else:
-            await status_msg.edit_text("⚠️ Some tracks might have failed to download.")
+            await status_msg.edit_text("⚠ Some tracks might have failed to download.")
 
     except Exception as e:
         print(f"Error handling download: {e}")
@@ -253,12 +260,21 @@ async def worker() -> None:
     Worker function to process the download queue.
     """
     while True:
-        msg = await download_queue.get()
-        try:
-            await process_download(msg)
-        finally:
-            user_in_queue.discard(msg.from_user.id)
-            download_queue.task_done()
+        task = await download_queue.get()
+        user_id = task["user_id"]
+
+        user_lock = user_locks.setdefault(user_id, asyncio.Lock())
+
+        async with user_lock:
+            try:
+                await process_download(task)
+            except Exception as e:
+                print(f"Worker caught execution exception: {e}")
+            finally:
+            # Safely clear the specific user's queue block state when their backlog clears
+                if download_queue.empty():
+                    user_in_queue.discard(task["user_id"])
+                download_queue.task_done()
 
 
 async def main() -> None:
@@ -284,7 +300,7 @@ async def main() -> None:
         token=TOKEN_API,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    dp.include_router(ui_router)
+    dp.include_router(test_router)
 
     # Start 3 concurrent workers
     for _ in range(3):
