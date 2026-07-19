@@ -6,7 +6,7 @@ import shutil
 import logging
 import sys
 from datetime import date
-from test1 import test_router
+from artist import test_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -15,15 +15,18 @@ from aiogram.types import FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hunderline
 from sqlmodel import select
-
+from dotenv import load_dotenv
 import crud
 import database
 import Schema
 import utils
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
-from token_tl import TOKEN_API
 from queues import download_queue, user_in_queue, user_locks
+
+load_dotenv()
+
+TOKEN_API = os.getenv("TOKEN_API")
 
 dp = Dispatcher()
 async_session = get_session_maker()
@@ -101,7 +104,8 @@ async def process_download(task: dict) -> None:
     msg: Message = task["msg"]  # The aiogram message context used to reply
     user_id_local = task["user_id"]
     status_msg = await msg.answer('🔍 Processing request...')
-    unique_task_id = str(msg.message_id)
+
+    unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     task_output_dir = os.path.join("./downloads", unique_task_id)
 
     try:
@@ -264,11 +268,9 @@ async def worker() -> None:
             except Exception as e:
                 print(f"Worker caught execution exception: {e}")
             finally:
-            # Safely clear the specific user's queue block state when their backlog clears
-                if download_queue.empty():
-                    user_in_queue.discard(task["user_id"])
                 download_queue.task_done()
-
+        if download_queue.empty() and not user_lock.locked():
+            user_in_queue.discard(user_id)
 
 async def main() -> None:
     """
