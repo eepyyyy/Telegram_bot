@@ -55,3 +55,5 @@ The bot is built using the following components:
 ## Contributing
 
 Suggestions and improvements are welcome! Please feel free to open an issue or submit a pull request.
+
+- cloudflared access tcp --hostname sqldb.eepy.in --url localhost:5432

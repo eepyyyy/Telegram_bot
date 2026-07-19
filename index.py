@@ -5,14 +5,7 @@ import re
 import shutil
 import logging
 import sys
-from dataclasses import dataclass
 from datetime import date
-from typing import List
-
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.client.telegram import TelegramAPIServer
-
-from ui import ui_router
 from test1 import test_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
@@ -20,7 +13,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
 from aiogram.types import FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.markdown import hbold, hcode, hunderline
+from aiogram.utils.markdown import hbold, hunderline
 from sqlmodel import select
 
 import crud
