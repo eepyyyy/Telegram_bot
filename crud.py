@@ -3,13 +3,13 @@ from typing import List, Tuple, Any
 
 import database
 import gamdlUrl
-import Schema
+import schema
 from database import Tracks, User, async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 
-async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
+async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
     """
     Takes a list of track schema objects and handles the async database save/merge operations.
     Args:
@@ -41,7 +41,7 @@ async def save_track_to_bot_db(track_lists: List[Schema.TrackInputSchema]):
             # The context manager session.begin() will automatically commit at the end.
 
 
-async def save_single_track(session: AsyncSession, track_data: Schema.TrackInputSchema):
+async def save_single_track(session: AsyncSession, track_data: schema.TrackInputSchema):
     """
     Saves or updates a single track in the database.
     Note: It does not call commit directly; it's expected to be managed by the session context.
@@ -72,7 +72,7 @@ async def save_single_track(session: AsyncSession, track_data: Schema.TrackInput
     await session.merge(track_obj)
 
 
-async def check_db_for_urls(track_lists: List[Schema.TrackInputSchema]) -> Tuple[List[str], List[str]]:
+async def check_db_for_urls(track_lists: List[schema.TrackInputSchema]) -> Tuple[List[str], List[str]]:
     """
     Checks the database for existing tracks by ISRC to avoid re-downloading.
     Args:

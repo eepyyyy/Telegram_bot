@@ -1,10 +1,4 @@
-import asyncio
-import glob
-import os
-import re
-import shutil
-import logging
-import sys
+import asyncio, glob, os, re, shutil, logging, sys, crud, database, schema, utils
 from datetime import date
 from artist import test_router
 from aiogram import Bot, Dispatcher, types
@@ -16,10 +10,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hunderline
 from sqlmodel import select
 from dotenv import load_dotenv
-import crud
-import database
-import Schema
-import utils
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
 from queues import download_queue, user_in_queue, user_locks, user_pending_jobs
@@ -225,7 +215,7 @@ async def process_download(task: dict) -> None:
                                 await session.commit()
 
                             # Save to cache
-                            tbot = Schema.TrackInputSchema(
+                            tbot = schema.TrackInputSchema(
                                 file_id=sent_msg.audio.file_id,
                                 file_unique_id=sent_msg.audio.file_unique_id,
                                 title=track_title,
@@ -234,7 +224,7 @@ async def process_download(task: dict) -> None:
                             
                             for original_track in songs:
                                 if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                    track_input = Schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
                                     track_input.file_id = tbot.file_id
                                     track_input.file_unique_id = tbot.file_unique_id
                                     track_input.size = tbot.size

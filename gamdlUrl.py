@@ -5,7 +5,7 @@ from urllib.parse import urlparse, parse_qs
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
 
-from Schema import TrackInputSchema
+from schema import TrackInputSchema
 
 # Shared API instance to avoid repeated initialization.
 # We store the instance, the lock, and the loop to handle multiple event loops safely.
