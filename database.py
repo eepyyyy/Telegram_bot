@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import BigInteger
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
 from sqlmodel import Field, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -50,8 +51,13 @@ class User(SQLModel, table=True):
     last_download: date = Field(default_factory=date.today)
 
 
-# Use environment variable for DATABASE_URL with a fallback
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:user@localhost:5432/test_Tbot")
+load_dotenv()
+
+# Require the database URL to be configured outside source control.
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing. Add it to your .env file.")
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 

@@ -9,7 +9,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from prompt_toolkit import selection
 
 from gamdlUrl import get_artist_uls
-from queues import download_queue, user_in_queue
+from queues import download_queue, user_in_queue, user_pending_jobs
 
 test_router = Router()
 
@@ -26,7 +26,7 @@ def get_categories_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💿 Full Albums", callback_data="cat:full_album")],
         [InlineKeyboardButton(text="🎵 Singles", callback_data="cat:singles")],
         [InlineKeyboardButton(text="🎵 Live", callback_data="cat:live")],
-        [InlineKeyboardButton(text="🎵 Compilation", callback_data="cat:Compilation")],
+        [InlineKeyboardButton(text="🎵 Compilation", callback_data="cat:compilation")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -175,6 +175,7 @@ async def handle_action(callback: CallbackQuery, state: FSMContext):
             return
 
         user_in_queue.add(user_id_local)
+        user_pending_jobs[user_id_local] = len(urls)
         print(f"llff{urls}")
         for url in urls:
             payload = {

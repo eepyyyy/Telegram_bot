@@ -22,7 +22,7 @@ import Schema
 import utils
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
-from queues import download_queue, user_in_queue, user_locks
+from queues import download_queue, user_in_queue, user_locks, user_pending_jobs
 
 load_dotenv()
 
@@ -70,13 +70,18 @@ async def cmd_start(msg: types.Message) -> None:
     )
 
 
-@dp.message(Command("test"))
-# @dp.message()
+
+@dp.message(lambda msg: bool(msg.text and not msg.text.startswith("/") and re.search(r"https?://", msg.text)))
 async def download_handle(msg: types.Message) -> None:
     """
     Handles incoming messages by adding them to the download queue if the user doesn't already have a task in progress.
     """
-    if not msg.text or not msg.text.startswith("http"):
+    links = re.findall(r"https?://[^\s<>]+", msg.text)
+    if not links:
+        return
+
+    if len(links) != 1:
+        await msg.answer("Please send exactly one Apple Music link.")
         return
 
     user_id_local = msg.from_user.id
@@ -85,15 +90,16 @@ async def download_handle(msg: types.Message) -> None:
         return
 
     user_in_queue.add(user_id_local)
+    user_pending_jobs[user_id_local] = len(links)
     position = download_queue.qsize()
-    await msg.answer(f"✅ Queued (position {position + 1}).")
+    await msg.answer(f"Queued {len(links)} link(s) (starting at position {position + 1}).")
 
-    payload = {
-        "url": msg.text,
-        "msg": msg,
-        "user_id": user_id_local
-    }
-    await download_queue.put(payload)
+    for url in links:
+        await download_queue.put({
+            "url": url,
+            "msg": msg,
+            "user_id": user_id_local,
+        })
 
 
 async def process_download(task: dict) -> None:
@@ -107,6 +113,7 @@ async def process_download(task: dict) -> None:
 
     unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     task_output_dir = os.path.join("./downloads", unique_task_id)
+    process = None
 
     try:
         # 1. Fetch metadata from Apple Music
@@ -142,13 +149,17 @@ async def process_download(task: dict) -> None:
             for file_id in file_ids:
                 if not user.is_premium and user.downloaded_today >= user.daily_limit:
                     await msg.answer("❌ Quota exhausted! Remaining cached tracks cancelled.")
-                    break
+                    return
 
                 sent_msg = await msg.answer_audio(audio=file_id)
                 if sent_msg and not user.is_premium:
                     user.downloaded_today += 1
                     session.add(user)
                     await session.commit()
+
+            if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                await status_msg.edit_text("Daily download limit reached.")
+                return
 
             if not tracks_to_download:
                 await status_msg.edit_text("✅ All tracks delivered from cache!")
@@ -163,7 +174,7 @@ async def process_download(task: dict) -> None:
             "--output-path", task_output_dir,
             *tracks_to_download,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -192,6 +203,7 @@ async def process_download(task: dict) -> None:
                         if not user.is_premium and user.downloaded_today >= user.daily_limit:
                             await msg.answer("❌ Quota exhausted! Stopping further downloads.")
                             process.terminate()
+                            await process.wait()
                             return
 
                         # Extract metadata and upload
@@ -246,8 +258,11 @@ async def process_download(task: dict) -> None:
 
     except Exception as e:
         print(f"Error handling download: {e}")
-        await msg.answer("⚠️ An unexpected error occurred.")
+        await msg.answer(f"⚠️ An unexpected error occurred. {str(e)}")
     finally:
+        if process and process.returncode is None:
+            process.terminate()
+            await process.wait()
         if os.path.exists(task_output_dir):
             shutil.rmtree(task_output_dir)
 
@@ -269,8 +284,13 @@ async def worker() -> None:
                 print(f"Worker caught execution exception: {e}")
             finally:
                 download_queue.task_done()
-        if download_queue.empty() and not user_lock.locked():
+        remaining = user_pending_jobs.get(user_id, 1) - 1
+        if remaining <= 0:
+            user_pending_jobs.pop(user_id, None)
             user_in_queue.discard(user_id)
+            user_locks.pop(user_id, None)
+        else:
+            user_pending_jobs[user_id] = remaining
 
 async def main() -> None:
     """
