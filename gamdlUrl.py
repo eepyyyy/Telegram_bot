@@ -118,7 +118,12 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
 
     lists_of_tracks: List[TrackInputSchema] = []
 
+
+
     for track in tracks:
+        if track.get("type") != "songs":
+            continue
+
         attrs = track["attributes"]
         lists_of_tracks.append(
             TrackInputSchema(
