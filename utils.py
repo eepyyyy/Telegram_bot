@@ -27,15 +27,15 @@ def convert_text(s: str) -> str:
     return "".join(re.findall(r'\w+', only_ascii))
 
 
-def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedInputFile], Optional[int]]:
+def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedInputFile], Optional[int], Optional[str]]:
     """
-    Extracts track metadata (title, artist, cover, duration) directly from an .m4a file.
+    Extracts track metadata (title, artist, cover, duration, isrc) directly from an .m4a file.
     
     Args:
         file_path: The path to the .m4a file.
         
     Returns:
-        A tuple containing (title, artist, thumbnail, duration).
+        A tuple containing (title, artist, thumbnail, duration, isrc).
     """
     try:
         audio = MP4(file_path)
@@ -44,14 +44,23 @@ def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedI
         title = audio.tags.get('\xa9nam', [os.path.basename(file_path).removesuffix('.m4a')])[0]
         duration = int(audio.info.length) if audio.info else None
 
+        isrc = None
+        if '----:com.apple.itunes:ISRC' in audio.tags:
+            isrc_item = audio.tags['----:com.apple.itunes:ISRC'][0]
+            try:
+                isrc = bytes(isrc_item).decode('utf-8', errors='ignore')
+            except Exception:
+                isrc = str(isrc_item)
+
         thumbnail = None
         if 'covr' in audio.tags:
             cover_item = audio.tags['covr'][0]
             cover_data = bytes(cover_item)
             thumbnail = BufferedInputFile(cover_data, filename='thumb.jpg')
             
-        return title, artist, thumbnail, duration
+        return title, artist, thumbnail, duration, isrc
     except Exception as e:
         print(f"Failed to read metadata tags from {file_path}: {e}")
         fallback_title = os.path.basename(file_path).removesuffix(".m4a")
-        return fallback_title, "Unknown Artist", None, None
+        return fallback_title, "Unknown Artist", None, None, None
+

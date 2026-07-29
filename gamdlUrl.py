@@ -199,11 +199,15 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     lists_of_tracks: List[TrackInputSchema] = []
 
     for track in tracks:
+        if track.get("type") != "songs":
+            continue
+
         attrs = track["attributes"]
         track_url = attrs.get("url", "")
 
         if not track_url or "name" not in attrs:
             continue
+
 
         try:
             parsed_url = urlparse(track_url)

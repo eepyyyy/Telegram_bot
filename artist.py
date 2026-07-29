@@ -6,15 +6,11 @@ from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from prompt_toolkit import selection
 
 from gamdlUrl import get_artist_uls
 from queues import download_queue, user_in_queue, user_pending_jobs
 
 test_router = Router()
-
-ALBUMS = ["Bewitched", "Everything I Know About Love", "Sentimental Stories", "Goddess"]
-
 
 class MainSates(StatesGroup):
     choosing_type = State()
@@ -22,7 +18,6 @@ class MainSates(StatesGroup):
 
 def get_categories_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        # Changed "full-albums" to "full_album"
         [InlineKeyboardButton(text="💿 Full Albums", callback_data="cat:full_album")],
         [InlineKeyboardButton(text="🎵 Singles", callback_data="cat:singles")],
         [InlineKeyboardButton(text="🎵 Live", callback_data="cat:live")],
@@ -97,18 +92,27 @@ async def select_cat(callback:CallbackQuery, state:FSMContext):
     target_items = data.get(category, [])
 
     if not target_items:
-        await callback.answer("This category is empty for this artist!", show_alert=True)
+        try:
+            await callback.answer("This category is empty for this artist!", show_alert=True)
+        except Exception:
+            pass
         return
 
     await state.update_data(active_category=category, selected_indices=[])
 
     await state.set_state(MainSates.choosing_albums)
 
-    await callback.message.edit_text(
-        text=f"Managing {category.replace('_', ' ').title()}:",
-        reply_markup=get_album_keyboard(target_items, [])
-    )
-    await callback.answer()
+    try:
+        await callback.message.edit_text(
+            text=f"Managing {category.replace('_', ' ').title()}:",
+            reply_markup=get_album_keyboard(target_items, [])
+        )
+    except Exception:
+        pass
+    try:
+        await callback.answer()
+    except Exception:
+        pass
 
 @test_router.callback_query(MainSates.choosing_albums, F.data.startswith("toggle:"))
 async def handle_toggle(callback: CallbackQuery, state: FSMContext):
@@ -127,10 +131,16 @@ async def handle_toggle(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(selected_indices=selected)
 
-    await callback.message.edit_reply_markup(
-        reply_markup=get_album_keyboard(target_item, selected)
-    )
-    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_album_keyboard(target_item, selected)
+        )
+    except Exception:
+        pass
+    try:
+        await callback.answer()
+    except Exception:
+        pass
     print(clicked_idx, user_data, selected)
 
 
@@ -138,32 +148,42 @@ async def handle_toggle(callback: CallbackQuery, state: FSMContext):
 async def handle_action(callback: CallbackQuery, state: FSMContext):
     action = callback.data.split(":")[1]
 
-    # 🟢 MOVE THESE TO THE VERY TOP (Outside the if/elif blocks)
     user_data = await state.get_data()
     category_key = user_data.get("active_category")
     target_items = user_data.get(category_key, [])
     selected = list(user_data.get("selected_indices", []))
 
-    # Now the if/elif conditions can safely start:
     if action == "select_all":
         all_indice = list(range(len(target_items)))
         await state.update_data(selected_indices=all_indice)
-        await callback.message.edit_reply_markup(reply_markup=get_album_keyboard(target_items, all_indice))
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_album_keyboard(target_items, all_indice))
+        except Exception:
+            pass
 
     elif action == "deselect_all":
         await state.update_data(selected_indices=[])
-        await callback.message.edit_reply_markup(reply_markup=get_album_keyboard(target_items, []))
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_album_keyboard(target_items, []))
+        except Exception:
+            pass
 
     elif action == "back":
         await state.set_state(MainSates.choosing_type)
-        await callback.message.edit_text(
-            text="Select the group category you'd like to browse:",
-            reply_markup=get_categories_keyboard()
-        )
+        try:
+            await callback.message.edit_text(
+                text="Select the group category you'd like to browse:",
+                reply_markup=get_categories_keyboard()
+            )
+        except Exception:
+            pass
 
     elif action == "confirm":
         if not selected:
-            await callback.answer(text="Please select at least one item!", show_alert=True)
+            try:
+                await callback.answer(text="Please select at least one item!", show_alert=True)
+            except Exception:
+                pass
             return
 
         chosen_objects = [target_items[i] for i in selected]
@@ -171,7 +191,10 @@ async def handle_action(callback: CallbackQuery, state: FSMContext):
         user_id_local = callback.from_user.id
 
         if user_id_local in user_in_queue:
-            await callback.answer("⏳ You already have a download task processing!", show_alert=True)
+            try:
+                await callback.answer("⏳ You already have a download task processing!", show_alert=True)
+            except Exception:
+                pass
             return
 
         user_in_queue.add(user_id_local)
@@ -186,8 +209,13 @@ async def handle_action(callback: CallbackQuery, state: FSMContext):
             await download_queue.put(payload)
 
         result_text = "Processing selections:\n\n" + "\n".join([f"• {item['name']}" for item in chosen_objects])
-        await callback.message.edit_text(text=result_text)
+        try:
+            await callback.message.edit_text(text=result_text)
+        except Exception:
+            pass
         await state.clear()
 
-
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass

@@ -46,9 +46,10 @@ class User(SQLModel, table=True):
     __tablename__ = "user"
     user_id: Optional[int] = Field(sa_type=BigInteger, primary_key=True)
     is_premium: Optional[bool] = Field(default=False)
-    daily_limit: Optional[int] = Field(default=30)
+    daily_limit: Optional[int] = Field(default=50)
     downloaded_today: Optional[int] = Field(default=0)
     last_download: date = Field(default_factory=date.today)
+    download_count: Optional[int] = Field(default=0)
 
 
 load_dotenv()

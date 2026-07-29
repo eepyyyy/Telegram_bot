@@ -1,5 +1,11 @@
 import asyncio, glob, os, re, shutil, logging, sys, crud, database, schema, utils
-from datetime import date
+from datetime import date, datetime, timezone
+from logging.handlers import RotatingFileHandler
+
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
+
+from aac import aac, aac_worker
 from artist import test_router
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
@@ -29,20 +35,19 @@ async def cmd_start(msg: types.Message) -> None:
     Renders the elegant main landing dashboard for the bot.
     """
     welcome_text = (
-        f"✨ {hbold('APPLE MUSIC DOWNLOADER')} ✨\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Your high-fidelity portal for pulling studio-grade audio and crisp cinematic visuals directly from Apple Music.\n\n"
-        f"⚡ {hunderline('SUPPORTED FORMATS')}\n"
-        f"📂 {hbold('Tracks:')} AAC (256kbps), Spatial Dolby Atmos, Binaural, and pure Lossless ALAC up to 24-bit/192kHz.\n"
-        f"🎬 {hbold('Videos:')} Video support coming soon\n\n"
-        f"🚀 {hunderline('HOW TO USE')}\n"
-        f"Drop up to 3 links simultaneously into this chat.\n\n"
-        f"👑 {hunderline('TIER ACCESS')}\n"
-        f"• {hbold('Standard tier:')} 30 track downloads daily (AAC profile).\n"
-        f"• {hbold('Premium tier:')} Unlimited requests, master-codec suite, and priority processing.\n\n"
-        f"💡 {hunderline('SHORTCUTS')}\n"
-        f"Trigger instant search by typing: @applemusicdw_bot\n\n"
-        f"Explore full features via /help • Check network regions via /countries"
+        f"<b>Apple Music Downloader</b>\n"
+        f"Download studio-grade Lossless audio directly from Apple Music.\n\n"
+        f"<b>Features</b>\n"
+        f"• <b>Audio Quality:</b> ALAC Lossless up to 24-bit / 192kHz\n"
+        f"• <b>Artist Support:</b> Send an artist link to fetch top tracks or catalogs\n"
+        f"• <b>Daily Limit:</b> 50 downloads per day (cached files do not count)\n\n"
+        f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
+        f"<b>Note:</b> AAC downloads (<code>/aac <url></code>) AAC 256kbps 44.1kHz.\n\n"
+        f"<b>How to Use</b>\n"
+        f"Send any track, album, or artist link directly to this chat.\n\n"
+        f"<b>Shortcuts & Commands</b>\n"
+        f"• Inline search: @applemusicdw_bot\n"
+        f"• View all commands: /help"
     )
 
     builder = InlineKeyboardBuilder()
@@ -55,7 +60,7 @@ async def cmd_start(msg: types.Message) -> None:
 
     await msg.answer(
         text=welcome_text,
-        reply_markup=builder.as_markup(),
+        # reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
 
@@ -110,7 +115,10 @@ async def process_download(task: dict) -> None:
         try:
             songs = await get_any_url(message)
         except Exception as e:
-            await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            try:
+                await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            except Exception:
+                pass
             return
 
         # 2. Check database for existing file_ids
@@ -128,36 +136,45 @@ async def process_download(task: dict) -> None:
                 await session.commit()
                 await session.refresh(user)
 
+            current_date = datetime.now(timezone.utc).date()
             if not user.is_premium:
-                if user.last_download != date.today():
+                if user.last_download != current_date:
                     user.downloaded_today = 0
-                    user.last_download = date.today()
+                    user.last_download = current_date
                     session.add(user)
                     await session.commit()
 
             # 4. Deliver cached tracks
             for file_id in file_ids:
-                if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                    await msg.answer("❌ Quota exhausted! Remaining cached tracks cancelled.")
-                    return
-
-                sent_msg = await msg.answer_audio(audio=file_id)
-                if sent_msg and not user.is_premium:
-                    user.downloaded_today += 1
-                    session.add(user)
-                    await session.commit()
+                try:
+                    await msg.answer_audio(audio=file_id)
+                except Exception:
+                    pass
+                user.download_count += 1
+                session.add(user)
+                await session.commit()
 
             if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                await status_msg.edit_text("Daily download limit reached.")
+                try:
+                    await status_msg.edit_text("Daily download limit reached.")
+                except Exception:
+                    pass
                 return
 
             if not tracks_to_download:
-                await status_msg.edit_text("✅ All tracks delivered from cache!")
+                try:
+                    await status_msg.edit_text("✅ All tracks delivered from cache!")
+                except Exception:
+                    pass
                 return
 
         # 5. Download missing tracks using gamdl
-        await status_msg.edit_text(f"🚀 Downloading {len(tracks_to_download)} track(s)...")
-        os.makedirs(task_output_dir, exist_ok=True)
+        try:
+            await status_msg.edit_text(f"🚀 Downloading {len(tracks_to_download)} track(s)...")
+        except Exception:
+            pass
+
+        await asyncio.to_thread(os.makedirs, task_output_dir, exist_ok=True)
         
         process = await asyncio.create_subprocess_exec(
             "gamdl",
@@ -180,7 +197,9 @@ async def process_download(task: dict) -> None:
                 print(f"[gamdl] {line}")
 
             # Check for new files in the output directory
-            downloaded_files = glob.glob(f"{task_output_dir}/**/*.m4a*", recursive=True)
+            downloaded_files = await asyncio.to_thread(
+                glob.glob, f"{task_output_dir}/**/*.m4a*", recursive=True
+            )
             for file_path in downloaded_files:
                 if file_path not in already_processed:
                     already_processed.add(file_path)
@@ -190,25 +209,45 @@ async def process_download(task: dict) -> None:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
                         user = result.one()
                         
+                        current_date = datetime.now(timezone.utc).date()
+                        if not user.is_premium and user.last_download != current_date:
+                            user.downloaded_today = 0
+                            user.last_download = current_date
+                            session.add(user)
+                            await session.commit()
+
                         if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            await msg.answer("❌ Quota exhausted! Stopping further downloads.")
-                            process.terminate()
-                            await process.wait()
+                            try:
+                                await msg.answer("❌ Quota exhausted! Stopping further downloads.")
+                            except Exception:
+                                pass
+                            try:
+                                process.terminate()
+                                await process.wait()
+                            except ProcessLookupError:
+                                pass
                             return
 
                         # Extract metadata and upload
-                        track_title, artist, thumbnail, duration = utils.extract_track_metadata(file_path)
+                        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
+                            utils.extract_track_metadata, file_path
+                        )
                         abs_path = os.path.abspath(file_path)
                         
-                        sent_msg = await msg.answer_audio(
-                            audio=FSInputFile(abs_path),
-                            title=track_title,
-                            thumbnail=thumbnail,
-                            performer=artist,
-                            duration=duration
-                        )
+                        try:
+                            sent_msg = await msg.answer_audio(
+                                audio=FSInputFile(abs_path),
+                                title=track_title,
+                                thumbnail=thumbnail,
+                                performer=artist,
+                                duration=duration
+                            )
+                        except Exception as e:
+                            print(f"Failed to send audio message: {e}")
+                            sent_msg = None
 
                         if sent_msg:
+                            user.download_count += 1
                             if not user.is_premium:
                                 user.downloaded_today += 1
                                 session.add(user)
@@ -219,21 +258,38 @@ async def process_download(task: dict) -> None:
                                 file_id=sent_msg.audio.file_id,
                                 file_unique_id=sent_msg.audio.file_unique_id,
                                 title=track_title,
-                                size=sent_msg.audio.file_size
+                                size=sent_msg.audio.file_size,
+                                isrc=isrc
                             )
                             
-                            for original_track in songs:
-                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    await crud.save_single_track(session=session, track_data=track_input)
-                                    await session.commit()
-                                    break
+                            matched = False
+                            # 1. Match by ISRC
+                            if isrc:
+                                for original_track in songs:
+                                    if original_track.isrc == isrc:
+                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                        track_input.file_id = tbot.file_id
+                                        track_input.file_unique_id = tbot.file_unique_id
+                                        track_input.size = tbot.size
+                                        await crud.save_single_track(session=session, track_data=track_input)
+                                        await session.commit()
+                                        matched = True
+                                        break
+
+                            # 2. Fallback to normalized title match
+                            if not matched:
+                                for original_track in songs:
+                                    if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                        track_input.file_id = tbot.file_id
+                                        track_input.file_unique_id = tbot.file_unique_id
+                                        track_input.size = tbot.size
+                                        await crud.save_single_track(session=session, track_data=track_input)
+                                        await session.commit()
+                                        break
                         
                         try:
-                            os.remove(file_path)
+                            await asyncio.to_thread(os.remove, file_path)
                             print(f"Deleted local file: {file_path}")
                         except Exception as e:
                             print(f"Failed to delete {file_path}: {e}")
@@ -242,19 +298,34 @@ async def process_download(task: dict) -> None:
 
         return_code = await process.wait()
         if return_code == 0:
-            await status_msg.edit_text("✅ All tracks processed successfully.")
+            try:
+                await status_msg.edit_text("✅ All tracks processed successfully.")
+            except Exception:
+                pass
         else:
-            await status_msg.edit_text("⚠ Some tracks might have failed to download.")
+            try:
+                await status_msg.edit_text("⚠ Some tracks might have failed to download.")
+            except Exception:
+                pass
 
     except Exception as e:
         print(f"Error handling download: {e}")
-        await msg.answer(f"⚠️ An unexpected error occurred. {str(e)}")
+        try:
+            await msg.answer(f"⚠️ An unexpected error occurred. {str(e)}")
+        except Exception:
+            pass
     finally:
         if process and process.returncode is None:
-            process.terminate()
-            await process.wait()
-        if os.path.exists(task_output_dir):
-            shutil.rmtree(task_output_dir)
+            try:
+                process.terminate()
+                await process.wait()
+            except ProcessLookupError:
+                pass
+        if await asyncio.to_thread(os.path.exists, task_output_dir):
+            try:
+                await asyncio.to_thread(shutil.rmtree, task_output_dir)
+            except Exception as e:
+                print(f"Failed to delete {task_output_dir}: {e}")
 
 
 async def worker() -> None:
@@ -264,10 +335,39 @@ async def worker() -> None:
     while True:
         task = await download_queue.get()
         user_id = task["user_id"]
+        msg = task["msg"]
 
         user_lock = user_locks.setdefault(user_id, asyncio.Lock())
 
         async with user_lock:
+            # Check database limit before starting download subprocess
+            async with async_session() as session:
+                result = await session.exec(select(User).where(User.user_id == user_id))
+                user = result.first()
+                current_date = datetime.now(timezone.utc).date()
+                if user:
+                    if user.last_download != current_date:
+                        user.downloaded_today = 0
+                        user.last_download = current_date
+                        session.add(user)
+                        await session.commit()
+                        await session.refresh(user)
+                    
+                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                        try:
+                            await msg.answer("❌ Daily download limit reached. Skipping queued item.")
+                        except Exception:
+                            pass
+                        download_queue.task_done()
+                        remaining = user_pending_jobs.get(user_id, 1) - 1
+                        if remaining <= 0:
+                            user_pending_jobs.pop(user_id, None)
+                            user_in_queue.discard(user_id)
+                            user_locks.pop(user_id, None)
+                        else:
+                            user_pending_jobs[user_id] = remaining
+                        continue
+
             try:
                 await process_download(task)
             except Exception as e:
@@ -306,15 +406,51 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp.include_router(test_router)
+    dp.include_router(aac)
 
     # Start 3 concurrent workers
     for _ in range(3):
         asyncio.create_task(worker())
 
+    # Start 10 concurrent AAC workers
+    for _ in range(10):
+        asyncio.create_task(aac_worker())
+
     print("Bot is starting...")
     await dp.start_polling(bot)
 
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+def setup_bot_logging():
+    # 1. Root logger configuration
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Clean up existing handlers if re-running in interactive environments
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    # 2. Format: includes timestamp, log level, module name, and message
+    formatter = logging.Formatter(
+        "%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # 3. Terminal Handler (Live streaming)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
+    # 4. File Handler with Rotation (Prevents bot logs from filling up your disk)
+    # Rolls over after 5 MB, keeping up to 3 backup files
+    file_handler = RotatingFileHandler(
+        "bot.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+
+    # 5. Attach handlers
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+
+if __name__ == "__main__":
+    setup_bot_logging()
     asyncio.run(main())
