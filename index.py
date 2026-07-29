@@ -388,23 +388,21 @@ async def main() -> None:
     """
     await database.init_db()
 
-    # local_server = TelegramAPIServer.from_base("http://localhost:8081")
-
-    # 2. Use aiogram's AiohttpSession wrapper instead of raw aiohttp
-    # session = AiohttpSession(api=local_server)
-    #
-    # # 3. Initialize bot with the wrapped session
-    # bot = Bot(
-    #     token=TOKEN_API,
-    #     session=session,
-    #     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    # )
-
-
-    bot = Bot(
-        token=TOKEN_API,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+    local_server_url = os.getenv("LOCAL_SERVER_URL")
+    if local_server_url:
+        print(f"Using local Telegram API server: {local_server_url}")
+        local_server = TelegramAPIServer.from_base(local_server_url)
+        session = AiohttpSession(api=local_server)
+        bot = Bot(
+            token=TOKEN_API,
+            session=session,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        )
+    else:
+        bot = Bot(
+            token=TOKEN_API,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        )
     dp.include_router(test_router)
     dp.include_router(aac)
 

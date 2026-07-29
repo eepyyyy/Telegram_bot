@@ -84,25 +84,11 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
-    # Check cache first for files!
-    file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
-
-    # Deliver cached files immediately!
-    async with async_session() as session:
-        result = await session.exec(select(User).where(User.user_id == user_id_local))
-        user = result.one()
-        for file_id in file_ids:
-            try:
-                await msg.answer_audio(audio=file_id)
-            except Exception:
-                pass
-            user.download_count += 1
-            session.add(user)
-            await session.commit()
+    tracks_to_download = [str(song.url) for song in songs if song.url]
 
     if not tracks_to_download:
         try:
-            await status_msg.edit_text("✅ All tracks delivered from cache!")
+            await status_msg.edit_text("❌ No valid download URLs found.")
         except Exception:
             pass
         return
@@ -220,38 +206,8 @@ async def process_aac_download(task: dict) -> None:
                                 session.add(user)
                                 await session.commit()
 
-                            # Save to cache
-                            tbot = schema.TrackInputSchema(
-                                file_id=sent_msg.audio.file_id,
-                                file_unique_id=sent_msg.audio.file_unique_id,
-                                title=track_title,
-                                size=sent_msg.audio.file_size,
-                                isrc=isrc
-                            )
-
-                            matched = False
-                            if isrc:
-                                for original_track in songs:
-                                    if original_track.isrc == isrc:
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        await crud.save_single_track(session=session, track_data=track_input)
-                                        await session.commit()
-                                        matched = True
-                                        break
-
-                            if not matched:
-                                for original_track in songs:
-                                    if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        await crud.save_single_track(session=session, track_data=track_input)
-                                        await session.commit()
-                                        break
+                        # Caching bypassed for AAC files to prevent database contamination.
+                        pass
 
                         try:
                             await asyncio.to_thread(os.remove, file_path)
