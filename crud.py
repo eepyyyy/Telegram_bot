@@ -21,7 +21,8 @@ async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
                 album_obj = database.Albums(
                     album_id=track_data.album_id,
                     album=track_data.album,
-                    artist=track_data.artist
+                    artist=track_data.artist,
+                    artwork=track_data.artwork,
                 )
                 await session.merge(album_obj)
 
@@ -35,7 +36,8 @@ async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
                     title=track_data.title,
                     url=track_data.url,
                     isrc=track_data.isrc,
-                    storefront=track_data.storefront
+                    storefront=track_data.storefront,
+                    artwork=track_data.artwork,
                 )
                 await session.merge(track_obj)
             # The context manager session.begin() will automatically commit at the end.
@@ -52,7 +54,8 @@ async def save_single_track(session: AsyncSession, track_data: schema.TrackInput
     album_obj = database.Albums(
         album_id=track_data.album_id,
         album=track_data.album,
-        artist=track_data.artist
+        artist=track_data.artist,
+        artwork=track_data.artwork,
     )
     await session.merge(album_obj)
     
@@ -68,6 +71,9 @@ async def save_single_track(session: AsyncSession, track_data: schema.TrackInput
         size=track_data.size,
         storefront=track_data.storefront,
         isrc=track_data.isrc,
+        artwork=track_data.artwork,
+        chat_id=track_data.chat_id,
+        message_id=track_data.message_id,
     )
     await session.merge(track_obj)
 

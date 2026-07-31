@@ -19,6 +19,7 @@ class Albums(SQLModel, table=True):
     album_id: str = Field(primary_key=True)
     artist: Optional[str] = None
     album: Optional[str] = None
+    artwork: Optional[str] = None
 
 
 class Tracks(SQLModel, table=True):
@@ -37,6 +38,9 @@ class Tracks(SQLModel, table=True):
     size: Optional[int] = Field(sa_type=BigInteger)
     storefront: Optional[str] = None
     isrc: Optional[str] = None
+    artwork: Optional[str] = None
+    chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
+    message_id: Optional[int] = Field(default=None)
 
 
 class User(SQLModel, table=True):

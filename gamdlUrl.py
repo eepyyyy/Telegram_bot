@@ -35,6 +35,18 @@ async def get_api() -> AppleMusicApi:
         return _api_instance
 
 
+def get_artwork_url(artwork_dict: Optional[dict]) -> Optional[str]:
+    """
+    Extracts the artwork URL from the dictionary and replaces the size placeholders.
+    """
+    if not artwork_dict:
+        return None
+    url = artwork_dict.get("url")
+    if not url:
+        return None
+    return url.replace("{w}", "1000").replace("{h}", "1000")
+
+
 def album_url_to_song_url(url: str) -> str:
     """
     Converts an Apple Music album URL with a song parameter to a direct song URL.
@@ -95,7 +107,8 @@ async def get_track_schema(url: str) -> List[TrackInputSchema]:
             album=attrs.get("albumName", ""),
             url=attrs["url"],
             storefront=storefront,
-            isrc=attrs.get("isrc")
+            isrc=attrs.get("isrc"),
+            artwork=get_artwork_url(attrs.get("artwork"))
         )
     ]
 
@@ -134,7 +147,8 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
                 album=attrs.get("albumName", ""),
                 url=album_url_to_song_url(attrs["url"]),
                 storefront=storefront,
-                isrc=attrs.get("isrc")
+                isrc=attrs.get("isrc"),
+                artwork=get_artwork_url(attrs.get("artwork"))
             )
         )
 
@@ -168,7 +182,7 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
                 "name": attrs["name"],
                 "trackCount": attrs.get("trackCount"),
                 "url": attrs.get("url"),
-                "artwork": attrs.get("artwork", {}).get("url"),
+                "artwork": get_artwork_url(attrs.get("artwork")),
             }
             selection[section].append(album_dict)
     return (
@@ -225,7 +239,8 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
                 album=attrs.get("albumName", ""),
                 url=album_url_to_song_url(attrs["url"]),
                 storefront=playlist_storefront,
-                isrc=attrs.get("isrc")
+                isrc=attrs.get("isrc"),
+                artwork=get_artwork_url(attrs.get("artwork")),
             )
         )
 
@@ -266,8 +281,8 @@ async def _main_test():
     # # 2. Concurrent calls in the same loop
     # results = await asyncio.gather(get_any_url(url), get_any_url(url))
     # print(f"Concurrent calls: Success (Count: {len(results)})")
-    url = "https://music.apple.com/us/artist/drake/271256"
-    test = await get_artist_uls(url)
+    url = "https://music.apple.com/in/song/heart-to-heart/1452955723"
+    test = await get_any_url(url)
     print(test)
 
 

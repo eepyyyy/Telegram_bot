@@ -29,3 +29,6 @@ class TrackInputSchema(BaseModel):
     size: Optional[int] = None
     storefront: Optional[str] = None
     isrc: Optional[str] = None
+    artwork: Optional[str] = None
+    chat_id: Optional[int] = None
+    message_id: Optional[int] = None

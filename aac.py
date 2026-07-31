@@ -26,7 +26,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
-            await msg.answer("Usage:\n/aac <Apple Music URL>")
+            await msg.answer("Usage:\n/aac &lt;Apple Music URL&gt;")
         except Exception:
             pass
         return

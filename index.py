@@ -42,7 +42,7 @@ async def cmd_start(msg: types.Message) -> None:
         f"• <b>Artist Support:</b> Send an artist link to fetch top tracks or catalogs\n"
         f"• <b>Daily Limit:</b> 50 downloads per day (cached files do not count)\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
-        f"<b>Note:</b> AAC downloads (<code>/aac <url></code>) AAC 256kbps 44.1kHz.\n\n"
+        f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>How to Use</b>\n"
         f"Send any track, album, or artist link directly to this chat.\n\n"
         f"<b>Shortcuts & Commands</b>\n"
@@ -259,7 +259,9 @@ async def process_download(task: dict) -> None:
                                 file_unique_id=sent_msg.audio.file_unique_id,
                                 title=track_title,
                                 size=sent_msg.audio.file_size,
-                                isrc=isrc
+                                isrc=isrc,
+                                chat_id=sent_msg.chat.id,
+                                message_id=sent_msg.message_id
                             )
                             
                             matched = False
@@ -271,6 +273,8 @@ async def process_download(task: dict) -> None:
                                         track_input.file_id = tbot.file_id
                                         track_input.file_unique_id = tbot.file_unique_id
                                         track_input.size = tbot.size
+                                        track_input.chat_id = tbot.chat_id
+                                        track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
                                         matched = True
@@ -284,6 +288,8 @@ async def process_download(task: dict) -> None:
                                         track_input.file_id = tbot.file_id
                                         track_input.file_unique_id = tbot.file_unique_id
                                         track_input.size = tbot.size
+                                        track_input.chat_id = tbot.chat_id
+                                        track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
                                         break
@@ -399,6 +405,7 @@ async def main() -> None:
             default=DefaultBotProperties(parse_mode=ParseMode.HTML)
         )
     else:
+        print("Using production Telegram API server")
         bot = Bot(
             token=TOKEN_API,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML)
