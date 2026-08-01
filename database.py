@@ -3,12 +3,13 @@ import os
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import BigInteger
+from sqlalchemy import BigInteger, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 from sqlmodel import Field, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
+
 
 
 class Albums(SQLModel, table=True):
@@ -69,10 +70,13 @@ engine = create_async_engine(DATABASE_URL, echo=True)
 
 async def init_db():
     """
-    Initializes the database by creating all tables.
+    Initializes the database by creating all tables and adding missing columns safely.
     """
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+
 
 
 def get_session_maker():

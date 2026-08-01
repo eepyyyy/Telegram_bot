@@ -7,18 +7,18 @@ from aiogram.client.telegram import TelegramAPIServer
 
 from aac import aac, aac_worker
 from artist import test_router
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
 from aiogram.types import FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.markdown import hbold, hunderline
+from aiogram.utils.markdown import hbold, hcode, hunderline
 from sqlmodel import select
 from dotenv import load_dotenv
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
-from queues import download_queue, user_in_queue, user_locks, user_pending_jobs
+from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks
 
 load_dotenv()
 
@@ -26,6 +26,49 @@ TOKEN_API = os.getenv("TOKEN_API")
 
 dp = Dispatcher()
 async_session = get_session_maker()
+
+
+def make_progress_bar(current: int, total: int, length: int = 10) -> str:
+    """
+    Renders a dynamic visual progress bar.
+    """
+    if total <= 0:
+        return "[░░░░░░░░░░] 0%"
+    percent = min(100, int((current / total) * 100))
+    filled = int(length * percent // 100)
+    bar = "█" * filled + "░" * (length - filled)
+    return f"[{bar}] {percent}% ({current}/{total})"
+
+
+@dp.callback_query(F.data.startswith("cancel_download:"))
+async def handle_cancel_download(call: types.CallbackQuery) -> None:
+    """
+    Handles user cancellation of active download tasks.
+    """
+    task_id = call.data.split(":")[1]
+    if task_id in active_tasks:
+        task_info = active_tasks[task_id]
+        if task_info["user_id"] != call.from_user.id:
+            await call.answer("❌ You can only cancel your own downloads.", show_alert=True)
+            return
+
+        task_info["cancelled"] = True
+        proc = task_info.get("process")
+        if proc and proc.returncode is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        await call.answer("🚫 Cancelling download...")
+        status_msg = task_info.get("status_msg")
+        if status_msg:
+            try:
+                await status_msg.edit_text("🚫 Download cancelled by user.")
+            except Exception:
+                pass
+    else:
+        await call.answer("Task is no longer active.", show_alert=True)
+
 
 # Queue management for concurrent downloads
 
@@ -104,11 +147,21 @@ async def process_download(task: dict) -> None:
     message = task["url"]  # The specific target album/track URL
     msg: Message = task["msg"]  # The aiogram message context used to reply
     user_id_local = task["user_id"]
-    status_msg = await msg.answer('🔍 Processing request...')
 
     unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    cancel_builder = InlineKeyboardBuilder()
+    cancel_builder.row(types.InlineKeyboardButton(text="✖ Cancel Download", callback_data=f"cancel_download:{unique_task_id}"))
+
+    status_msg = await msg.answer('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
     task_output_dir = os.path.join("./downloads", unique_task_id)
     process = None
+
+    active_tasks[unique_task_id] = {
+        "process": None,
+        "cancelled": False,
+        "user_id": user_id_local,
+        "status_msg": status_msg
+    }
 
     try:
         # 1. Fetch metadata from Apple Music
@@ -120,6 +173,9 @@ async def process_download(task: dict) -> None:
             except Exception:
                 pass
             return
+
+        total_tracks = len(songs)
+        completed_count = 0
 
         # 2. Check database for existing file_ids
         file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
@@ -146,13 +202,35 @@ async def process_download(task: dict) -> None:
 
             # 4. Deliver cached tracks
             for file_id in file_ids:
+                if active_tasks.get(unique_task_id, {}).get("cancelled"):
+                    try:
+                        await status_msg.edit_text("🚫 Download cancelled by user.")
+                    except Exception:
+                        pass
+                    return
+
                 try:
-                    await msg.answer_audio(audio=file_id)
+                    sent_msg = await msg.answer_audio(audio=file_id)
                 except Exception:
-                    pass
-                user.download_count += 1
-                session.add(user)
-                await session.commit()
+                    sent_msg = None
+
+                if sent_msg:
+                    completed_count += 1
+                    user.download_count += 1
+                    session.add(user)
+                    await session.commit()
+
+                    # Real-Time Progress Bar Update
+                    progress_text = (
+                        f"🚀 {hbold('DELIVERING FROM CACHE')}\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{make_progress_bar(completed_count, total_tracks)}\n"
+                        f"⚡ Delivered {completed_count}/{total_tracks} track(s)"
+                    )
+                    try:
+                        await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+                    except Exception:
+                        pass
 
             if not user.is_premium and user.downloaded_today >= user.daily_limit:
                 try:
@@ -169,8 +247,14 @@ async def process_download(task: dict) -> None:
                 return
 
         # 5. Download missing tracks using gamdl
+        progress_text = (
+            f"🚀 {hbold('DOWNLOADING TRACKS')}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{make_progress_bar(completed_count, total_tracks)}\n"
+            f"📥 Downloading {len(tracks_to_download)} remaining track(s)..."
+        )
         try:
-            await status_msg.edit_text(f"🚀 Downloading {len(tracks_to_download)} track(s)...")
+            await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
         except Exception:
             pass
 
@@ -179,15 +263,26 @@ async def process_download(task: dict) -> None:
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "--output-path", task_output_dir,
+            "--temp-path", task_output_dir,
             *tracks_to_download,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        if unique_task_id in active_tasks:
+            active_tasks[unique_task_id]["process"] = process
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         already_processed = set()
 
         while True:
+            if active_tasks.get(unique_task_id, {}).get("cancelled"):
+                try:
+                    process.terminate()
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
+                return
+
             line_bytes = await process.stdout.readline()
             if not line_bytes:
                 break
@@ -196,11 +291,19 @@ async def process_download(task: dict) -> None:
             if line:
                 print(f"[gamdl] {line}")
 
-            # Check for new files in the output directory
+            # Check for finalized .m4a files in output directory
             downloaded_files = await asyncio.to_thread(
-                glob.glob, f"{task_output_dir}/**/*.m4a*", recursive=True
+                glob.glob, f"{task_output_dir}/**/*.m4a", recursive=True
             )
             for file_path in downloaded_files:
+                if active_tasks.get(unique_task_id, {}).get("cancelled"):
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    return
+
                 if file_path not in already_processed:
                     already_processed.add(file_path)
                     
@@ -247,11 +350,24 @@ async def process_download(task: dict) -> None:
                             sent_msg = None
 
                         if sent_msg:
+                            completed_count += 1
                             user.download_count += 1
                             if not user.is_premium:
                                 user.downloaded_today += 1
                                 session.add(user)
                                 await session.commit()
+
+                            # Real-Time Progress Bar Update
+                            progress_text = (
+                                f"🚀 {hbold('PROCESSING DOWNLOAD')}\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"{make_progress_bar(completed_count, total_tracks)}\n"
+                                f"🎵 {hbold('Uploaded:')} {hcode(track_title)}"
+                            )
+                            try:
+                                await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+                            except Exception:
+                                pass
 
                             # Save to cache
                             tbot = schema.TrackInputSchema(
@@ -303,16 +419,17 @@ async def process_download(task: dict) -> None:
             await asyncio.sleep(1) # Small delay between checks
 
         return_code = await process.wait()
-        if return_code == 0:
-            try:
-                await status_msg.edit_text("✅ All tracks processed successfully.")
-            except Exception:
-                pass
-        else:
-            try:
-                await status_msg.edit_text("⚠ Some tracks might have failed to download.")
-            except Exception:
-                pass
+        if not active_tasks.get(unique_task_id, {}).get("cancelled"):
+            if return_code == 0:
+                try:
+                    await status_msg.edit_text("✅ All tracks processed successfully.")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await status_msg.edit_text("⚠ Some tracks might have failed to download.")
+                except Exception:
+                    pass
 
     except Exception as e:
         print(f"Error handling download: {e}")
@@ -321,6 +438,7 @@ async def process_download(task: dict) -> None:
         except Exception:
             pass
     finally:
+        active_tasks.pop(unique_task_id, None)
         if process and process.returncode is None:
             try:
                 process.terminate()
@@ -332,6 +450,7 @@ async def process_download(task: dict) -> None:
                 await asyncio.to_thread(shutil.rmtree, task_output_dir)
             except Exception as e:
                 print(f"Failed to delete {task_output_dir}: {e}")
+
 
 
 async def worker() -> None:
