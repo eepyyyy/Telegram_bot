@@ -172,7 +172,7 @@ async def process_aac_download(task: dict) -> None:
 
                         if not user.is_premium and user.downloaded_today >= user.daily_limit:
                             try:
-                                await msg.answer("❌ Quota exhausted! Stopping further downloads.")
+                                await msg.answer("Quota exhausted! Stopping further downloads.")
                             except Exception:
                                 pass
                             try:
@@ -219,19 +219,19 @@ async def process_aac_download(task: dict) -> None:
         return_code = await process.wait()
         if return_code == 0:
             try:
-                await status_msg.edit_text("✅ AAC download and upload completed.")
+                await status_msg.edit_text("AAC download and upload completed.")
             except Exception:
                 pass
         else:
             try:
-                await status_msg.edit_text("⚠️ AAC download finished with errors. Check logs.")
+                await status_msg.edit_text("AAC download finished with errors. Check logs.")
             except Exception:
                 pass
 
     except Exception as error:
         print(f"AAC download error: {error}")
         try:
-            await status_msg.edit_text(f"❌ AAC download failed: {error}")
+            await status_msg.edit_text(f"AAC download failed: {error}")
         except Exception:
             pass
     finally:
@@ -276,7 +276,7 @@ async def aac_worker() -> None:
 
                     if not user.is_premium and user.downloaded_today >= user.daily_limit:
                         try:
-                            await msg.answer("❌ Daily download limit reached. Skipping AAC queued item.")
+                            await msg.answer("Daily download limit reached. Skipping AAC queued item.")
                         except Exception:
                             pass
                         aac_queue.task_done()
