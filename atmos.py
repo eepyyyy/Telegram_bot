@@ -16,25 +16,25 @@ import crud
 import database
 from database import User, async_session
 from gamdlUrl import get_any_url
-from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks
+from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks
 
-aac = Router()
+atmos = Router()
 
-@aac.message(Command("aac"))
-async def aac_download(msg: types.Message, command: CommandObject) -> None:
+@atmos.message(Command("atmos"))
+async def atmos_download(msg: types.Message, command: CommandObject) -> None:
     url = (command.args or "").strip()
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
-            await msg.answer("Usage:\n/aac &lt;Apple Music URL&gt;")
+            await msg.answer("Usage:\n/atmos &lt;Apple Music URL&gt;")
         except Exception:
             pass
         return
 
     user_id_local = msg.from_user.id
-    if user_id_local in aac_in_queue:
+    if user_id_local in atmos_in_queue:
         try:
-            await msg.answer("⏳ You already have an AAC download in progress. Please wait.")
+            await msg.answer("⏳ You already have a Dolby Atmos download in progress. Please wait.")
         except Exception:
             pass
         return
@@ -67,7 +67,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             return
 
     # Fetch metadata to see how many tracks
-    status_msg = await msg.answer("🔍 Fetching AAC metadata...")
+    status_msg = await msg.answer("🔍 Fetching Dolby Atmos metadata...")
     try:
         songs = await get_any_url(url)
     except Exception as e:
@@ -84,8 +84,8 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
-    # Check database for existing AAC cached tracks
-    file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="aac")
+    # Check database for existing Atmos cached tracks
+    file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="atmos")
 
     for file_id in file_ids:
         try:
@@ -103,23 +103,23 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
 
     if not tracks_to_download:
         try:
-            await status_msg.edit_text("✅ All AAC tracks delivered from cache!")
+            await status_msg.edit_text("✅ All Dolby Atmos tracks delivered from cache!")
         except Exception:
             pass
         return
 
     # Queue the missing tracks
-    aac_in_queue.add(user_id_local)
-    aac_pending_jobs[user_id_local] = len(tracks_to_download)
-    position = aac_queue.qsize()
+    atmos_in_queue.add(user_id_local)
+    atmos_pending_jobs[user_id_local] = len(tracks_to_download)
+    position = atmos_queue.qsize()
     
     try:
-        await status_msg.edit_text(f"Queued {len(tracks_to_download)} AAC track(s) (starting at position {position + 1}).")
+        await status_msg.edit_text(f"Queued {len(tracks_to_download)} Dolby Atmos track(s) (starting at position {position + 1}).")
     except Exception:
         pass
 
     for track_url in tracks_to_download:
-        await aac_queue.put({
+        await atmos_queue.put({
             "url": track_url,
             "songs": songs,
             "msg": msg,
@@ -128,26 +128,26 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
         })
 
 
-async def process_aac_download(task: dict) -> None:
+async def process_atmos_download(task: dict) -> None:
     track_url = task["url"]
     songs = task["songs"]
     msg: Message = task["msg"]
     user_id_local = task["user_id"]
     status_msg = task["status_msg"]
 
-    unique_task_id = f"aac_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    unique_task_id = f"atmos_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     process = None
 
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
 
-        # Start downloading
+        # Start downloading with Dolby Atmos codec priority
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "-n",
             "--output-path", output_dir,
-            "--song-codec-priority", "aac-web",
+            "--song-codec-priority", "atmos",
             track_url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -163,7 +163,7 @@ async def process_aac_download(task: dict) -> None:
 
             line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
             if line:
-                print(f"[gamdl AAC] {line}")
+                print(f"[gamdl Atmos] {line}")
 
             # Check for new files
             downloaded_files = await asyncio.to_thread(
@@ -211,7 +211,7 @@ async def process_aac_download(task: dict) -> None:
                                 duration=duration,
                             )
                         except Exception as e:
-                            print(f"Failed to send AAC audio message: {e}")
+                            print(f"Failed to send Atmos audio message: {e}")
                             sent_msg = None
 
                         if sent_msg:
@@ -221,7 +221,7 @@ async def process_aac_download(task: dict) -> None:
                                 session.add(user)
                                 await session.commit()
 
-                            # Save to AAC cache database
+                            # Save to Dolby Atmos cache database
                             tbot = schema.TrackInputSchema(
                                 file_id=sent_msg.audio.file_id,
                                 file_unique_id=sent_msg.audio.file_unique_id,
@@ -242,7 +242,7 @@ async def process_aac_download(task: dict) -> None:
                                         track_input.size = tbot.size
                                         track_input.chat_id = tbot.chat_id
                                         track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+                                        await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
                                         await session.commit()
                                         matched = True
                                         break
@@ -256,7 +256,7 @@ async def process_aac_download(task: dict) -> None:
                                         track_input.size = tbot.size
                                         track_input.chat_id = tbot.chat_id
                                         track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+                                        await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
                                         await session.commit()
                                         break
 
@@ -270,19 +270,19 @@ async def process_aac_download(task: dict) -> None:
         return_code = await process.wait()
         if return_code == 0:
             try:
-                await status_msg.edit_text("AAC download and upload completed.")
+                await status_msg.edit_text("Dolby Atmos download and upload completed.")
             except Exception:
                 pass
         else:
             try:
-                await status_msg.edit_text("AAC download finished with errors. Check logs.")
+                await status_msg.edit_text("Dolby Atmos download finished with errors. Check logs.")
             except Exception:
                 pass
 
     except Exception as error:
-        print(f"AAC download error: {error}")
+        print(f"Dolby Atmos download error: {error}")
         try:
-            await status_msg.edit_text(f"AAC download failed: {error}")
+            await status_msg.edit_text(f"Dolby Atmos download failed: {error}")
         except Exception:
             pass
     finally:
@@ -300,16 +300,16 @@ async def process_aac_download(task: dict) -> None:
                 print(f"Failed to delete {output_dir}: {e}")
 
 
-async def aac_worker() -> None:
+async def atmos_worker() -> None:
     """
-    Worker function to process the aac download queue. Up to 10 run concurrently.
+    Worker function to process the atmos download queue. Up to 10 run concurrently.
     """
     while True:
-        task = await aac_queue.get()
+        task = await atmos_queue.get()
         user_id = task["user_id"]
         msg = task["msg"]
 
-        user_lock = aac_locks.setdefault(user_id, asyncio.Lock())
+        user_lock = atmos_locks.setdefault(user_id, asyncio.Lock())
 
         async with user_lock:
             # Check database limit before starting download subprocess
@@ -327,30 +327,30 @@ async def aac_worker() -> None:
 
                     if not user.is_premium and user.downloaded_today >= user.daily_limit:
                         try:
-                            await msg.answer("Daily download limit reached. Skipping AAC queued item.")
+                            await msg.answer("Daily download limit reached. Skipping Dolby Atmos queued item.")
                         except Exception:
                             pass
-                        aac_queue.task_done()
-                        remaining = aac_pending_jobs.get(user_id, 1) - 1
+                        atmos_queue.task_done()
+                        remaining = atmos_pending_jobs.get(user_id, 1) - 1
                         if remaining <= 0:
-                            aac_pending_jobs.pop(user_id, None)
-                            aac_in_queue.discard(user_id)
-                            aac_locks.pop(user_id, None)
+                            atmos_pending_jobs.pop(user_id, None)
+                            atmos_in_queue.discard(user_id)
+                            atmos_locks.pop(user_id, None)
                         else:
-                            aac_pending_jobs[user_id] = remaining
+                            atmos_pending_jobs[user_id] = remaining
                         continue
 
             try:
-                await process_aac_download(task)
+                await process_atmos_download(task)
             except Exception as e:
-                print(f"AAC worker caught execution exception: {e}")
+                print(f"Atmos worker caught execution exception: {e}")
             finally:
-                aac_queue.task_done()
+                atmos_queue.task_done()
 
-        remaining = aac_pending_jobs.get(user_id, 1) - 1
+        remaining = atmos_pending_jobs.get(user_id, 1) - 1
         if remaining <= 0:
-            aac_pending_jobs.pop(user_id, None)
-            aac_in_queue.discard(user_id)
-            aac_locks.pop(user_id, None)
+            atmos_pending_jobs.pop(user_id, None)
+            atmos_in_queue.discard(user_id)
+            atmos_locks.pop(user_id, None)
         else:
-            aac_pending_jobs[user_id] = remaining
+            atmos_pending_jobs[user_id] = remaining

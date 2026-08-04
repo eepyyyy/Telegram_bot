@@ -12,3 +12,9 @@ aac_queue: asyncio.Queue = asyncio.Queue()
 aac_in_queue: set[int] = set()
 aac_pending_jobs: dict[int, int] = {}
 aac_locks: dict[int, asyncio.Lock] = {}
+
+atmos_queue: asyncio.Queue = asyncio.Queue()
+
+atmos_in_queue: set[int] = set()
+atmos_pending_jobs: dict[int, int] = {}
+atmos_locks: dict[int, asyncio.Lock] = {}

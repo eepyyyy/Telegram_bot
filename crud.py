@@ -1,20 +1,34 @@
 import asyncio
 from typing import List, Tuple, Any
 
+from sqlmodel import select
+
 import database
 import gamdlUrl
 import schema
-from database import Tracks, User, async_session
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from database import Tracks, AACTracks, AtmosTracks, User, async_session
 
 
-async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
+def get_track_model(format_type: str = "alac"):
+    """
+    Returns the appropriate SQLModel table class based on the format_type.
+    """
+    fmt = (format_type or "alac").lower()
+    if fmt == "aac":
+        return AACTracks
+    elif fmt == "atmos":
+        return AtmosTracks
+    return Tracks
+
+
+async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema], format_type: str = "alac"):
     """
     Takes a list of track schema objects and handles the async database save/merge operations.
     Args:
         track_lists: List of TrackInputSchema objects.
+        format_type: Quality format ('alac', 'aac', or 'atmos').
     """
+    model_cls = get_track_model(format_type)
     async with async_session() as session:
         async with session.begin():
             for track_data in track_lists:
@@ -26,7 +40,7 @@ async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
                 )
                 await session.merge(album_obj)
 
-                track_obj = database.Tracks(
+                track_obj = model_cls(
                     artist=track_data.artist,
                     album=track_data.album,
                     album_id=track_data.album_id,
@@ -40,16 +54,16 @@ async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema]):
                     artwork=track_data.artwork,
                 )
                 await session.merge(track_obj)
-            # The context manager session.begin() will automatically commit at the end.
 
 
-async def save_single_track(session: AsyncSession, track_data: schema.TrackInputSchema):
+async def save_single_track(session: async_session, track_data: schema.TrackInputSchema, format_type: str = "alac"):
     """
     Saves or updates a single track in the database.
     Note: It does not call commit directly; it's expected to be managed by the session context.
     Args:
         session: The active database session.
         track_data: The track data schema to save.
+        format_type: Quality format ('alac', 'aac', or 'atmos').
     """
     album_obj = database.Albums(
         album_id=track_data.album_id,
@@ -59,7 +73,8 @@ async def save_single_track(session: AsyncSession, track_data: schema.TrackInput
     )
     await session.merge(album_obj)
     
-    track_obj = database.Tracks(
+    model_cls = get_track_model(format_type)
+    track_obj = model_cls(
         artist=track_data.artist,
         album=track_data.album,
         album_id=track_data.album_id,
@@ -78,23 +93,25 @@ async def save_single_track(session: AsyncSession, track_data: schema.TrackInput
     await session.merge(track_obj)
 
 
-async def check_db_for_urls(track_lists: List[schema.TrackInputSchema]) -> Tuple[List[str], List[str]]:
+async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_type: str = "alac") -> Tuple[List[str], List[str]]:
     """
     Checks the database for existing tracks by ISRC to avoid re-downloading.
     Args:
         track_lists: List of tracks to check.
+        format_type: Quality format ('alac', 'aac', or 'atmos').
     Returns:
         A tuple containing:
             - List of file_ids for tracks already in the database.
             - List of URLs for tracks that need to be downloaded.
     """
     isrcs = [track.isrc for track in track_lists if track.isrc]
+    model_cls = get_track_model(format_type)
 
     async with async_session() as session:
         if not isrcs:
             return [], [str(track.url) for track in track_lists if track.url]
 
-        statement = select(Tracks).where(Tracks.isrc.in_(isrcs))
+        statement = select(model_cls).where(model_cls.isrc.in_(isrcs))
         result = await session.exec(statement)
         db_tracks = result.all()
 

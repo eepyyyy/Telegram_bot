@@ -44,6 +44,48 @@ class Tracks(SQLModel, table=True):
     message_id: Optional[int] = Field(default=None)
 
 
+class AACTracks(SQLModel, table=True):
+    """
+    SQLModel for the 'aac_tracks' table to store AAC cached audio files.
+    """
+    __tablename__ = "aac_tracks"
+    file_id: Optional[str] = None
+    file_unique_id: Optional[str] = None
+    song_id: Optional[str] = Field(primary_key=True)
+    title: Optional[str] = None
+    album: Optional[str] = None
+    artist: Optional[str] = None
+    url: Optional[str] = None
+    album_id: Optional[str] = Field(default=None, foreign_key="albums.album_id")
+    size: Optional[int] = Field(sa_type=BigInteger)
+    storefront: Optional[str] = None
+    isrc: Optional[str] = None
+    artwork: Optional[str] = None
+    chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
+    message_id: Optional[int] = Field(default=None)
+
+
+class AtmosTracks(SQLModel, table=True):
+    """
+    SQLModel for the 'atmos_tracks' table to store Dolby Atmos cached audio files.
+    """
+    __tablename__ = "atmos_tracks"
+    file_id: Optional[str] = None
+    file_unique_id: Optional[str] = None
+    song_id: Optional[str] = Field(primary_key=True)
+    title: Optional[str] = None
+    album: Optional[str] = None
+    artist: Optional[str] = None
+    url: Optional[str] = None
+    album_id: Optional[str] = Field(default=None, foreign_key="albums.album_id")
+    size: Optional[int] = Field(sa_type=BigInteger)
+    storefront: Optional[str] = None
+    isrc: Optional[str] = None
+    artwork: Optional[str] = None
+    chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
+    message_id: Optional[int] = Field(default=None)
+
+
 class User(SQLModel, table=True):
     """
     SQLModel for the 'user' table to handle download limits and premium status.
@@ -76,6 +118,10 @@ async def init_db():
         await conn.run_sync(SQLModel.metadata.create_all)
         await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
 
 
 

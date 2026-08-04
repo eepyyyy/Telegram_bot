@@ -6,7 +6,9 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 
 from aac import aac, aac_worker
+from atmos import atmos, atmos_worker
 from artist import test_router
+from help import help_router
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -86,10 +88,12 @@ async def cmd_start(msg: types.Message) -> None:
         f"• <b>Daily Limit:</b> 50 downloads per day (cached files do not count)\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
+        f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
         f"<b>How to Use</b>\n"
         f"Send any track, album, or artist link directly to this chat.\n\n"
         f"<b>Shortcuts & Commands</b>\n"
         f"• Inline search: @applemusicdw_bot\n"
+        f"• For finding different and IN storefront: https://am-l.eepy.in/\n"
         f"• View all commands: /help"
     )
 
@@ -531,6 +535,8 @@ async def main() -> None:
         )
     dp.include_router(test_router)
     dp.include_router(aac)
+    dp.include_router(atmos)
+    dp.include_router(help_router)
 
     # Start 3 concurrent workers
     for _ in range(3):
@@ -539,6 +545,10 @@ async def main() -> None:
     # Start 10 concurrent AAC workers
     for _ in range(10):
         asyncio.create_task(aac_worker())
+
+    # Start 10 concurrent Atmos workers
+    for _ in range(10):
+        asyncio.create_task(atmos_worker())
 
     print("Bot is starting...")
     await dp.start_polling(bot)
