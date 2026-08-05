@@ -21,7 +21,7 @@ dependencies = [
     "construct==2.8.8",
     "dataclass-click==1.0.4",
     "frozenlist==1.8.0",
-    "gamdl==3.7.4",
+    "gamdl>=3.8.4",
     "greenlet==3.5.3",
     "h11==0.16.0",
     "httpcore==1.0.9",
