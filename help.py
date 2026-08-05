@@ -1,8 +1,10 @@
 import re
 import html
+import httpx
 from aiogram import Router, types
 from aiogram.filters import Command, CommandObject
 from aiogram.enums import ParseMode
+from aiogram.types import BufferedInputFile
 
 from gamdlHelpUrl import get_url_metadata
 
@@ -221,6 +223,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         text = f"ℹ️ <b>Metadata:</b>\n{escape_html(str(meta))}"
 
     artwork_url = meta.get("artwork")
+    animated_artwork = meta.get("animated_artwork")
 
     # Clean up status message
     try:
@@ -228,27 +231,50 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
     except Exception:
         pass
 
-    # Send main image on top (if artwork available)
+    media_sent = False
+
+    # 1. Send main static artwork photo with metadata card instantly (0.1s fast response)
+    photo_sent = False
     if artwork_url:
         try:
-            # If text is concise <= 950 chars, send photo with caption directly
             if len(text) <= 950:
                 await msg.answer_photo(photo=artwork_url, caption=text, parse_mode=ParseMode.HTML)
-                return
+                photo_sent = True
             else:
-                # For long texts (e.g. albums/artists with tracklists/catalogs), send main photo first then text message
-                await msg.answer_photo(photo=artwork_url, caption=f"📸 <b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>", parse_mode=ParseMode.HTML)
+                await msg.answer_photo(
+                    photo=artwork_url,
+                    caption=f"📸 <b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>",
+                    parse_mode=ParseMode.HTML
+                )
+                photo_sent = True
+                await msg.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            photo_sent = False
+
+    if not photo_sent:
+        try:
+            await msg.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+            for chunk in chunks:
+                try:
+                    await msg.answer(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                except Exception:
+                    pass
+
+    # 2. If Animated Artwork (Motion Cover) is available, send looping video animation follow-up
+    if animated_artwork:
+        try:
+            headers = {"User-Agent": "iTunes/12.11.0.26 (Windows; Microsoft Windows 10 x64) AppleWebKit/537.36"}
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=5.0) as client:
+                res = await client.get(animated_artwork)
+                if res.status_code == 200 and len(res.content) > 0:
+                    input_file = BufferedInputFile(res.content, filename="motion_cover.mp4")
+                    await msg.answer_animation(
+                        animation=input_file,
+                        caption=f"🎥 <b>{escape_html(meta.get('title', meta.get('name', 'Animated Cover')))} (Motion Cover)</b>",
+                        parse_mode=ParseMode.HTML
+                    )
         except Exception:
             pass
 
-    # Send detailed text message with copyable URLs
-    try:
-        await msg.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    except Exception:
-        # Fallback if text is somehow extremely long
-        chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-        for chunk in chunks:
-            try:
-                await msg.answer(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-            except Exception:
-                pass
