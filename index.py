@@ -21,9 +21,19 @@ from database import User, get_session_maker
 from gamdlUrl import get_any_url
 from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks, is_user_busy
 
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+
 load_dotenv()
 
 TOKEN_API = os.getenv("TOKEN_API")
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://your-domain.com")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "super_secret_webhook_token_123")
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+LISTEN_HOST = os.getenv("WEBHOOK_LISTEN_HOST", "0.0.0.0")
+LISTEN_PORT = int(os.getenv("WEBHOOK_LISTEN_PORT", 8080))
 
 dp = Dispatcher()
 async_session = get_session_maker()
@@ -518,25 +528,11 @@ async def worker() -> None:
                     user_pending_jobs[user_id] = remaining
                 download_queue.task_done()
 
-async def main() -> None:
+async def on_startup(bot: Bot) -> None:
     """
-    Main entry point for the bot.
+    Startup handler: initializes database, background workers, and sets the webhook.
     """
     await database.init_db()
-
-    local_server_url = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8081")
-    print(f"Using local Telegram API server: {local_server_url}")
-    local_server = TelegramAPIServer.from_base(local_server_url)
-    session = AiohttpSession(api=local_server, timeout=300)
-    bot = Bot(
-        token=TOKEN_API,
-        session=session,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
-    dp.include_router(test_router)
-    dp.include_router(aac)
-    dp.include_router(atmos)
-    dp.include_router(help_router)
 
     # Start 3 concurrent workers
     for _ in range(3):
@@ -550,8 +546,70 @@ async def main() -> None:
     for _ in range(10):
         asyncio.create_task(atmos_worker())
 
-    print("Bot is starting...")
-    await dp.start_polling(bot)
+    # Set webhook on local Telegram API server
+    logging.info(f"Setting webhook to: {WEBHOOK_URL}")
+    await bot.set_webhook(
+        url=WEBHOOK_URL,
+        secret_token=WEBHOOK_SECRET,
+        drop_pending_updates=True,
+    )
+    logging.info("Webhook successfully configured.")
+
+
+async def on_shutdown(bot: Bot) -> None:
+    """
+    Shutdown handler: removes the webhook when the server stops.
+    """
+    logging.info("Deleting webhook...")
+    await bot.delete_webhook()
+    logging.info("Webhook successfully deleted.")
+
+
+def main() -> None:
+    """
+    Main entry point for the bot using Webhooks with forced Local Telegram API server.
+    """
+    local_server_url = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8081")
+    if not local_server_url:
+        raise ValueError("LOCAL_SERVER_URL environment variable must be set to use local Telegram API server.")
+
+    logging.info(f"Enforcing local Telegram API server: {local_server_url}")
+    local_server = TelegramAPIServer.from_base(local_server_url)
+    session = AiohttpSession(api=local_server, timeout=300)
+
+    bot = Bot(
+        token=TOKEN_API,
+        session=session,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+
+    dp.include_router(test_router)
+    dp.include_router(aac)
+    dp.include_router(atmos)
+    dp.include_router(help_router)
+
+    # Register lifecycle hooks
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    # Create aiohttp web application
+    app = web.Application()
+
+    # Create request handler for aiogram updates
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=WEBHOOK_SECRET,
+    )
+
+    # Register webhook handler on path
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+
+    # Bind app & dispatcher together
+    setup_application(app, dp, bot=bot)
+
+    logging.info(f"Starting webhook web server on {LISTEN_HOST}:{LISTEN_PORT}...")
+    web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT)
 
 
 def setup_bot_logging():
@@ -579,4 +637,4 @@ def setup_bot_logging():
 
 if __name__ == "__main__":
     setup_bot_logging()
-    asyncio.run(main())
+    main()

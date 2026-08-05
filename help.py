@@ -221,6 +221,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         text = f"ℹ️ <b>Metadata:</b>\n{escape_html(str(meta))}"
 
     artwork_url = meta.get("artwork")
+    animated_artwork = meta.get("animated_artwork")
 
     # Clean up status message
     try:
@@ -228,16 +229,36 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
     except Exception:
         pass
 
-    # Send main image on top (if artwork available)
-    if artwork_url:
+    media_sent = False
+
+    # 1. Try sending Animated Artwork (Motion Artwork) as looping animation if available
+    if animated_artwork:
         try:
-            # If text is concise <= 950 chars, send photo with caption directly
+            if len(text) <= 950:
+                await msg.answer_animation(animation=animated_artwork, caption=text, parse_mode=ParseMode.HTML)
+                return
+            else:
+                await msg.answer_animation(
+                    animation=animated_artwork,
+                    caption=f"🎥 <b>{escape_html(meta.get('title', meta.get('name', 'Animated Cover')))} (Motion Artwork)</b>",
+                    parse_mode=ParseMode.HTML
+                )
+                media_sent = True
+        except Exception:
+            media_sent = False
+
+    # 2. Fallback / Default static artwork photo
+    if not media_sent and artwork_url:
+        try:
             if len(text) <= 950:
                 await msg.answer_photo(photo=artwork_url, caption=text, parse_mode=ParseMode.HTML)
                 return
             else:
-                # For long texts (e.g. albums/artists with tracklists/catalogs), send main photo first then text message
-                await msg.answer_photo(photo=artwork_url, caption=f"📸 <b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>", parse_mode=ParseMode.HTML)
+                await msg.answer_photo(
+                    photo=artwork_url,
+                    caption=f"📸 <b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>",
+                    parse_mode=ParseMode.HTML
+                )
         except Exception:
             pass
 
@@ -252,3 +273,4 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
                 await msg.answer(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             except Exception:
                 pass
+

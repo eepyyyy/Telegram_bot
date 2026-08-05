@@ -41,6 +41,39 @@ def get_artwork_url(artwork_dict: Optional[dict], size: int = 1000) -> Optional[
     return url.replace("{w}", str(size)).replace("{h}", str(size))
 
 
+async def fetch_animated_artwork_url(api: AppleMusicApi, attrs: dict) -> Optional[str]:
+    """
+    Extracts high-resolution MP4 video URL for Apple Music motion / animated artwork.
+    """
+    if not attrs or not isinstance(attrs, dict):
+        return None
+
+    ed = attrs.get("editorialVideo", {})
+    if not ed or not isinstance(ed, dict):
+        return None
+
+    for key in ["motionDetailSquare", "motionSquare", "motionDetailTall", "motionTall"]:
+        v_info = ed.get(key)
+        if isinstance(v_info, dict):
+            direct_v = v_info.get("video") or v_info.get("videoUrl")
+            if direct_v:
+                return direct_v
+
+            resp_url = v_info.get("responseUrl")
+            if resp_url:
+                try:
+                    resp = await api.session.get(resp_url)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        resolver = data.get("videoResolver", {})
+                        video_url = resolver.get("videoUrl") or resolver.get("hlsUrl")
+                        if video_url:
+                            return video_url
+                except Exception:
+                    pass
+    return None
+
+
 def format_duration(duration_ms: Optional[int]) -> str:
     """
     Formats milliseconds into mm:ss or hh:mm:ss.
@@ -77,9 +110,9 @@ def album_url_to_song_url(url: str) -> str:
         return url
 
 
-def parse_available_formats(audio_traits: Optional[List[str]]) -> Dict[str, Any]:
+def parse_available_formats(audio_traits: Optional[List[str]], has_animated_artwork: bool = False) -> Dict[str, Any]:
     """
-    Parses audioTraits into availability status for AAC, ALAC Lossless, Hi-Res Lossless, and Dolby Atmos.
+    Parses audioTraits into availability status for AAC, ALAC Lossless, Hi-Res Lossless, Dolby Atmos, and Animated Artwork.
     """
     traits = [t.lower() for t in (audio_traits or [])]
 
@@ -103,11 +136,17 @@ def parse_available_formats(audio_traits: Optional[List[str]]) -> Dict[str, Any]
     else:
         formats_list.append("• <b>Dolby Atmos (Spatial Audio):</b> ❌ Not Available")
 
+    if has_animated_artwork:
+        formats_list.append("• <b>Animated Artwork:</b> ✅ Available (Motion Artwork)")
+    else:
+        formats_list.append("• <b>Animated Artwork:</b> ❌ Not Available")
+
     return {
         "has_aac": has_aac,
         "has_alac": has_alac,
         "has_hi_res": has_hi_res,
         "has_atmos": has_atmos,
+        "has_animated_artwork": has_animated_artwork,
         "formats_text": "\n".join(formats_list)
     }
 
@@ -127,9 +166,18 @@ async def get_song_metadata(url: str) -> Dict[str, Any]:
     Fetches comprehensive track details and metadata for a single song.
     """
     api = await get_api()
+    info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     song_id = extract_song_id_from_url(url)
 
-    song = await api.get_song(song_id)
+    try:
+        song = await api._amp_request(
+            f"v1/catalog/{storefront}/songs/{song_id}",
+            params={"include": "albums,editorial-video"}
+        )
+    except Exception:
+        song = await api.get_song(song_id)
+
     if not song or "data" not in song or not song["data"]:
         raise ValueError(f"Song with ID {song_id} not found.")
 
@@ -142,10 +190,26 @@ async def get_song_metadata(url: str) -> Dict[str, Any]:
         album_id = albums_rel[0].get("id", "")
 
     href_parts = data.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
+
+    animated_url = await fetch_animated_artwork_url(api, attrs)
+
+    # Check parent album if song node lacks editorialVideo
+    if not animated_url and album_id:
+        try:
+            album_res = await api._amp_request(
+                f"v1/catalog/{storefront}/albums/{album_id}",
+                params={"include": "editorial-video"}
+            )
+            if album_res and "data" in album_res and album_res["data"]:
+                album_attrs = album_res["data"][0].get("attributes", {})
+                animated_url = await fetch_animated_artwork_url(api, album_attrs)
+        except Exception:
+            pass
 
     audio_traits = attrs.get("audioTraits", [])
-    formats_info = parse_available_formats(audio_traits)
+    formats_info = parse_available_formats(audio_traits, has_animated_artwork=bool(animated_url))
 
     return {
         "type": "song",
@@ -169,6 +233,7 @@ async def get_song_metadata(url: str) -> Dict[str, Any]:
         "url": attrs.get("url", url),
         "storefront": storefront,
         "artwork": get_artwork_url(attrs.get("artwork")),
+        "animated_artwork": animated_url,
     }
 
 
@@ -178,9 +243,17 @@ async def get_album_metadata(url: str) -> Dict[str, Any]:
     """
     api = await get_api()
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     album_id = info.id
 
-    album = await api.get_album(album_id)
+    try:
+        album = await api._amp_request(
+            f"v1/catalog/{storefront}/albums/{album_id}",
+            params={"include": "tracks,editorial-video"}
+        )
+    except Exception:
+        album = await api.get_album(album_id)
+
     if not album or "data" not in album or not album["data"]:
         raise ValueError(f"Album with ID {album_id} not found.")
 
@@ -189,7 +262,10 @@ async def get_album_metadata(url: str) -> Dict[str, Any]:
     tracks_data = album_node.get("relationships", {}).get("tracks", {}).get("data", [])
 
     href_parts = album_node.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
+
+    animated_url = await fetch_animated_artwork_url(api, attrs)
 
     tracks = []
     for track in tracks_data:
@@ -210,7 +286,7 @@ async def get_album_metadata(url: str) -> Dict[str, Any]:
         })
 
     audio_traits = attrs.get("audioTraits", [])
-    formats_info = parse_available_formats(audio_traits)
+    formats_info = parse_available_formats(audio_traits, has_animated_artwork=bool(animated_url))
 
     return {
         "type": "album",
@@ -229,6 +305,7 @@ async def get_album_metadata(url: str) -> Dict[str, Any]:
         "url": attrs.get("url", url),
         "storefront": storefront,
         "artwork": get_artwork_url(attrs.get("artwork")),
+        "animated_artwork": animated_url,
         "tracks": tracks,
     }
 
@@ -239,9 +316,17 @@ async def get_artist_metadata(url: str) -> Dict[str, Any]:
     """
     api = await get_api()
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     artist_id = info.id
 
-    artist = await api.get_artist(artist_id=artist_id)
+    try:
+        artist = await api._amp_request(
+            f"v1/catalog/{storefront}/artists/{artist_id}",
+            params={"include": "catalog,editorial-video", "views": "full-albums,singles,live-albums,compilation-albums"}
+        )
+    except Exception:
+        artist = await api.get_artist(artist_id=artist_id)
+
     if not artist or "data" not in artist or not artist["data"]:
         raise ValueError(f"Artist with ID {artist_id} not found.")
 
@@ -249,7 +334,10 @@ async def get_artist_metadata(url: str) -> Dict[str, Any]:
     attrs = artist_data.get("attributes", {})
 
     href_parts = artist_data.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
+
+    animated_url = await fetch_animated_artwork_url(api, attrs)
 
     selection = {
         "Full Albums": [],
@@ -285,6 +373,7 @@ async def get_artist_metadata(url: str) -> Dict[str, Any]:
         "url": attrs.get("url", url),
         "storefront": storefront,
         "artwork": get_artwork_url(attrs.get("artwork")),
+        "animated_artwork": animated_url,
         "categories": selection
     }
 
@@ -295,9 +384,17 @@ async def get_playlist_metadata(url: str) -> Dict[str, Any]:
     """
     api = await get_api()
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     playlist_id = info.id
 
-    playlist = await api.get_playlist(playlist_id)
+    try:
+        playlist = await api._amp_request(
+            f"v1/catalog/{storefront}/playlists/{playlist_id}",
+            params={"include": "tracks,editorial-video"}
+        )
+    except Exception:
+        playlist = await api.get_playlist(playlist_id)
+
     if not playlist or "data" not in playlist or not playlist["data"]:
         raise ValueError(f"Playlist with ID {playlist_id} not found.")
 
@@ -306,7 +403,10 @@ async def get_playlist_metadata(url: str) -> Dict[str, Any]:
     tracks_data = playlist_node.get("relationships", {}).get("tracks", {}).get("data", [])
 
     href_parts = playlist_node.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
+
+    animated_url = await fetch_animated_artwork_url(api, attrs)
 
     tracks = []
     for track in tracks_data:
@@ -340,6 +440,7 @@ async def get_playlist_metadata(url: str) -> Dict[str, Any]:
         "url": attrs.get("url", url),
         "storefront": storefront,
         "artwork": get_artwork_url(attrs.get("artwork")),
+        "animated_artwork": animated_url,
         "tracks": tracks,
     }
 
