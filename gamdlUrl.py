@@ -53,6 +53,8 @@ def album_url_to_song_url(url: str) -> str:
     """
     parsed = urlparse(url)
     parts = parsed.path.strip("/").split("/")
+    if len(parts) < 3:
+        return url
 
     storefront = parts[0]
     slug = parts[2]
@@ -88,24 +90,35 @@ async def get_track_schema(url: str) -> List[TrackInputSchema]:
     Fetches metadata for a single track and returns it as a list containing one TrackInputSchema.
     """
     api = await get_api()
+    info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     song_id = extract_song_id_from_url(url)
 
-    song = await api.get_song(song_id)
+    try:
+        song = await api._amp_request(f"v1/catalog/{storefront}/songs/{song_id}")
+    except Exception:
+        song = await api.get_song(song_id)
+
+    if not song or "data" not in song or not song["data"]:
+        raise ValueError(f"Song with ID {song_id} not found.")
+
     data = song["data"][0]
-    attrs = data["attributes"]
-    album_id = data["relationships"]["albums"]["data"][0]["id"]
-    
+    attrs = data.get("attributes", {})
+    albums_rel = data.get("relationships", {}).get("albums", {}).get("data", [])
+    album_id = albums_rel[0]["id"] if albums_rel else ""
+
     href_parts = data.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
 
     return [
         TrackInputSchema(
             album_id=album_id,
-            song_id=data["id"],
-            title=attrs["name"],
-            artist=attrs["artistName"],
+            song_id=data.get("id", song_id),
+            title=attrs.get("name", "Unknown Title"),
+            artist=attrs.get("artistName", "Unknown Artist"),
             album=attrs.get("albumName", ""),
-            url=attrs["url"],
+            url=attrs.get("url", url),
             storefront=storefront,
             isrc=attrs.get("isrc"),
             artwork=get_artwork_url(attrs.get("artwork"))
@@ -118,34 +131,40 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
     Fetches metadata for all tracks in an album.
     """
     api = await get_api()
-
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     album_id = info.id
 
-    album = await api.get_album(album_id)
+    try:
+        album = await api._amp_request(f"v1/catalog/{storefront}/albums/{album_id}")
+    except Exception:
+        album = await api.get_album(album_id)
+
+    if not album or "data" not in album or not album["data"]:
+        raise ValueError(f"Album with ID {album_id} not found.")
+
     album_node = album["data"][0]
-    tracks = album["data"][0]["relationships"]["tracks"]["data"]
+    tracks = album_node.get("relationships", {}).get("tracks", {}).get("data", [])
 
     href_parts = album_node.get("href", "").split("/")
-    storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    if len(href_parts) > 3:
+        storefront = href_parts[3]
 
     lists_of_tracks: List[TrackInputSchema] = []
-
-
 
     for track in tracks:
         if track.get("type") != "songs":
             continue
 
-        attrs = track["attributes"]
+        attrs = track.get("attributes", {})
         lists_of_tracks.append(
             TrackInputSchema(
-                album_id=album["data"][0]["id"],
-                song_id=track["id"],
-                title=attrs["name"],
-                artist=attrs["artistName"],
+                album_id=album_node.get("id", album_id),
+                song_id=track.get("id"),
+                title=attrs.get("name", "Unknown Track"),
+                artist=attrs.get("artistName", "Unknown Artist"),
                 album=attrs.get("albumName", ""),
-                url=album_url_to_song_url(attrs["url"]),
+                url=album_url_to_song_url(attrs.get("url", "")),
                 storefront=storefront,
                 isrc=attrs.get("isrc"),
                 artwork=get_artwork_url(attrs.get("artwork"))
@@ -154,18 +173,27 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
 
     return lists_of_tracks
 
+
 async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     """
-
-    Returns:
-        List[Dict]:
+    Returns artist catalog grouped by category.
     """
     api = await get_api()
-
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     artist_id = info.id
 
-    artist = await api.get_artist(artist_id=artist_id)
+    try:
+        artist = await api._amp_request(
+            f"v1/catalog/{storefront}/artists/{artist_id}",
+            params={"views": "full-albums,singles,live-albums,compilation-albums"}
+        )
+    except Exception:
+        artist = await api.get_artist(artist_id=artist_id)
+
+    if not artist or "data" not in artist or not artist["data"]:
+        raise ValueError(f"Artist with ID {artist_id} not found.")
+
     artist_data = artist["data"][0]
 
     selection = {
@@ -175,13 +203,14 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
         'compilation-albums': [],
     }
 
+    views = artist_data.get('views', {})
     for section in selection:
-        for album_item in artist_data['views'].get(section, {}).get("data", []):
-            attrs = album_item["attributes"]
+        for album_item in views.get(section, {}).get("data", []):
+            attrs = album_item.get("attributes", {})
             album_dict = {
-                "name": attrs["name"],
+                "name": attrs.get("name", "Unknown Album"),
                 "trackCount": attrs.get("trackCount"),
-                "url": attrs.get("url"),
+                "url": attrs.get("url", ""),
                 "artwork": get_artwork_url(attrs.get("artwork")),
             }
             selection[section].append(album_dict)
@@ -193,22 +222,28 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
     )
 
 
-
 async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     """
     Fetches metadata for all tracks in a playlist.
     """
     api = await get_api()
-
     info = AppleMusicInterface.get_url_info(url)
+    storefront = info.storefront or "us"
     playlist_id = info.id
 
-    playlist = await api.get_playlist(playlist_id)
+    try:
+        playlist = await api._amp_request(f"v1/catalog/{storefront}/playlists/{playlist_id}")
+    except Exception:
+        playlist = await api.get_playlist(playlist_id)
+
+    if not playlist or "data" not in playlist or not playlist["data"]:
+        raise ValueError(f"Playlist with ID {playlist_id} not found.")
+
     playlist_node = playlist["data"][0]
-    tracks = playlist["data"][0]["relationships"]["tracks"]["data"]
+    tracks = playlist_node.get("relationships", {}).get("tracks", {}).get("data", [])
 
     href_parts = playlist_node.get("href", "").split("/")
-    playlist_storefront = href_parts[3] if len(href_parts) > 3 else "us"
+    playlist_storefront = href_parts[3] if len(href_parts) > 3 else storefront
 
     lists_of_tracks: List[TrackInputSchema] = []
 
@@ -216,12 +251,11 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
         if track.get("type") != "songs":
             continue
 
-        attrs = track["attributes"]
+        attrs = track.get("attributes", {})
         track_url = attrs.get("url", "")
 
         if not track_url or "name" not in attrs:
             continue
-
 
         try:
             parsed_url = urlparse(track_url)
@@ -233,11 +267,11 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
         lists_of_tracks.append(
             TrackInputSchema(
                 album_id=album_id,
-                song_id=track["id"],
-                title=attrs["name"],
-                artist=attrs["artistName"],
+                song_id=track.get("id"),
+                title=attrs.get("name", "Unknown Track"),
+                artist=attrs.get("artistName", "Unknown Artist"),
                 album=attrs.get("albumName", ""),
-                url=album_url_to_song_url(attrs["url"]),
+                url=album_url_to_song_url(attrs.get("url", "")),
                 storefront=playlist_storefront,
                 isrc=attrs.get("isrc"),
                 artwork=get_artwork_url(attrs.get("artwork")),
@@ -268,25 +302,10 @@ async def get_any_url(url: str) -> List[TrackInputSchema]:
 
 
 async def _main_test():
-    """
-    Runs a suite of tests to verify metadata fetching and shared API handling.
-    """
-    # url = "https://music.apple.com/us/song/wicked-games/1714908987"
-    # print(f"Testing URL: {url}")
-    #
-    # # 1. Sequential calls in the same loop
-    # test1 = await get_any_url(url)
-    # print(f"Sequential call 1: Success (ISRC: {test1[0].isrc})")
-    #
-    # # 2. Concurrent calls in the same loop
-    # results = await asyncio.gather(get_any_url(url), get_any_url(url))
-    # print(f"Concurrent calls: Success (Count: {len(results)})")
-    url = "https://music.apple.com/in/song/heart-to-heart/1452955723"
+    url = "https://music.apple.com/us/album/so-be-it-remix/1676681781?i=1676681788"
     test = await get_any_url(url)
-    print(test)
+    print("TEST TRACK SCHEMA:", test)
 
 
 if __name__ == "__main__":
-    # Test 1: First asyncio.run call
-    print("--- Event Loop 1 ---")
     asyncio.run(_main_test())
