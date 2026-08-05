@@ -325,7 +325,10 @@ async def get_artist_metadata(url: str) -> Dict[str, Any]:
             params={"include": "catalog,editorial-video", "views": "full-albums,singles,live-albums,compilation-albums"}
         )
     except Exception:
-        artist = await api.get_artist(artist_id=artist_id)
+        artist = await api._amp_request(
+            f"v1/catalog/{storefront}/artists/{artist_id}",
+            params={"views": "full-albums,singles,live-albums,compilation-albums"}
+        )
 
     if not artist or "data" not in artist or not artist["data"]:
         raise ValueError(f"Artist with ID {artist_id} not found.")
@@ -393,7 +396,7 @@ async def get_playlist_metadata(url: str) -> Dict[str, Any]:
             params={"include": "tracks,editorial-video"}
         )
     except Exception:
-        playlist = await api.get_playlist(playlist_id)
+        playlist = await api._amp_request(f"v1/catalog/{storefront}/playlists/{playlist_id}")
 
     if not playlist or "data" not in playlist or not playlist["data"]:
         raise ValueError(f"Playlist with ID {playlist_id} not found.")
