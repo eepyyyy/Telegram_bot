@@ -524,24 +524,15 @@ async def main() -> None:
     """
     await database.init_db()
 
-    local_server_url = os.getenv("LOCAL_SERVER_URL")
-    if local_server_url:
-        print(f"Using local Telegram API server: {local_server_url}")
-        local_server = TelegramAPIServer.from_base(local_server_url)
-        session = AiohttpSession(api=local_server, timeout=300)
-        bot = Bot(
-            token=TOKEN_API,
-            session=session,
-            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-        )
-    else:
-        print("Using production Telegram API server")
-        session = AiohttpSession(timeout=300)
-        bot = Bot(
-            token=TOKEN_API,
-            session=session,
-            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-        )
+    local_server_url = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8081")
+    print(f"Using local Telegram API server: {local_server_url}")
+    local_server = TelegramAPIServer.from_base(local_server_url)
+    session = AiohttpSession(api=local_server, timeout=300)
+    bot = Bot(
+        token=TOKEN_API,
+        session=session,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
     dp.include_router(test_router)
     dp.include_router(aac)
     dp.include_router(atmos)
