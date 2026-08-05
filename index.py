@@ -262,12 +262,14 @@ async def process_download(task: dict) -> None:
         except Exception:
             pass
 
+        task_temp_dir = f"{task_output_dir}_temp"
         await asyncio.to_thread(os.makedirs, task_output_dir, exist_ok=True)
+        await asyncio.to_thread(os.makedirs, task_temp_dir, exist_ok=True)
         
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "--output-path", task_output_dir,
-            "--temp-path", task_output_dir,
+            "--temp-path", task_temp_dir,
             *tracks_to_download,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -295,11 +297,16 @@ async def process_download(task: dict) -> None:
             if line:
                 print(f"[gamdl] {line}")
 
-            # Check for finalized .m4a files in output directory
+            # Check for finalized .m4a files in output directory (ignoring temp/encrypted files)
             downloaded_files = await asyncio.to_thread(
                 glob.glob, f"{task_output_dir}/**/*.m4a", recursive=True
             )
             for file_path in downloaded_files:
+                norm_p = file_path.replace("\\", "/")
+                filename = os.path.basename(norm_p)
+                if "gamdl_temp" in norm_p or "_temp" in norm_p or filename.endswith("_encrypted.m4a") or filename.endswith(".tmp"):
+                    continue
+
                 if active_tasks.get(unique_task_id, {}).get("cancelled"):
                     try:
                         process.terminate()
@@ -449,11 +456,12 @@ async def process_download(task: dict) -> None:
                 await process.wait()
             except ProcessLookupError:
                 pass
-        if await asyncio.to_thread(os.path.exists, task_output_dir):
-            try:
-                await asyncio.to_thread(shutil.rmtree, task_output_dir)
-            except Exception as e:
-                print(f"Failed to delete {task_output_dir}: {e}")
+        for dir_to_clean in (task_output_dir, f"{task_output_dir}_temp"):
+            if await asyncio.to_thread(os.path.exists, dir_to_clean):
+                try:
+                    await asyncio.to_thread(shutil.rmtree, dir_to_clean)
+                except Exception as e:
+                    print(f"Failed to delete {dir_to_clean}: {e}")
 
 
 

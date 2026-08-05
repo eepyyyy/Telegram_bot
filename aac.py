@@ -139,14 +139,17 @@ async def process_aac_download(task: dict) -> None:
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     process = None
 
+    temp_dir = f"{output_dir}_temp"
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
+        await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
         # Start downloading
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "-n",
             "--output-path", output_dir,
+            "--temp-path", temp_dir,
             "--song-codec-priority", "aac-web",
             track_url,
             stdout=asyncio.subprocess.PIPE,
@@ -165,11 +168,16 @@ async def process_aac_download(task: dict) -> None:
             if line:
                 print(f"[gamdl AAC] {line}")
 
-            # Check for new files
+            # Check for new finalized files
             downloaded_files = await asyncio.to_thread(
-                glob.glob, os.path.join(output_dir, "**", "*.m4a*"), recursive=True
+                glob.glob, os.path.join(output_dir, "**", "*.m4a"), recursive=True
             )
             for file_path in downloaded_files:
+                norm_p = file_path.replace("\\", "/")
+                filename = os.path.basename(norm_p)
+                if "gamdl_temp" in norm_p or "_temp" in norm_p or filename.endswith("_encrypted.m4a") or filename.endswith(".tmp"):
+                    continue
+
                 if file_path not in uploaded_files:
                     uploaded_files.add(file_path)
 
@@ -293,11 +301,12 @@ async def process_aac_download(task: dict) -> None:
             except ProcessLookupError:
                 pass
 
-        if await asyncio.to_thread(os.path.exists, output_dir):
-            try:
-                await asyncio.to_thread(shutil.rmtree, output_dir)
-            except Exception as e:
-                print(f"Failed to delete {output_dir}: {e}")
+        for d_clean in (output_dir, temp_dir):
+            if await asyncio.to_thread(os.path.exists, d_clean):
+                try:
+                    await asyncio.to_thread(shutil.rmtree, d_clean)
+                except Exception as e:
+                    print(f"Failed to delete {d_clean}: {e}")
 
 
 async def aac_worker() -> None:
