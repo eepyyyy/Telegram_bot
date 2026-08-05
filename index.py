@@ -1,6 +1,5 @@
 import asyncio, glob, os, re, shutil, logging, sys, crud, database, schema, utils
 from datetime import date, datetime, timezone
-from logging.handlers import RotatingFileHandler
 
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
@@ -579,20 +578,12 @@ def setup_bot_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # 3. Terminal Handler (Live streaming)
+    # 3. Terminal Handler (Live streaming to console only)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
 
-    # 4. File Handler with Rotation (Prevents bot logs from filling up your disk)
-    # Rolls over after 5 MB, keeping up to 3 backup files
-    file_handler = RotatingFileHandler(
-        "bot.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-
-    # 5. Attach handlers
+    # 4. Attach console handler
     logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
 
 
 if __name__ == "__main__":
