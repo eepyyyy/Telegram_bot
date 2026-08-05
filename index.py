@@ -613,7 +613,13 @@ def main() -> None:
 
 
 def setup_bot_logging():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
     # 1. Root logger configuration
+
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
