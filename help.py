@@ -265,16 +265,10 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
     # 2. If Animated Artwork (Motion Cover) is available, send looping video animation follow-up
     if animated_artwork:
         try:
-            headers = {"User-Agent": "iTunes/12.11.0.26 (Windows; Microsoft Windows 10 x64) AppleWebKit/537.36"}
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=5.0) as client:
-                res = await client.get(animated_artwork)
-                if res.status_code == 200 and len(res.content) > 0:
-                    input_file = BufferedInputFile(res.content, filename="motion_cover.mp4")
-                    await msg.answer_animation(
-                        animation=input_file,
-                        caption=f"🎥 <b>{escape_html(meta.get('title', meta.get('name', 'Animated Cover')))} (Motion Cover)</b>",
-                        parse_mode=ParseMode.HTML
-                    )
+            await msg.answer_animation(
+                animation=animated_artwork,
+                caption=f"🎥 <b>{escape_html(meta.get('title', meta.get('name', 'Animated Cover')))} (Motion Cover)</b>",
+                parse_mode=ParseMode.HTML
+            )
         except Exception:
             pass
-
