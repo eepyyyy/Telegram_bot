@@ -16,7 +16,7 @@ import crud
 import database
 from database import User, async_session
 from gamdlUrl import get_any_url
-from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks
+from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks, is_user_busy
 
 atmos = Router()
 
@@ -32,9 +32,9 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     user_id_local = msg.from_user.id
-    if user_id_local in atmos_in_queue:
+    if is_user_busy(user_id_local):
         try:
-            await msg.answer("⏳ You already have a Dolby Atmos download in progress. Please wait.")
+            await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
         except Exception:
             pass
         return

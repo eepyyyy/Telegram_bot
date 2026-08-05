@@ -19,7 +19,7 @@ from sqlmodel import select
 from dotenv import load_dotenv
 from database import User, get_session_maker
 from gamdlUrl import get_any_url
-from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks
+from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks, is_user_busy
 
 load_dotenv()
 
@@ -126,7 +126,7 @@ async def download_handle(msg: types.Message) -> None:
         return
 
     user_id_local = msg.from_user.id
-    if user_id_local in user_in_queue:
+    if is_user_busy(user_id_local):
         await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
         return
 

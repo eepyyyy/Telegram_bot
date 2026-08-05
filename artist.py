@@ -8,7 +8,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from gamdlUrl import get_artist_uls
-from queues import download_queue, user_in_queue, user_pending_jobs
+from queues import download_queue, user_in_queue, user_pending_jobs, is_user_busy
 
 test_router = Router()
 
@@ -190,7 +190,7 @@ async def handle_action(callback: CallbackQuery, state: FSMContext):
         urls = [item['url'] for item in chosen_objects]
         user_id_local = callback.from_user.id
 
-        if user_id_local in user_in_queue:
+        if is_user_busy(user_id_local):
             try:
                 await callback.answer("⏳ You already have a download task processing!", show_alert=True)
             except Exception:

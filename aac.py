@@ -16,7 +16,7 @@ import crud
 import database
 from database import User, async_session
 from gamdlUrl import get_any_url
-from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks
+from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks, is_user_busy
 
 aac = Router()
 
@@ -32,9 +32,9 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     user_id_local = msg.from_user.id
-    if user_id_local in aac_in_queue:
+    if is_user_busy(user_id_local):
         try:
-            await msg.answer("⏳ You already have an AAC download in progress. Please wait.")
+            await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
         except Exception:
             pass
         return
