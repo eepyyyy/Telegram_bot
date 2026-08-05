@@ -510,14 +510,14 @@ async def worker() -> None:
             except Exception as e:
                 print(f"Worker caught execution exception: {e}")
             finally:
+                remaining = user_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    user_pending_jobs.pop(user_id, None)
+                    user_in_queue.discard(user_id)
+                    user_locks.pop(user_id, None)
+                else:
+                    user_pending_jobs[user_id] = remaining
                 download_queue.task_done()
-        remaining = user_pending_jobs.get(user_id, 1) - 1
-        if remaining <= 0:
-            user_pending_jobs.pop(user_id, None)
-            user_in_queue.discard(user_id)
-            user_locks.pop(user_id, None)
-        else:
-            user_pending_jobs[user_id] = remaining
 
 async def main() -> None:
     """
@@ -529,7 +529,7 @@ async def main() -> None:
     if local_server_url:
         print(f"Using local Telegram API server: {local_server_url}")
         local_server = TelegramAPIServer.from_base(local_server_url)
-        session = AiohttpSession(api=local_server)
+        session = AiohttpSession(api=local_server, timeout=300)
         bot = Bot(
             token=TOKEN_API,
             session=session,
@@ -537,8 +537,10 @@ async def main() -> None:
         )
     else:
         print("Using production Telegram API server")
+        session = AiohttpSession(timeout=300)
         bot = Bot(
             token=TOKEN_API,
+            session=session,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML)
         )
     dp.include_router(test_router)

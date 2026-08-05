@@ -354,12 +354,11 @@ async def aac_worker() -> None:
             except Exception as e:
                 print(f"AAC worker caught execution exception: {e}")
             finally:
+                remaining = aac_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    aac_pending_jobs.pop(user_id, None)
+                    aac_in_queue.discard(user_id)
+                    aac_locks.pop(user_id, None)
+                else:
+                    aac_pending_jobs[user_id] = remaining
                 aac_queue.task_done()
-
-        remaining = aac_pending_jobs.get(user_id, 1) - 1
-        if remaining <= 0:
-            aac_pending_jobs.pop(user_id, None)
-            aac_in_queue.discard(user_id)
-            aac_locks.pop(user_id, None)
-        else:
-            aac_pending_jobs[user_id] = remaining

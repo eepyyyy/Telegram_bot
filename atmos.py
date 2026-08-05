@@ -354,12 +354,11 @@ async def atmos_worker() -> None:
             except Exception as e:
                 print(f"Atmos worker caught execution exception: {e}")
             finally:
+                remaining = atmos_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    atmos_pending_jobs.pop(user_id, None)
+                    atmos_in_queue.discard(user_id)
+                    atmos_locks.pop(user_id, None)
+                else:
+                    atmos_pending_jobs[user_id] = remaining
                 atmos_queue.task_done()
-
-        remaining = atmos_pending_jobs.get(user_id, 1) - 1
-        if remaining <= 0:
-            atmos_pending_jobs.pop(user_id, None)
-            atmos_in_queue.discard(user_id)
-            atmos_locks.pop(user_id, None)
-        else:
-            atmos_pending_jobs[user_id] = remaining
