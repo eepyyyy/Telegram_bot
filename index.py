@@ -419,12 +419,6 @@ async def process_download(task: dict) -> None:
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
                                         matched = True
-                                        try:
-                                            btn = InlineKeyboardBuilder()
-                                            btn.button(text="🎧 Direct Stream Link", url=f"{STREAM_SERVER_URL.rstrip('/')}/stream/alac/{original_track.song_id}")
-                                            await sent_msg.edit_reply_markup(reply_markup=btn.as_markup())
-                                        except Exception:
-                                            pass
                                         break
 
                             # 2. Fallback to normalized title match
@@ -439,12 +433,6 @@ async def process_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
-                                        try:
-                                            btn = InlineKeyboardBuilder()
-                                            btn.button(text="🎧 Direct Stream Link", url=f"{STREAM_SERVER_URL.rstrip('/')}/stream/alac/{original_track.song_id}")
-                                            await sent_msg.edit_reply_markup(reply_markup=btn.as_markup())
-                                        except Exception:
-                                            pass
                                         break
 
                         

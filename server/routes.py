@@ -72,6 +72,12 @@ async def stream_track(request: web.Request):
     if not message_id:
         raise web.HTTPBadRequest(text=f"Track {song_id} does not have a cached Telegram message_id.")
 
+    # Redirect to TG-FileStreamBot if enabled
+    if config.USE_FILESTREAMBOT_REDIRECT:
+        fsb_url = f"{config.FILESTREAMBOT_BASE_URL}/watch/{message_id}"
+        logger.info(f"Redirecting stream request for track {song_id} to TG-FileStreamBot: {fsb_url}")
+        raise web.HTTPFound(location=fsb_url)
+
     ext = "m4a" if format_type == "aac" else ("caf" if format_type == "atmos" else "flac")
     clean_title = "".join(c for c in (track.title or "track") if c.isalnum() or c in (" ", "_", "-")).strip()
     filename = f"{clean_title}.{ext}"
@@ -105,6 +111,12 @@ async def download_track(request: web.Request):
 
     if not message_id:
         raise web.HTTPBadRequest(text=f"Track {song_id} does not have a cached Telegram message_id.")
+
+    # Redirect to TG-FileStreamBot if enabled
+    if config.USE_FILESTREAMBOT_REDIRECT:
+        fsb_url = f"{config.FILESTREAMBOT_BASE_URL}/{message_id}?download=true"
+        logger.info(f"Redirecting download request for track {song_id} to TG-FileStreamBot: {fsb_url}")
+        raise web.HTTPFound(location=fsb_url)
 
     ext = "m4a" if format_type == "aac" else ("caf" if format_type == "atmos" else "flac")
     clean_title = "".join(c for c in (track.title or "track") if c.isalnum() or c in (" ", "_", "-")).strip()
