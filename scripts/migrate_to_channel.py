@@ -33,16 +33,20 @@ async def migrate_table(session, client: Client, model_cls, format_name: str):
             continue
 
         try:
-            # Copy message to target backup storage channel
-            copied_msg = await client.copy_media_group(
-                chat_id=config.STORAGE_CHANNEL_ID,
-                from_chat_id=track.chat_id,
-                message_id=track.message_id
-            ) if False else await client.copy_message(
-                chat_id=config.STORAGE_CHANNEL_ID,
-                from_chat_id=track.chat_id,
-                message_id=track.message_id
-            )
+            try:
+                copied_msg = await client.copy_message(
+                    chat_id=config.STORAGE_CHANNEL_ID,
+                    from_chat_id=track.chat_id,
+                    message_id=track.message_id
+                )
+            except Exception:
+                # Try resolving source chat peer first
+                await client.get_chat(track.chat_id)
+                copied_msg = await client.copy_message(
+                    chat_id=config.STORAGE_CHANNEL_ID,
+                    from_chat_id=track.chat_id,
+                    message_id=track.message_id
+                )
 
             # Update DB with new channel chat_id and message_id
             track.chat_id = copied_msg.chat.id
@@ -57,6 +61,7 @@ async def migrate_table(session, client: Client, model_cls, format_name: str):
             failed_count += 1
             logger.warning(f"Could not migrate track '{track.title}' ({track.song_id}) from chat {track.chat_id}/msg {track.message_id}: {e}")
 
+
     logger.info(f"Completed {format_name} migration: {migrated_count} migrated, {failed_count} skipped/failed.")
 
 
@@ -65,7 +70,12 @@ async def main():
     client = get_pyrogram_client()
     await client.start()
 
-    logger.info(f"Starting channel migration to target STORAGE_CHANNEL_ID ({config.STORAGE_CHANNEL_ID})...")
+    logger.info(f"Resolving storage channel peer {config.STORAGE_CHANNEL_ID}...")
+    try:
+        storage_chat = await client.get_chat(config.STORAGE_CHANNEL_ID)
+        logger.info(f"Successfully resolved storage channel: {storage_chat.title} ({storage_chat.id})")
+    except Exception as e:
+        logger.error(f"Could not resolve storage channel {config.STORAGE_CHANNEL_ID}: {e}. Ensure bot is an admin in the channel.")
 
     async with async_session() as session:
         await migrate_table(session, client, Tracks, "ALAC")
@@ -74,6 +84,7 @@ async def main():
 
     await client.stop()
     logger.info("Migration complete!")
+
 
 
 if __name__ == "__main__":
