@@ -210,17 +210,15 @@ async def process_aac_download(task: dict) -> None:
                             utils.extract_track_metadata, file_path
                         )
 
-                        try:
-                            sent_msg = await msg.answer_audio(
-                                audio=FSInputFile(file_path),
-                                title=track_title,
-                                performer=artist,
-                                thumbnail=thumbnail,
-                                duration=duration,
-                            )
-                        except Exception as e:
-                            print(f"Failed to send AAC audio message: {e}")
-                            sent_msg = None
+                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                            bot=msg.bot,
+                            user_chat_id=msg.chat.id,
+                            file_path=file_path,
+                            title=track_title,
+                            performer=artist,
+                            thumbnail=thumbnail,
+                            duration=duration
+                        )
 
                         if sent_msg:
                             user.download_count += 1
@@ -228,9 +226,6 @@ async def process_aac_download(task: dict) -> None:
                                 user.downloaded_today += 1
                                 session.add(user)
                                 await session.commit()
-
-                            # Save to AAC storage channel & cache database
-                            saved_chat_id, saved_message_id = await utils.copy_to_storage_channel(msg.bot, sent_msg)
 
                             tbot = schema.TrackInputSchema(
                                 file_id=sent_msg.audio.file_id,

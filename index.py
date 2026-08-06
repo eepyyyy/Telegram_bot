@@ -360,17 +360,15 @@ async def process_download(task: dict) -> None:
                         )
                         abs_path = os.path.abspath(file_path)
                         
-                        try:
-                            sent_msg = await msg.answer_audio(
-                                audio=FSInputFile(abs_path),
-                                title=track_title,
-                                thumbnail=thumbnail,
-                                performer=artist,
-                                duration=duration
-                            )
-                        except Exception as e:
-                            print(f"Failed to send audio message: {e}")
-                            sent_msg = None
+                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                            bot=msg.bot,
+                            user_chat_id=msg.chat.id,
+                            file_path=file_path,
+                            title=track_title,
+                            performer=artist,
+                            thumbnail=thumbnail,
+                            duration=duration
+                        )
 
                         if sent_msg:
                             completed_count += 1
@@ -391,9 +389,6 @@ async def process_download(task: dict) -> None:
                                 await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
                             except Exception:
                                 pass
-
-                            # Save to storage channel & cache
-                            saved_chat_id, saved_message_id = await utils.copy_to_storage_channel(msg.bot, sent_msg)
 
                             tbot = schema.TrackInputSchema(
                                 file_id=sent_msg.audio.file_id,

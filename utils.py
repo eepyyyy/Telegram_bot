@@ -72,6 +72,58 @@ except ValueError:
     STORAGE_CHANNEL_ID = None
 
 
+async def upload_and_deliver_audio(
+    bot,
+    user_chat_id: int,
+    file_path: str,
+    title: str,
+    performer: str,
+    thumbnail=None,
+    duration: Optional[int] = None
+) -> Tuple[Optional[any], int, int]:
+    """
+    Sends the audio file directly to STORAGE_CHANNEL_ID first, then delivers a copy to user_chat_id.
+    Returns (sent_user_msg, saved_chat_id, saved_message_id).
+    """
+    from aiogram.types import FSInputFile
+    abs_path = os.path.abspath(file_path)
+
+    if STORAGE_CHANNEL_ID:
+        try:
+            # 1. Upload directly to storage channel first
+            channel_msg = await bot.send_audio(
+                chat_id=STORAGE_CHANNEL_ID,
+                audio=FSInputFile(abs_path),
+                title=title,
+                performer=performer,
+                thumbnail=thumbnail,
+                duration=duration
+            )
+            saved_chat_id = channel_msg.chat.id
+            saved_message_id = channel_msg.message_id
+
+            # 2. Copy/deliver to user's chat
+            user_msg = await bot.copy_message(
+                chat_id=user_chat_id,
+                from_chat_id=STORAGE_CHANNEL_ID,
+                message_id=channel_msg.message_id
+            )
+            return user_msg, saved_chat_id, saved_message_id
+        except Exception as e:
+            print(f"Direct channel upload failed for STORAGE_CHANNEL_ID ({STORAGE_CHANNEL_ID}): {e}")
+
+    # Fallback to direct user PM answer
+    user_msg = await bot.send_audio(
+        chat_id=user_chat_id,
+        audio=FSInputFile(abs_path),
+        title=title,
+        performer=performer,
+        thumbnail=thumbnail,
+        duration=duration
+    )
+    return user_msg, user_msg.chat.id, user_msg.message_id
+
+
 async def copy_to_storage_channel(bot, sent_msg) -> Tuple[int, int]:
     """
     Copies sent_msg to the designated STORAGE_CHANNEL_ID.
@@ -89,4 +141,5 @@ async def copy_to_storage_channel(bot, sent_msg) -> Tuple[int, int]:
             print(f"Failed to copy message to STORAGE_CHANNEL_ID ({STORAGE_CHANNEL_ID}): {e}")
 
     return sent_msg.chat.id, sent_msg.message_id
+
 
