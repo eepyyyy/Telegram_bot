@@ -27,10 +27,11 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 load_dotenv()
 
 TOKEN_API = os.getenv("TOKEN_API")
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://your-domain.com")
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://tbot.eepy.in")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "super_secret_webhook_token_123")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
 
 LISTEN_HOST = os.getenv("WEBHOOK_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("WEBHOOK_LISTEN_PORT", 8080))
