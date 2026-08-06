@@ -3,9 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN_API = os.getenv("TOKEN_API")
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
+TOKEN_API = os.getenv("TOKEN_API", "").strip().strip('"').strip("'")
+API_ID = os.getenv("API_ID", "").strip().strip('"').strip("'")
+API_HASH = os.getenv("API_HASH", "").strip().strip('"').strip("'")
+
 
 STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "-1004423011255")
 try:
