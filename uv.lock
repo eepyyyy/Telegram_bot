@@ -757,6 +757,12 @@ wheels = [
 ]
 
 [[package]]
+name = "pyaes"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/66/2c17bae31c906613795711fc78045c285048168919ace2220daa372c7d72/pyaes-1.6.1.tar.gz", hash = "sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f", size = 28536, upload-time = "2017-09-20T21:17:54.23Z" }
+
+[[package]]
 name = "pycryptodome"
 version = "3.23.0"
 source = { registry = "https://pypi.org/simple" }
@@ -841,6 +847,28 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a5/46/dfb3f5363fc71adaf419147fdcb93341029ca638634a5cc6f7e7446416b2/pymp4-1.4.0.tar.gz", hash = "sha256:bc9e77732a8a143d34c38aa862a54180716246938e4bf3e07585d19252b77bb5", size = 13018, upload-time = "2023-05-07T15:01:34.02Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/a2/27fea39af627c0ce5dbf6108bf969ea8f5fc9376d29f11282a80e3426f1d/pymp4-1.4.0-py3-none-any.whl", hash = "sha256:3401666c1e2a97ac94dffb18c5a5dcbd46d0a436da5272d378a6f9f6506dd12d", size = 14832, upload-time = "2023-05-07T15:01:32.293Z" },
+]
+
+[[package]]
+name = "pyrogram"
+version = "2.0.106"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyaes" },
+    { name = "pysocks" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/8e/5d09eca17271320bb9a95e50b7e053770aee85b3fd338e8267e7b6b280ae/Pyrogram-2.0.106.tar.gz", hash = "sha256:30202995758fcb6e0f91224704ab7fedefea454297724bd70a6a71a23748c16f", size = 345997, upload-time = "2023-04-30T18:24:45.506Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/88/502ec24914d208e06baa6f27ff812f46815bb4f302018ad848ebf518abdf/Pyrogram-2.0.106-py3-none-any.whl", hash = "sha256:32b62b3d93030b1080cbe45b88c0e8790cf4e2179cf3321ede810d48edf97bc7", size = 3573685, upload-time = "2023-04-30T18:24:41.986Z" },
+]
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/11/293dd436aea955d45fc4e8a35b6ae7270f5b8e00b53cf6c024c83b657a11/PySocks-1.7.1.tar.gz", hash = "sha256:3f8804571ebe159c380ac6de37643bb4685970655d3bba243530d6558b799aa0", size = 284429, upload-time = "2019-09-20T02:07:35.714Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl", hash = "sha256:2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5", size = 16725, upload-time = "2019-09-20T02:06:22.938Z" },
 ]
 
 [[package]]
@@ -1009,6 +1037,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-core" },
     { name = "pymp4" },
+    { name = "pyrogram" },
     { name = "python-dotenv" },
     { name = "pywidevine" },
     { name = "pyyaml" },
@@ -1070,6 +1099,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pydantic-core", specifier = "==2.46.4" },
     { name = "pymp4", specifier = "==1.4.0" },
+    { name = "pyrogram", specifier = ">=2.0.106" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "pywidevine", specifier = "==1.9.0" },
     { name = "pyyaml", specifier = "==6.0.3" },

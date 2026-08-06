@@ -389,15 +389,17 @@ async def process_download(task: dict) -> None:
                             except Exception:
                                 pass
 
-                            # Save to cache
+                            # Save to storage channel & cache
+                            saved_chat_id, saved_message_id = await utils.copy_to_storage_channel(msg.bot, sent_msg)
+
                             tbot = schema.TrackInputSchema(
                                 file_id=sent_msg.audio.file_id,
                                 file_unique_id=sent_msg.audio.file_unique_id,
                                 title=track_title,
                                 size=sent_msg.audio.file_size,
                                 isrc=isrc,
-                                chat_id=sent_msg.chat.id,
-                                message_id=sent_msg.message_id
+                                chat_id=saved_chat_id,
+                                message_id=saved_message_id
                             )
                             
                             matched = False

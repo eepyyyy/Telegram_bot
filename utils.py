@@ -64,3 +64,29 @@ def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedI
         fallback_title = os.path.basename(file_path).removesuffix(".m4a")
         return fallback_title, "Unknown Artist", None, None, None
 
+
+STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "-1004423011255")
+try:
+    STORAGE_CHANNEL_ID = int(STORAGE_CHANNEL_ID_STR) if STORAGE_CHANNEL_ID_STR else None
+except ValueError:
+    STORAGE_CHANNEL_ID = None
+
+
+async def copy_to_storage_channel(bot, sent_msg) -> Tuple[int, int]:
+    """
+    Copies sent_msg to the designated STORAGE_CHANNEL_ID.
+    Returns (chat_id, message_id) of the target backup message.
+    """
+    if STORAGE_CHANNEL_ID and sent_msg:
+        try:
+            copied = await bot.copy_message(
+                chat_id=STORAGE_CHANNEL_ID,
+                from_chat_id=sent_msg.chat.id,
+                message_id=sent_msg.message_id
+            )
+            return copied.chat.id, copied.message_id
+        except Exception as e:
+            print(f"Failed to copy message to STORAGE_CHANNEL_ID ({STORAGE_CHANNEL_ID}): {e}")
+
+    return sent_msg.chat.id, sent_msg.message_id
+
