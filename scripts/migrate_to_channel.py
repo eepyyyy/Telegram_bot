@@ -70,12 +70,26 @@ async def main():
     client = get_pyrogram_client()
     await client.start()
 
+    logger.info("Pre-fetching bot dialogs to populate peer cache...")
+    try:
+        async for dialog in client.get_dialogs(limit=50):
+            pass
+    except Exception as e:
+        logger.debug(f"Dialog pre-fetch note: {e}")
+
     logger.info(f"Resolving storage channel peer {config.STORAGE_CHANNEL_ID}...")
     try:
         storage_chat = await client.get_chat(config.STORAGE_CHANNEL_ID)
         logger.info(f"Successfully resolved storage channel: {storage_chat.title} ({storage_chat.id})")
     except Exception as e:
-        logger.error(f"Could not resolve storage channel {config.STORAGE_CHANNEL_ID}: {e}. Ensure bot is an admin in the channel.")
+        logger.error(
+            f"CRITICAL: Could not resolve channel {config.STORAGE_CHANNEL_ID}: {e}\n"
+            f"PLEASE ENSURE:\n"
+            f"1. Your bot is added as an Administrator inside Channel {config.STORAGE_CHANNEL_ID}.\n"
+            f"2. The STORAGE_CHANNEL_ID in .env is correct (e.g. starts with -100)."
+        )
+        await client.stop()
+        return
 
     async with async_session() as session:
         await migrate_table(session, client, Tracks, "ALAC")
@@ -84,6 +98,7 @@ async def main():
 
     await client.stop()
     logger.info("Migration complete!")
+
 
 
 
