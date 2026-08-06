@@ -102,12 +102,13 @@ async def upload_and_deliver_audio(
             saved_chat_id = channel_msg.chat.id
             saved_message_id = channel_msg.message_id
 
-            # 2. Copy/deliver to user's chat
-            await bot.copy_message(
-                chat_id=user_chat_id,
-                from_chat_id=STORAGE_CHANNEL_ID,
-                message_id=channel_msg.message_id
-            )
+            # 2. Copy/deliver to user's chat if different from storage channel
+            if user_chat_id != STORAGE_CHANNEL_ID:
+                await bot.copy_message(
+                    chat_id=user_chat_id,
+                    from_chat_id=STORAGE_CHANNEL_ID,
+                    message_id=channel_msg.message_id
+                )
             return channel_msg, saved_chat_id, saved_message_id
         except Exception as e:
             print(f"Direct channel upload failed for STORAGE_CHANNEL_ID ({STORAGE_CHANNEL_ID}): {e}")
