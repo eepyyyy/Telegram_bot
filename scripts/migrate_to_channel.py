@@ -105,11 +105,10 @@ async def main():
 
     async with async_session() as session:
         await migrate_tracks_by_file_id(bot, session, Tracks, "ALAC")
-        await migrate_tracks_by_file_id(bot, session, AACTracks, "AAC")
-        await migrate_tracks_by_file_id(bot, session, AtmosTracks, "Atmos")
 
     await bot.session.close()
-    logger.info("🎉 All tracks successfully migrated to Backup Channel storage!")
+    logger.info("🎉 All ALAC tracks successfully migrated to Backup Channel storage!")
+
 
 
 if __name__ == "__main__":
