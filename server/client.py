@@ -39,7 +39,7 @@ def get_pyrogram_client() -> Client:
         api_id=api_id,
         api_hash=api_hash,
         bot_token=config.TOKEN_API,
-        in_memory=True,
+        in_memory=False,
         no_updates=True,
     )
     return pyrogram_client
@@ -51,6 +51,14 @@ async def start_client():
     await client.start()
     me = await client.get_me()
     logger.info(f"Pyrogram Stream Client started as @{me.username} ({me.id})")
+    
+    # Pre-warm storage channel peer in Pyrogram session database
+    if config.STORAGE_CHANNEL_ID:
+        try:
+            await client.get_chat(config.STORAGE_CHANNEL_ID)
+            logger.info(f"Pre-warmed Pyrogram session for channel {config.STORAGE_CHANNEL_ID}")
+        except Exception as e:
+            logger.warning(f"Could not pre-warm channel {config.STORAGE_CHANNEL_ID}: {e}. Ensure bot is an Admin in the channel.")
 
 
 async def stop_client():

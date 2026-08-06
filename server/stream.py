@@ -75,10 +75,16 @@ async def handle_telegram_stream(
     client: Client = get_pyrogram_client()
 
     try:
-        message: Message = await client.get_messages(chat_id, message_id)
+        try:
+            message: Message = await client.get_messages(chat_id, message_id)
+        except Exception as peer_err:
+            # Pyrogram in-memory session cache miss: warm up peer via get_chat
+            logger.info(f"Resolving channel peer {chat_id} in Pyrogram cache...")
+            await client.get_chat(chat_id)
+            message: Message = await client.get_messages(chat_id, message_id)
     except Exception as e:
         logger.error(f"Failed to fetch Telegram message {chat_id}/{message_id}: {e}")
-        raise web.HTTPNotFound(text="Media message not found or channel inaccessible.")
+        raise web.HTTPNotFound(text=f"Media message not found or channel inaccessible: {e}")
 
     if not message or message.empty:
         raise web.HTTPNotFound(text="Telegram message is empty or deleted.")
