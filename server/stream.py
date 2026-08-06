@@ -141,7 +141,10 @@ async def handle_telegram_stream(
 
     except (ClientError, ConnectionResetError, BrokenPipeError):
         logger.info(f"Client disconnected during stream of message {message_id}")
+    except (TimeoutError, asyncio.TimeoutError) as e:
+        logger.warning(f"Timeout while fetching MTProto chunks for message {message_id}: {e}")
     except Exception as e:
         logger.error(f"Error during streaming message {message_id}: {e}")
+
 
     return response

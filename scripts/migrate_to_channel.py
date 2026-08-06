@@ -1,8 +1,16 @@
 import asyncio
 import logging
+
+# Python 3.12+ / 3.14 compatibility
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
 from sqlmodel import select
 from pyrogram import Client
 import database
+
 from database import Tracks, AACTracks, AtmosTracks, async_session
 from server import config
 from server.client import get_pyrogram_client
