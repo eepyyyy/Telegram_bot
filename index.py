@@ -556,6 +556,19 @@ async def on_startup(bot: Bot) -> None:
     )
     logging.info("Webhook successfully configured.")
 
+    # Register bot commands menu
+    try:
+        await bot.set_my_commands([
+            types.BotCommand(command="start", description="Start the bot & landing dashboard"),
+            types.BotCommand(command="artist", description="Download artist top tracks or catalog"),
+            types.BotCommand(command="aac", description="Download track/album in AAC 256kbps"),
+            types.BotCommand(command="atmos", description="Download track/album in Dolby Atmos"),
+            types.BotCommand(command="help", description="View help and usage instructions"),
+        ])
+        logging.info("Bot commands successfully registered.")
+    except Exception as e:
+        logging.warning(f"Failed to set bot commands: {e}")
+
 
 async def on_shutdown(bot: Bot) -> None:
     """
