@@ -1,15 +1,24 @@
+import asyncio
 import logging
 import re
 import math
 from typing import Optional, Tuple
 from aiohttp import ClientError, web
 from pyrogram import Client
+from pyrogram.errors import FloodWait, RPCError
 from pyrogram.types import Message
 from server.client import get_pyrogram_client
 
 logger = logging.getLogger("server.stream")
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunk size for fast Telegram MTProto downloading
+
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "Range, Content-Type, Authorization, *",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Content-Disposition, Accept-Ranges",
+}
 
 
 def parse_range_header(range_header: Optional[str], total_size: int) -> Tuple[int, int, int]:
@@ -60,6 +69,26 @@ def get_media_from_message(message: Message):
     return media, file_size, mime_type, file_name
 
 
+async def fetch_message_with_retry(client: Client, chat_id: int, message_id: int) -> Message:
+    """
+    Fetches Telegram message with FloodWait retry handling.
+    """
+    while True:
+        try:
+            try:
+                return await client.get_messages(chat_id, message_id)
+            except Exception:
+                logger.info(f"Resolving channel peer {chat_id} in Pyrogram cache...")
+                await client.get_chat(chat_id)
+                return await client.get_messages(chat_id, message_id)
+        except FloodWait as e:
+            logger.warning(f"FloodWait encountered: sleeping for {e.value} seconds...")
+            await asyncio.sleep(e.value)
+        except Exception as e:
+            logger.error(f"Failed to fetch Telegram message {chat_id}/{message_id}: {e}")
+            raise web.HTTPNotFound(text=f"Media message not found or channel inaccessible: {e}")
+
+
 async def handle_telegram_stream(
     request: web.Request,
     chat_id: int,
@@ -69,22 +98,16 @@ async def handle_telegram_stream(
 ) -> web.StreamResponse:
     """
     Direct MTProto Cloud Streamer for Telegram media messages.
+    Supports files up to 2GB (or 4GB with Telegram Premium).
     Supports HTTP 206 Partial Content byte-range requests for seamless audio seeking.
     Zero disk usage - streams directly from Telegram cloud into client response buffer.
     """
-    client: Client = get_pyrogram_client()
+    # Options request for CORS preflight
+    if request.method == "OPTIONS":
+        return web.Response(status=200, headers=CORS_HEADERS)
 
-    try:
-        try:
-            message: Message = await client.get_messages(chat_id, message_id)
-        except Exception as peer_err:
-            # Pyrogram in-memory session cache miss: warm up peer via get_chat
-            logger.info(f"Resolving channel peer {chat_id} in Pyrogram cache...")
-            await client.get_chat(chat_id)
-            message: Message = await client.get_messages(chat_id, message_id)
-    except Exception as e:
-        logger.error(f"Failed to fetch Telegram message {chat_id}/{message_id}: {e}")
-        raise web.HTTPNotFound(text=f"Media message not found or channel inaccessible: {e}")
+    client: Client = get_pyrogram_client()
+    message: Message = await fetch_message_with_retry(client, chat_id, message_id)
 
     if not message or message.empty:
         raise web.HTTPNotFound(text="Telegram message is empty or deleted.")
@@ -100,16 +123,14 @@ async def handle_telegram_stream(
     is_partial = (range_header is not None)
 
     status_code = 206 if is_partial else 200
-
     disposition_type = "attachment" if as_attachment else "inline"
 
     headers = {
+        **CORS_HEADERS,
         "Content-Type": mime_type,
         "Accept-Ranges": "bytes",
         "Content-Length": str(length),
         "Content-Disposition": f'{disposition_type}; filename="{file_name}"',
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
     }
 
     if is_partial:
@@ -118,39 +139,43 @@ async def handle_telegram_stream(
     response = web.StreamResponse(status=status_code, headers=headers)
     await response.prepare(request)
 
+    # HEAD request only returns headers
+    if request.method == "HEAD":
+        return response
+
     # Calculate Pyrogram chunk offsets
-    # Pyrogram stream_media accepts offset (in chunk count, default chunk size is 1MB in Pyrogram)
-    # Pyrogram stream_media offset is 0-indexed chunk offset
     start_chunk = start_byte // CHUNK_SIZE
     skip_first_bytes = start_byte % CHUNK_SIZE
     bytes_remaining = length
 
-    try:
-        chunk_idx = start_chunk
-        async for chunk in client.stream_media(message, offset=start_chunk):
-            if bytes_remaining <= 0:
-                break
+    while bytes_remaining > 0:
+        try:
+            async for chunk in client.stream_media(message, offset=start_chunk):
+                if bytes_remaining <= 0:
+                    break
 
-            # If skipping initial offset in the first chunk
-            if skip_first_bytes > 0:
-                chunk = chunk[skip_first_bytes:]
-                skip_first_bytes = 0
+                # Skip initial offset in first chunk
+                if skip_first_bytes > 0:
+                    chunk = chunk[skip_first_bytes:]
+                    skip_first_bytes = 0
 
-            # Trim trailing bytes if chunk exceeds remaining bytes requested
-            if len(chunk) > bytes_remaining:
-                chunk = chunk[:bytes_remaining]
+                # Trim trailing bytes if chunk exceeds remaining length
+                if len(chunk) > bytes_remaining:
+                    chunk = chunk[:bytes_remaining]
 
-            await response.write(chunk)
-            await response.drain()
-            bytes_remaining -= len(chunk)
-            chunk_idx += 1
-
-    except (ClientError, ConnectionResetError, BrokenPipeError):
-        logger.info(f"Client disconnected during stream of message {message_id}")
-    except (TimeoutError, asyncio.TimeoutError) as e:
-        logger.warning(f"Timeout while fetching MTProto chunks for message {message_id}: {e}")
-    except Exception as e:
-        logger.error(f"Error during streaming message {message_id}: {e}")
-
+                await response.write(chunk)
+                await response.drain()
+                bytes_remaining -= len(chunk)
+                start_chunk += 1
+            break
+        except FloodWait as e:
+            logger.warning(f"FloodWait during stream_media: sleeping {e.value} seconds...")
+            await asyncio.sleep(e.value)
+        except (ClientError, ConnectionResetError, BrokenPipeError):
+            logger.info(f"Client disconnected during stream of message {message_id}")
+            break
+        except Exception as e:
+            logger.error(f"Error streaming message {message_id}: {e}")
+            break
 
     return response
