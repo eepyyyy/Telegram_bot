@@ -31,6 +31,8 @@ WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://tbot.eepy.in")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "super_secret_webhook_token_123")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+STREAM_SERVER_URL = os.getenv("STREAM_SERVER_URL", "https://stream.eepy.in")
+
 
 
 LISTEN_HOST = os.getenv("WEBHOOK_LISTEN_HOST", "0.0.0.0")
@@ -417,6 +419,12 @@ async def process_download(task: dict) -> None:
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
                                         matched = True
+                                        try:
+                                            btn = InlineKeyboardBuilder()
+                                            btn.button(text="🎧 Direct Stream Link", url=f"{STREAM_SERVER_URL.rstrip('/')}/stream/alac/{original_track.song_id}")
+                                            await sent_msg.edit_reply_markup(reply_markup=btn.as_markup())
+                                        except Exception:
+                                            pass
                                         break
 
                             # 2. Fallback to normalized title match
@@ -431,7 +439,14 @@ async def process_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
+                                        try:
+                                            btn = InlineKeyboardBuilder()
+                                            btn.button(text="🎧 Direct Stream Link", url=f"{STREAM_SERVER_URL.rstrip('/')}/stream/alac/{original_track.song_id}")
+                                            await sent_msg.edit_reply_markup(reply_markup=btn.as_markup())
+                                        except Exception:
+                                            pass
                                         break
+
                         
                         try:
                             await asyncio.to_thread(os.remove, file_path)
