@@ -1,105 +1,115 @@
 import asyncio
 import logging
-
-# Python 3.12+ / 3.14 compatibility
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 from sqlmodel import select
-from pyrogram import Client
-import database
+from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
+import database
 from database import Tracks, AACTracks, AtmosTracks, async_session
 from server import config
-from server.client import get_pyrogram_client
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger("migrate_to_channel")
 
 
-async def migrate_table(session, client: Client, model_cls, format_name: str):
-    logger.info(f"Checking {format_name} tracks for migration...")
-    statement = select(model_cls).where(model_cls.chat_id != config.STORAGE_CHANNEL_ID)
+async def migrate_tracks_by_file_id(bot: Bot, session, model_cls, format_name: str):
+    logger.info(f"Scanning {format_name} tracks for channel migration...")
+    
+    # Query tracks where chat_id is not already the target channel or message_id is NULL
+    statement = select(model_cls).where(
+        (model_cls.chat_id != config.STORAGE_CHANNEL_ID) | (model_cls.message_id == None)
+    )
     result = await session.exec(statement)
     tracks = result.all()
+
+    total_to_migrate = len(tracks)
+    logger.info(f"Found {total_to_migrate} {format_name} tracks to upload/migrate to Backup Channel {config.STORAGE_CHANNEL_ID}.")
 
     migrated_count = 0
     failed_count = 0
 
-    for track in tracks:
-        if not track.chat_id or not track.message_id:
+    for idx, track in enumerate(tracks, 1):
+        if not track.file_id:
+            logger.warning(f"[{idx}/{total_to_migrate}] Track '{track.title}' ({track.song_id}) has no file_id in DB, skipping.")
+            failed_count += 1
             continue
 
-        try:
+        success = False
+        while not success:
             try:
-                copied_msg = await client.copy_message(
+                caption_text = f"🎵 <b>{track.title or 'Unknown'}</b> - {track.artist or 'Unknown'}\n💿 {track.album or ''}\n🆔 <code>{track.song_id}</code>"
+                
+                sent_msg = await bot.send_audio(
                     chat_id=config.STORAGE_CHANNEL_ID,
-                    from_chat_id=track.chat_id,
-                    message_id=track.message_id
-                )
-            except Exception:
-                # Try resolving source chat peer first
-                await client.get_chat(track.chat_id)
-                copied_msg = await client.copy_message(
-                    chat_id=config.STORAGE_CHANNEL_ID,
-                    from_chat_id=track.chat_id,
-                    message_id=track.message_id
+                    audio=track.file_id,
+                    caption=caption_text,
+                    parse_mode="HTML"
                 )
 
-            # Update DB with new channel chat_id and message_id
-            track.chat_id = copied_msg.chat.id
-            track.message_id = copied_msg.id
-            session.add(track)
-            await session.commit()
-            migrated_count += 1
-            logger.info(f"Successfully migrated track '{track.title}' ({track.song_id}) -> Channel Message ID {copied_msg.id}")
-            await asyncio.sleep(1)  # Rate limit protection
+                # Save new backup channel chat_id and message_id to database
+                track.chat_id = sent_msg.chat.id
+                track.message_id = sent_msg.message_id
+                session.add(track)
+                await session.commit()
 
-        except Exception as e:
-            failed_count += 1
-            logger.warning(f"Could not migrate track '{track.title}' ({track.song_id}) from chat {track.chat_id}/msg {track.message_id}: {e}")
+                migrated_count += 1
+                success = True
+                logger.info(f"[{idx}/{total_to_migrate}] Migrated '{track.title}' -> Channel Message ID {sent_msg.message_id}")
+                
+                # Small delay to respect Telegram Channel posting limits
+                await asyncio.sleep(1.2)
 
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram FloodWait hit. Sleeping for {e.retry_after} seconds...")
+                await asyncio.sleep(e.retry_after + 1)
+            except TelegramBadRequest as e:
+                failed_count += 1
+                logger.error(f"[{idx}/{total_to_migrate}] Failed to send audio for '{track.title}' ({track.song_id}): {e}")
+                success = True  # Move to next track
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"[{idx}/{total_to_migrate}] Unexpected error for track '{track.title}' ({track.song_id}): {e}")
+                success = True  # Move to next track
 
-    logger.info(f"Completed {format_name} migration: {migrated_count} migrated, {failed_count} skipped/failed.")
+    logger.info(f"Finished {format_name} migration: {migrated_count} succeeded, {failed_count} failed out of {total_to_migrate}.")
 
 
 async def main():
     await database.init_db()
-    client = get_pyrogram_client()
-    await client.start()
+    
+    if not config.TOKEN_API:
+        logger.error("TOKEN_API is missing in .env!")
+        return
 
-    logger.info("Pre-fetching bot dialogs to populate peer cache...")
-    try:
-        async for dialog in client.get_dialogs(limit=50):
-            pass
-    except Exception as e:
-        logger.debug(f"Dialog pre-fetch note: {e}")
+    logger.info(f"Initializing Bot API client for channel migration...")
+    bot = Bot(token=config.TOKEN_API)
 
-    logger.info(f"Resolving storage channel peer {config.STORAGE_CHANNEL_ID}...")
+    # Test channel accessibility via Bot API
     try:
-        storage_chat = await client.get_chat(config.STORAGE_CHANNEL_ID)
-        logger.info(f"Successfully resolved storage channel: {storage_chat.title} ({storage_chat.id})")
+        ping_msg = await bot.send_message(
+            chat_id=config.STORAGE_CHANNEL_ID,
+            text="🚀 <b>Storage Vault Migration Initialized</b>",
+            parse_mode="HTML"
+        )
+        logger.info(f"Successfully verified Channel {config.STORAGE_CHANNEL_ID} access! Test Message ID: {ping_msg.message_id}")
     except Exception as e:
         logger.error(
-            f"CRITICAL: Could not resolve channel {config.STORAGE_CHANNEL_ID}: {e}\n"
-            f"PLEASE ENSURE:\n"
-            f"1. Your bot is added as an Administrator inside Channel {config.STORAGE_CHANNEL_ID}.\n"
-            f"2. The STORAGE_CHANNEL_ID in .env is correct (e.g. starts with -100)."
+            f"CRITICAL: Bot cannot send messages to channel {config.STORAGE_CHANNEL_ID}: {e}\n"
+            f"Please ensure @applemusicdw_bot is an Administrator in channel {config.STORAGE_CHANNEL_ID} with Post Messages permission."
         )
-        await client.stop()
+        await bot.session.close()
         return
 
     async with async_session() as session:
-        await migrate_table(session, client, Tracks, "ALAC")
-        await migrate_table(session, client, AACTracks, "AAC")
-        await migrate_table(session, client, AtmosTracks, "Atmos")
+        await migrate_tracks_by_file_id(bot, session, Tracks, "ALAC")
+        await migrate_tracks_by_file_id(bot, session, AACTracks, "AAC")
+        await migrate_tracks_by_file_id(bot, session, AtmosTracks, "Atmos")
 
-    await client.stop()
-    logger.info("Migration complete!")
-
-
+    await bot.session.close()
+    logger.info("🎉 All tracks successfully migrated to Backup Channel storage!")
 
 
 if __name__ == "__main__":
