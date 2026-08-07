@@ -8,11 +8,16 @@ API_ID = os.getenv("API_ID", "").strip().strip('"').strip("'")
 API_HASH = os.getenv("API_HASH", "").strip().strip('"').strip("'")
 
 
-STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "-1004423011255")
-try:
-    STORAGE_CHANNEL_ID = int(STORAGE_CHANNEL_ID_STR)
-except ValueError:
+STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "").strip().strip('"').strip("'")
+if not STORAGE_CHANNEL_ID_STR:
     STORAGE_CHANNEL_ID = -1004423011255
+elif STORAGE_CHANNEL_ID_STR.startswith("@") or STORAGE_CHANNEL_ID_STR.startswith("http"):
+    STORAGE_CHANNEL_ID = STORAGE_CHANNEL_ID_STR
+else:
+    try:
+        STORAGE_CHANNEL_ID = int(STORAGE_CHANNEL_ID_STR)
+    except ValueError:
+        STORAGE_CHANNEL_ID = STORAGE_CHANNEL_ID_STR
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 STREAM_SERVER_URL = os.getenv("STREAM_SERVER_URL", "https://stream.eepy.in")

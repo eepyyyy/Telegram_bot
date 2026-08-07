@@ -4,6 +4,12 @@ from sqlmodel import select
 from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
+import sys
+from pathlib import Path
+
+# Add project root to sys.path so we can import local modules
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 import database
 from database import Tracks, AACTracks, AtmosTracks, async_session
 from server import config

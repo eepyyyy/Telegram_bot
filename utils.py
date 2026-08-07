@@ -65,11 +65,16 @@ def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedI
         return fallback_title, "Unknown Artist", None, None, None
 
 
-STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "-1004423011255")
-try:
-    STORAGE_CHANNEL_ID = int(STORAGE_CHANNEL_ID_STR) if STORAGE_CHANNEL_ID_STR else None
-except ValueError:
+STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "").strip().strip('"').strip("'")
+if not STORAGE_CHANNEL_ID_STR:
     STORAGE_CHANNEL_ID = None
+elif STORAGE_CHANNEL_ID_STR.startswith("@") or STORAGE_CHANNEL_ID_STR.startswith("http"):
+    STORAGE_CHANNEL_ID = STORAGE_CHANNEL_ID_STR
+else:
+    try:
+        STORAGE_CHANNEL_ID = int(STORAGE_CHANNEL_ID_STR)
+    except ValueError:
+        STORAGE_CHANNEL_ID = STORAGE_CHANNEL_ID_STR
 
 
 async def upload_and_deliver_audio(
