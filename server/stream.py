@@ -143,30 +143,37 @@ async def handle_telegram_stream(
     if request.method == "HEAD":
         return response
 
-    # Calculate Pyrogram chunk offsets
+    # Calculate Pyrogram chunk offsets matching FileToLink implementation
     start_chunk = start_byte // CHUNK_SIZE
+    chunk_limit = ((length + CHUNK_SIZE - 1) // CHUNK_SIZE) + 1 if length > 0 else 0
     skip_first_bytes = start_byte % CHUNK_SIZE
     bytes_remaining = length
 
     while bytes_remaining > 0:
         try:
-            async for chunk in client.stream_media(message, offset=start_chunk):
+            async for chunk in client.stream_media(message, offset=start_chunk, limit=chunk_limit):
                 if bytes_remaining <= 0:
                     break
 
-                # Skip initial offset in first chunk
+                # Skip initial byte offset in first chunk
                 if skip_first_bytes > 0:
+                    if len(chunk) <= skip_first_bytes:
+                        skip_first_bytes -= len(chunk)
+                        continue
                     chunk = chunk[skip_first_bytes:]
                     skip_first_bytes = 0
 
-                # Trim trailing bytes if chunk exceeds remaining length
+                # Trim trailing bytes if chunk exceeds remaining length needed
                 if len(chunk) > bytes_remaining:
                     chunk = chunk[:bytes_remaining]
 
-                await response.write(chunk)
-                await response.drain()
-                bytes_remaining -= len(chunk)
-                start_chunk += 1
+                if chunk:
+                    await response.write(chunk)
+                    await response.drain()
+                    bytes_remaining -= len(chunk)
+
+                if bytes_remaining <= 0:
+                    break
             break
         except FloodWait as e:
             logger.warning(f"FloodWait during stream_media: sleeping {e.value} seconds...")
