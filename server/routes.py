@@ -558,8 +558,7 @@ async def request_telegram_download(request: web.Request):
         
         msg = await bot.send_message(
             chat_id=user_id,
-            text=f"📥 <b>Web Mini App Request:</b>\n<code>{target_url}</code>\n\nQueuing automatic download to your chat...",
-            parse_mode="HTML"
+            text=target_url
         )
         await bot.session.close()
 

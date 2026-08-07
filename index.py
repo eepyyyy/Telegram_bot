@@ -117,11 +117,7 @@ async def cmd_start(msg: types.Message) -> None:
                 await msg.answer("⏳ You already have an active download task in progress. Please wait until it completes.")
                 return
 
-            await msg.answer(
-                f"📥 <b>Web Request Received:</b>\n<code>{target_url}</code>\n\n"
-                f"Queuing automatic download to your Telegram chat...",
-                parse_mode="HTML"
-            )
+            msg = await msg.answer(target_url)
 
             user_in_queue.add(user_id_local)
             user_pending_jobs[user_id_local] = 1
