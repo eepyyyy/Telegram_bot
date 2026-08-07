@@ -18,7 +18,9 @@
 
   <style>
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #09090b;
+      color: #fafafa;
     }
     .line-clamp-1 {
       display: -webkit-box;
@@ -34,163 +36,128 @@
     }
   </style>
 </head>
-<body class="bg-base-300 min-h-screen text-base-content flex flex-col justify-between">
+<body class="bg-[#09090b] min-h-screen text-zinc-100 flex flex-col justify-between selection:bg-zinc-800 selection:text-white">
 
   <!-- Main Wrapper -->
   <div>
     <!-- Navigation Bar -->
-    <header class="navbar bg-base-100 shadow-lg px-4 lg:px-8 sticky top-0 z-40 border-b border-base-200/50 backdrop-blur-md bg-base-100/90">
+    <header class="navbar bg-[#09090b]/90 border-b border-zinc-800/80 px-4 lg:px-8 sticky top-0 z-40 backdrop-blur-md">
       <div class="flex-1 gap-3 items-center">
         <!-- eepy amdl Logo -->
-        <img src="/app/logo/eepy_alt_icon_dark.svg" alt="eepy amdl logo" class="w-10 h-10 object-contain drop-shadow-sm" onerror="this.style.display='none'" />
+        <img src="/app/logo/eepy_alt_icon_dark.svg" alt="eepy amdl logo" class="w-9 h-9 object-contain filter invert" onerror="this.style.display='none'" />
         <div>
-          <a class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent">
+          <a class="text-xl font-extrabold tracking-tight text-white">
             eepy amdl
           </a>
-          <span class="text-xs block text-base-content/60 font-medium">Apple Music Cloud Vault</span>
+          <span class="text-xs block text-zinc-400 font-medium">Apple Music Cloud Vault</span>
         </div>
       </div>
 
       <div class="flex-none gap-3">
-        <!-- Health Badge -->
-        <div id="server-status" class="badge badge-success gap-1 px-3 py-3 font-semibold text-xs shadow-sm">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <!-- Server Health Indicator -->
+        <div id="server-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
           <span id="status-text">Server Online</span>
-        </div>
-
-        <!-- Theme Controller Dropdown -->
-        <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-circle btn-sm">
-            <i class="fa-solid fa-palette text-lg"></i>
-          </div>
-          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-48 p-2 shadow-xl border border-base-200 mt-3">
-            <li class="menu-title text-xs font-bold uppercase tracking-wider text-base-content/50">Select Theme</li>
-            <li><button onclick="setTheme('dark')"><i class="fa-solid fa-moon text-primary"></i> Dark (Default)</button></li>
-            <li><button onclick="setTheme('emerald')"><i class="fa-solid fa-leaf text-emerald-500"></i> Emerald</button></li>
-            <li><button onclick="setTheme('synthwave')"><i class="fa-solid fa-[#f40] text-secondary"></i> Synthwave</button></li>
-            <li><button onclick="setTheme('dim')"><i class="fa-solid fa-circle-half-stroke text-accent"></i> Dim</button></li>
-            <li><button onclick="setTheme('light')"><i class="fa-solid fa-sun text-warning"></i> Light</button></li>
-          </ul>
         </div>
       </div>
     </header>
 
     <!-- Main Container -->
-    <main class="container mx-auto px-4 lg:px-8 py-6 space-y-6 max-w-7xl">
+    <main class="container mx-auto px-4 lg:px-8 py-8 space-y-6 max-w-7xl">
 
-      <!-- Stats Summary Banner -->
-      <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <!-- Simple, Elegant Stat Cards Section -->
+      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- Total Tracks -->
-        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
-          <div class="stat-figure text-primary">
-            <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary text-xl">
-              <i class="fa-solid fa-compact-disc"></i>
-            </div>
-          </div>
-          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Total Tracks</div>
-          <div id="stat-total" class="stat-value text-2xl lg:text-3xl font-black text-primary">--</div>
-          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">In database storage</div>
+        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Total Tracks</div>
+          <div id="stat-total" class="text-3xl font-extrabold text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 font-medium">In database storage</div>
         </div>
 
-        <!-- Available Downloads -->
-        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
-          <div class="stat-figure text-success">
-            <div class="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center text-success text-xl">
-              <i class="fa-solid fa-cloud-arrow-down"></i>
-            </div>
-          </div>
-          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Total Cloud Tracks</div>
-          <div id="stat-available" class="stat-value text-2xl lg:text-3xl font-black text-success">--</div>
-          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Available for download</div>
+        <!-- Total Cloud Tracks -->
+        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Total Cloud Tracks</div>
+          <div id="stat-available" class="text-3xl font-extrabold text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 font-medium">Available for download</div>
         </div>
 
-        <!-- Total Albums -->
-        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
-          <div class="stat-figure text-secondary">
-            <div class="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary text-xl">
-              <i class="fa-solid fa-record-vinyl"></i>
-            </div>
-          </div>
-          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Albums</div>
-          <div id="stat-albums" class="stat-value text-2xl lg:text-3xl font-black text-secondary">--</div>
-          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Unique discography</div>
+        <!-- Albums -->
+        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Albums</div>
+          <div id="stat-albums" class="text-3xl font-extrabold text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 font-medium">Unique discography</div>
         </div>
 
-        <!-- Quality Formats -->
-        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
-          <div class="stat-figure text-accent">
-            <div class="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent text-xl">
-              <i class="fa-solid fa-sliders"></i>
-            </div>
+        <!-- Formats -->
+        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Formats</div>
+          <div class="flex items-center gap-1.5 pt-0.5">
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">ALAC</span>
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">AAC</span>
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">Atmos</span>
           </div>
-          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Formats</div>
-          <div id="stat-formats" class="stat-value text-xl font-bold text-accent flex gap-1.5 items-center mt-1">
-            <span class="badge badge-primary badge-sm">ALAC</span>
-            <span class="badge badge-secondary badge-sm">AAC</span>
-            <span class="badge badge-accent badge-sm">Atmos</span>
-          </div>
-          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Hi-Res audio supported</div>
+          <div class="text-xs text-zinc-500 font-medium">Hi-Res audio supported</div>
         </div>
       </section>
 
       <!-- Controls & Search Header -->
-      <section class="bg-base-100 p-5 rounded-2xl shadow-md border border-base-200/60 space-y-4">
+      <section class="bg-zinc-900/60 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
         
-        <!-- Top Toolbar: Format Tabs & Search Bar -->
+        <!-- Top Toolbar: Format Filter Tabs & Search Bar -->
         <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
           
           <!-- Format Filter Tabs -->
-          <div class="role-tablist tabs tabs-boxed bg-base-200/70 p-1.5 rounded-xl flex-wrap">
-            <button onclick="setFormat('all')" id="tab-all" class="tab tab-active font-semibold text-sm rounded-lg transition-all">
-              <i class="fa-solid fa-layer-group mr-1.5"></i> All Tracks
+          <div class="flex items-center gap-1.5 p-1 bg-zinc-950/80 rounded-xl border border-zinc-800 flex-wrap">
+            <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-black">
+              All Tracks
             </button>
-            <button onclick="setFormat('alac')" id="tab-alac" class="tab font-semibold text-sm rounded-lg transition-all">
-              <i class="fa-solid fa-compact-disc mr-1.5 text-primary"></i> ALAC (Lossless)
+            <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+              ALAC (Lossless)
             </button>
-            <button onclick="setFormat('aac')" id="tab-aac" class="tab font-semibold text-sm rounded-lg transition-all">
-              <i class="fa-solid fa-file-audio mr-1.5 text-secondary"></i> AAC
+            <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+              AAC
             </button>
-            <button onclick="setFormat('atmos')" id="tab-atmos" class="tab font-semibold text-sm rounded-lg transition-all">
-              <i class="fa-solid fa-vr-cardboard mr-1.5 text-accent"></i> Dolby Atmos
+            <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+              Dolby Atmos
             </button>
           </div>
 
           <!-- Search Input -->
           <div class="relative flex-1 max-w-md">
-            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-base-content/50">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
               <i class="fa-solid fa-magnifying-glass"></i>
             </div>
             <input 
               type="text" 
               id="search-input" 
               placeholder="Search by title, artist, album, or ISRC..." 
-              class="input input-bordered w-full pl-10 pr-10 focus:outline-none focus:border-primary rounded-xl text-sm"
+              class="w-full pl-10 pr-10 py-2 bg-zinc-950/90 border border-zinc-800 text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-500 transition-colors"
               oninput="handleSearchInput()"
             />
-            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-base-content/40 hover:text-base-content">
+            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
         </div>
 
         <!-- Filter Sub-bar: Results count, View Mode, Limits -->
-        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-base-200/60">
+        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/60">
           <div class="flex items-center gap-4">
-            <span id="results-count" class="text-xs font-medium text-base-content/60">Showing 0 tracks</span>
+            <span id="results-count" class="text-xs font-medium text-zinc-400">Showing 0 tracks</span>
           </div>
 
           <!-- Right Controls: View Switcher & Limit selector -->
           <div class="flex items-center gap-3">
-            <div class="join border border-base-200 rounded-xl overflow-hidden">
-              <button onclick="setViewMode('table')" id="view-btn-table" class="btn btn-sm join-item btn-active">
-                <i class="fa-solid fa-list"></i> List
+            <div class="flex items-center p-1 bg-zinc-950/80 rounded-xl border border-zinc-800">
+              <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all">
+                <i class="fa-solid fa-list mr-1"></i> List
               </button>
-              <button onclick="setViewMode('grid')" id="view-btn-grid" class="btn btn-sm join-item">
-                <i class="fa-solid fa-border-all"></i> Grid
+              <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all">
+                <i class="fa-solid fa-border-all mr-1"></i> Grid
               </button>
             </div>
 
-            <select id="limit-select" onchange="changeLimit()" class="select select-bordered select-sm rounded-xl text-xs focus:outline-none">
+            <select id="limit-select" onchange="changeLimit()" class="bg-zinc-950/90 border border-zinc-800 text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
               <option value="12">12 per page</option>
               <option value="24" selected>24 per page</option>
               <option value="48">48 per page</option>
@@ -205,36 +172,36 @@
       <section>
         <!-- Loading Spinner -->
         <div id="loading-state" class="py-20 flex flex-col items-center justify-center space-y-3">
-          <span class="loading loading-spinner loading-lg text-primary"></span>
-          <p class="text-sm font-medium text-base-content/60">Loading tracks database...</p>
+          <span class="loading loading-spinner loading-lg text-zinc-400"></span>
+          <p class="text-sm font-medium text-zinc-400">Searching tracks database...</p>
         </div>
 
         <!-- Empty State -->
-        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-base-100 rounded-2xl border border-base-200 shadow-sm">
-          <div class="w-16 h-16 rounded-full bg-base-200 inline-flex items-center justify-center text-base-content/40 text-2xl">
+        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-zinc-900/60 rounded-2xl border border-zinc-800">
+          <div class="w-16 h-16 rounded-full bg-zinc-800/80 inline-flex items-center justify-center text-zinc-400 text-2xl">
             <i class="fa-solid fa-compact-disc"></i>
           </div>
           <div class="space-y-1">
-            <h3 class="text-lg font-bold">No tracks found</h3>
-            <p class="text-xs text-base-content/60 max-w-sm mx-auto">No matching tracks found for your search or filter criteria. Try adjusting your search query.</p>
+            <h3 class="text-lg font-bold text-white">No tracks found</h3>
+            <p class="text-xs text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
           </div>
-          <button onclick="resetFilters()" class="btn btn-primary btn-sm rounded-xl">Reset Filters</button>
+          <button onclick="resetFilters()" class="px-4 py-2 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200">Reset Search</button>
         </div>
 
         <!-- Table Container (Default View) -->
-        <div id="tracks-table-wrapper" class="overflow-x-auto bg-base-100 rounded-2xl shadow-sm border border-base-200">
-          <table class="table table-zebra w-full">
+        <div id="tracks-table-wrapper" class="overflow-x-auto bg-zinc-900/60 rounded-2xl border border-zinc-800">
+          <table class="table w-full text-left">
             <thead>
-              <tr class="text-xs uppercase font-bold text-base-content/60 bg-base-200/50">
-                <th class="w-12">#</th>
-                <th>Track</th>
-                <th>Album</th>
-                <th>Format</th>
-                <th>Size</th>
-                <th class="text-right">Actions</th>
+              <tr class="text-xs uppercase font-bold text-zinc-400 border-b border-zinc-800 bg-zinc-950/40">
+                <th class="w-12 py-3 px-4">#</th>
+                <th class="py-3 px-4">Track</th>
+                <th class="py-3 px-4">Album</th>
+                <th class="py-3 px-4">Format</th>
+                <th class="py-3 px-4">Size</th>
+                <th class="text-right py-3 px-4">Actions</th>
               </tr>
             </thead>
-            <tbody id="tracks-table-body"></tbody>
+            <tbody id="tracks-table-body" class="divide-y divide-zinc-800/50"></tbody>
           </table>
         </div>
 
@@ -243,17 +210,17 @@
       </section>
 
       <!-- Pagination Controls -->
-      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-base-200">
-        <div class="text-xs text-base-content/60 font-medium">
-          Page <span id="current-page-num" class="font-bold text-base-content">1</span> of <span id="total-pages-num" class="font-bold text-base-content">1</span>
+      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-zinc-800">
+        <div class="text-xs text-zinc-400 font-medium">
+          Page <span id="current-page-num" class="font-bold text-white">1</span> of <span id="total-pages-num" class="font-bold text-white">1</span>
         </div>
 
-        <div class="join">
-          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="btn btn-sm join-item rounded-l-xl">
+        <div class="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800">
+          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none">
             <i class="fa-solid fa-chevron-left mr-1"></i> Prev
           </button>
-          <div id="page-buttons" class="join hidden sm:flex"></div>
-          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="btn btn-sm join-item rounded-r-xl">
+          <div id="page-buttons" class="flex items-center gap-1 hidden sm:flex"></div>
+          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none">
             Next <i class="fa-solid fa-chevron-right ml-1"></i>
           </button>
         </div>
@@ -262,41 +229,12 @@
     </main>
   </div>
 
-  <!-- Sticky Audio Player Footer -->
-  <div id="audio-player-bar" class="hidden fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-200 shadow-2xl p-3 z-50 backdrop-blur-md bg-base-100/95 transition-all duration-300">
-    <div class="container mx-auto max-w-7xl flex flex-col md:flex-row items-center justify-between gap-4">
-      
-      <!-- Track Info -->
-      <div class="flex items-center gap-3 w-full md:w-1/3">
-        <img id="player-artwork" src="" class="w-12 h-12 rounded-xl object-cover shadow-sm border border-base-200" alt="Artwork" />
-        <div class="min-w-0 flex-1">
-          <h4 id="player-title" class="font-bold text-sm line-clamp-1">Track Title</h4>
-          <p id="player-artist" class="text-xs text-base-content/70 line-clamp-1">Artist Name</p>
-        </div>
-        <span id="player-format-badge" class="badge badge-primary badge-sm uppercase font-semibold">ALAC</span>
-      </div>
-
-      <!-- HTML5 Audio Controller -->
-      <div class="w-full md:w-2/3 flex items-center gap-3">
-        <audio id="audio-element" controls class="w-full h-10 rounded-xl focus:outline-none">
-          Your browser does not support audio playback.
-        </audio>
-        <button onclick="closeAudioPlayer()" class="btn btn-ghost btn-circle btn-sm text-base-content/60 hover:text-base-content" title="Close Player">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-    </div>
-  </div>
-
   <!-- Toast Notification Container -->
-  <div id="toast-container" class="toast toast-end toast-bottom z-50 mb-16 md:mb-0"></div>
+  <div id="toast-container" class="fixed bottom-6 right-6 z-50 space-y-2"></div>
 
   <!-- Footer -->
-  <footer class="footer footer-center p-6 bg-base-200 text-base-content/60 text-xs border-t border-base-300 mt-10">
-    <aside>
-      <p>eepy amdl &bull; Telegram Cloud Streaming Server & Downloader</p>
-    </aside>
+  <footer class="p-6 bg-zinc-950 text-zinc-500 text-xs text-center border-t border-zinc-800 mt-10">
+    <p>eepy amdl &bull; Telegram Cloud Streaming Server & Downloader</p>
   </footer>
 
   <!-- Application Logic JavaScript -->
@@ -311,35 +249,23 @@
 
     // Initialize Page
     document.addEventListener('DOMContentLoaded', () => {
-      loadTheme();
       checkServerHealth();
       fetchStats();
       fetchTracks();
     });
-
-    // Theme Management
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('ui_theme', theme);
-    }
-
-    function loadTheme() {
-      const savedTheme = localStorage.getItem('ui_theme') || 'dark';
-      setTheme(savedTheme);
-    }
 
     // Health Check
     async function checkServerHealth() {
       try {
         const res = await fetch('/health');
         if (res.ok) {
-          document.getElementById('server-status').className = 'badge badge-success gap-1 px-3 py-3 font-semibold text-xs shadow-sm';
+          document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300';
           document.getElementById('status-text').innerText = 'Server Online';
         } else {
           throw new Error();
         }
       } catch {
-        document.getElementById('server-status').className = 'badge badge-error gap-1 px-3 py-3 font-semibold text-xs shadow-sm';
+        document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-950/60 border border-red-900 text-xs font-semibold text-red-400';
         document.getElementById('status-text').innerText = 'Server Error';
       }
     }
@@ -413,18 +339,17 @@
 
       emptyState.classList.add('hidden');
 
-      // Grid HTML (Cleaned up - hover play and ready badges removed)
+      // Grid HTML (Clean Black & White Monochrome Style)
       const gridCardsHtml = items.map(track => {
-        const formatBadgeClass = track.format === 'alac' ? 'badge-primary' : track.format === 'atmos' ? 'badge-accent' : 'badge-secondary';
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const formattedSize = formatBytes(track.size);
 
         return `
-          <div class="card bg-base-100 border border-base-200/80 shadow-md hover:shadow-xl transition-all duration-200 overflow-hidden flex flex-col justify-between group">
+          <div class="bg-zinc-900/80 border border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-600 transition-all duration-200">
             
             <div>
-              <!-- Artwork Image (Clean - No Hover Play Button or Ready Badges) -->
-              <div class="relative aspect-square overflow-hidden bg-base-300">
+              <!-- Artwork Image (Monochrome badge overlay) -->
+              <div class="relative aspect-square overflow-hidden bg-zinc-950">
                 <img 
                   src="${artworkUrl}" 
                   alt="${escapeHtml(track.title)}" 
@@ -432,33 +357,33 @@
                   onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'"
                 />
 
-                <div class="absolute top-3 left-3 flex gap-1.5 flex-wrap">
-                  <span class="badge ${formatBadgeClass} uppercase text-xs font-bold shadow-md">${track.format}</span>
+                <div class="absolute top-3 left-3">
+                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format}</span>
                 </div>
               </div>
 
               <!-- Card Content -->
-              <div class="p-4 space-y-2">
-                <h3 class="font-bold text-base leading-tight line-clamp-1 text-base-content" title="${escapeHtml(track.title)}">
+              <div class="p-4 space-y-1.5">
+                <h3 class="font-bold text-sm leading-tight line-clamp-1 text-white" title="${escapeHtml(track.title)}">
                   ${escapeHtml(track.title)}
                 </h3>
-                <p class="text-xs font-medium text-base-content/70 line-clamp-1">
-                  <i class="fa-solid fa-user-ninja mr-1 opacity-50"></i>${escapeHtml(track.artist)}
+                <p class="text-xs font-medium text-zinc-400 line-clamp-1">
+                  ${escapeHtml(track.artist)}
                 </p>
-                <p class="text-xs text-base-content/50 line-clamp-1">
-                  <i class="fa-solid fa-compact-disc mr-1 opacity-50"></i>${escapeHtml(track.album)}
+                <p class="text-xs text-zinc-500 line-clamp-1">
+                  ${escapeHtml(track.album)}
                 </p>
               </div>
             </div>
 
             <!-- Bottom Actions -->
-            <div class="px-4 pb-4 pt-2 border-t border-base-200/50 flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-base-content/60">${formattedSize}</span>
+            <div class="px-4 pb-4 pt-2 border-t border-zinc-800/60 flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-zinc-400">${formattedSize}</span>
 
               <div class="flex items-center gap-1.5">
                 <button 
                   onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="btn btn-ghost btn-circle btn-xs text-base-content/70 hover:text-primary" 
+                  class="p-2 text-zinc-400 hover:text-white transition-colors" 
                   title="Copy Download Link"
                 >
                   <i class="fa-solid fa-link"></i>
@@ -467,7 +392,7 @@
                 <a 
                   href="${track.download_url}" 
                   download
-                  class="btn btn-primary btn-sm rounded-xl gap-1.5 font-bold shadow-sm"
+                  class="px-3 py-1.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-1.5"
                 >
                   <i class="fa-solid fa-download"></i> Download
                 </a>
@@ -480,36 +405,37 @@
 
       gridContainer.innerHTML = gridCardsHtml;
 
-      // Table HTML (Cleaned up - status column removed, clean list view)
+      // Table HTML (Clean Black & White Monochrome Style)
       const tableRowsHtml = items.map((track, idx) => {
-        const formatBadgeClass = track.format === 'alac' ? 'badge-primary' : track.format === 'atmos' ? 'badge-accent' : 'badge-secondary';
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         
         return `
-          <tr class="hover">
-            <td class="font-medium text-xs opacity-50">${(currentPage - 1) * currentLimit + idx + 1}</td>
-            <td>
+          <tr class="hover:bg-zinc-800/30 transition-colors">
+            <td class="font-medium text-xs text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
+            <td class="py-3 px-4">
               <div class="flex items-center gap-3">
-                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
+                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-950 border border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
                 <div>
-                  <div class="font-bold text-sm">${escapeHtml(track.title)}</div>
-                  <div class="text-xs opacity-60">${escapeHtml(track.artist)}</div>
+                  <div class="font-bold text-sm text-white">${escapeHtml(track.title)}</div>
+                  <div class="text-xs text-zinc-400">${escapeHtml(track.artist)}</div>
                 </div>
               </div>
             </td>
-            <td class="text-xs opacity-70">${escapeHtml(track.album)}</td>
-            <td><span class="badge ${formatBadgeClass} badge-sm uppercase font-bold">${track.format}</span></td>
-            <td class="text-xs font-semibold">${formatBytes(track.size)}</td>
-            <td class="text-right">
+            <td class="text-xs text-zinc-400 py-3 px-4">${escapeHtml(track.album)}</td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200 uppercase">${track.format}</span>
+            </td>
+            <td class="text-xs font-semibold text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
+            <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
                 <button 
                   onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="btn btn-ghost btn-circle btn-xs text-base-content/70 hover:text-primary" 
+                  class="p-1.5 text-zinc-400 hover:text-white transition-colors" 
                   title="Copy Link"
                 >
                   <i class="fa-solid fa-link"></i>
                 </button>
-                <a href="${track.download_url}" download class="btn btn-primary btn-xs rounded-lg gap-1 font-bold">
+                <a href="${track.download_url}" download class="px-3 py-1.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-1.5">
                   <i class="fa-solid fa-download"></i> Download
                 </a>
               </div>
@@ -552,7 +478,7 @@
 
       for (let p = startPage; p <= endPage; p++) {
         const btn = document.createElement('button');
-        btn.className = `btn btn-sm join-item ${p === page ? 'btn-active font-bold btn-primary' : ''}`;
+        btn.className = `px-3 py-1 rounded-lg text-xs font-semibold ${p === page ? 'bg-white text-black font-bold' : 'text-zinc-400 hover:text-white'}`;
         btn.innerText = p;
         btn.onclick = () => goToPage(p);
         pageButtonsContainer.appendChild(btn);
@@ -564,9 +490,13 @@
       currentFormat = fmt;
       currentPage = 1;
       
-      document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.remove('tab-active'));
+      document.querySelectorAll('[id^="tab-"]').forEach(el => {
+        el.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white";
+      });
       const activeTab = document.getElementById(`tab-${fmt}`);
-      if (activeTab) activeTab.classList.add('tab-active');
+      if (activeTab) {
+        activeTab.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-black";
+      }
 
       fetchTracks();
     }
@@ -618,13 +548,13 @@
       const tableWrapper = document.getElementById('tracks-table-wrapper');
 
       if (mode === 'table') {
-        gridBtn.classList.remove('btn-active');
-        tableBtn.classList.add('btn-active');
+        gridBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all";
+        tableBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all";
         gridContainer.classList.add('hidden');
         tableWrapper.classList.remove('hidden');
       } else {
-        tableBtn.classList.remove('btn-active');
-        gridBtn.classList.add('btn-active');
+        tableBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all";
+        gridBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all";
         tableWrapper.classList.add('hidden');
         gridContainer.classList.remove('hidden');
       }
@@ -637,28 +567,6 @@
       document.getElementById('search-input').value = '';
       document.getElementById('clear-search-btn').classList.add('hidden');
       setFormat('all');
-    }
-
-    // Audio Streaming Player
-    function playTrack(title, artist, artwork, streamUrl, format) {
-      const playerBar = document.getElementById('audio-player-bar');
-      const audioEl = document.getElementById('audio-element');
-
-      document.getElementById('player-title').innerText = title;
-      document.getElementById('player-artist').innerText = artist;
-      document.getElementById('player-artwork').src = artwork;
-      document.getElementById('player-format-badge').innerText = format;
-
-      audioEl.src = streamUrl;
-      audioEl.play().catch(e => console.log('Audio autoplay prevented:', e));
-
-      playerBar.classList.remove('hidden');
-    }
-
-    function closeAudioPlayer() {
-      const audioEl = document.getElementById('audio-element');
-      audioEl.pause();
-      document.getElementById('audio-player-bar').classList.add('hidden');
     }
 
     // Copy Link Helper
@@ -675,11 +583,8 @@
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
       
-      const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-error' : 'alert-info';
-      const icon = type === 'success' ? 'fa-circle-check' : type === 'error' ? 'fa-circle-xmark' : 'fa-circle-info';
-      
-      toast.className = `alert ${alertClass} shadow-lg text-sm rounded-xl py-2 px-4 flex items-center gap-2 transition-all transform translate-y-2`;
-      toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(message)}</span>`;
+      toast.className = `px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs shadow-2xl flex items-center gap-2 transition-all transform translate-y-2`;
+      toast.innerHTML = `<i class="fa-solid fa-circle-check text-white"></i> <span>${escapeHtml(message)}</span>`;
       
       container.appendChild(toast);
 

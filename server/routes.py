@@ -66,7 +66,8 @@ async def get_stats(request: web.Request):
 async def list_tracks(request: web.Request):
     """
     List tracks with search, format filtering, availability filter, and pagination.
-    Uses optimized Postgres ILIKE payload search and artist ranking.
+    Uses multi-pattern ILIKE matching (including 'weeknd' / 'weekend' cross-matching)
+    and ranks artist hits above title/album hits.
     """
     params = request.query
     fmt = params.get("format", "all").lower()
@@ -97,7 +98,21 @@ async def list_tracks(request: web.Request):
         models_to_query = [(Tracks, "alac"), (AACTracks, "aac"), (AtmosTracks, "atmos")]
 
     items = []
-    total_count = 0
+
+    # Build search patterns
+    patterns = []
+    if q:
+        q_clean = q.lower()
+        patterns.append(f"%{q_clean}%")
+        
+        # Handle 'weeknd' vs 'weekend' alternate spelling
+        if "weeknd" in q_clean:
+            patterns.append(f"%{q_clean.replace('weeknd', 'weekend')}%")
+        elif "weekend" in q_clean:
+            patterns.append(f"%{q_clean.replace('weekend', 'weeknd')}%")
+            
+        if "-" in q_clean:
+            patterns.append(f"%{q_clean.replace('-', '')}%")
 
     async with async_session() as session:
         for model_cls, format_type in models_to_query:
@@ -107,40 +122,23 @@ async def list_tracks(request: web.Request):
             if available_only:
                 conditions.append(model_cls.message_id.is_not(None))
 
-            if q:
-                cleaned_input = q.lower()
-                search_param = f"%{cleaned_input}%"
-                raw_alphanumeric_param = f"%{cleaned_input.replace('-', '')}%"
-
-                conditions.append(
-                    or_(
-                        col(model_cls.title).ilike(search_param),
-                        col(model_cls.artist).ilike(search_param),
-                        col(model_cls.album).ilike(search_param),
-                        col(model_cls.isrc).ilike(search_param),
-                        col(model_cls.isrc).ilike(raw_alphanumeric_param),
-                        col(model_cls.song_id).ilike(search_param),
-                    )
-                )
+            if patterns:
+                or_conditions = []
+                for p in patterns:
+                    or_conditions.extend([
+                        col(model_cls.title).ilike(p),
+                        col(model_cls.artist).ilike(p),
+                        col(model_cls.album).ilike(p),
+                        col(model_cls.isrc).ilike(p),
+                        col(model_cls.song_id).ilike(p),
+                    ])
+                conditions.append(or_(*or_conditions))
 
             if conditions:
                 query = query.where(*conditions)
 
-            # Count total for this model
-            count_stmt = select(func.count()).select_from(query.subquery())
-            count_res = await session.exec(count_stmt)
-            total_count += count_res.one() or 0
-
-            # Execute pagination query with Artist exact hit ranking
-            if q:
-                artist_order = case((col(model_cls.artist).ilike(f"%{q.strip()}%"), 1), else_=2)
-                paged_query = query.order_by(artist_order, model_cls.title, model_cls.song_id).offset(offset).limit(limit)
-            else:
-                paged_query = query.order_by(model_cls.title, model_cls.song_id).offset(offset).limit(limit)
-
-            result = await session.exec(paged_query)
+            result = await session.exec(query)
             tracks_list = result.all()
-
 
             for t in tracks_list:
                 is_avail = t.message_id is not None
@@ -162,10 +160,38 @@ async def list_tracks(request: web.Request):
                     "info_url": f"/info/{format_type}/{t.song_id}",
                 })
 
-    # Sort combined items if format is 'all'
-    if fmt == "all":
+    # If searching, calculate relevance rank (Artist hits first, then Title hits, then Album hits)
+    if q:
+        q_clean = q.lower()
+        search_terms = q_clean.split()
+        
+        def calculate_rank(track):
+            artist = (track["artist"] or "").lower()
+            title = (track["title"] or "").lower()
+            
+            # 1. Exact artist match (e.g. "the weeknd" == artist)
+            if q_clean == artist:
+                return (0, title)
+            # 2. Artist contains full query or key alternate query
+            if any(p.strip("%") in artist for p in patterns):
+                return (1, title)
+            # 3. Artist contains all search terms
+            if all(term in artist for term in search_terms):
+                return (2, title)
+            # 4. Title match
+            if any(p.strip("%") in title for p in patterns):
+                return (3, title)
+            # 5. Album / ISRC match
+            return (4, title)
+
+        items.sort(key=calculate_rank)
+        total_count = len(items)
+        items = items[offset : offset + limit]
+    else:
+        # Default sort by title
         items.sort(key=lambda x: (x["title"] or "").lower())
-        items = items[:limit]
+        total_count = len(items)
+        items = items[offset : offset + limit]
 
     total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
 
