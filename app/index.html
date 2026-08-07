@@ -69,22 +69,32 @@
             class="w-10 h-10 object-contain transition-all" 
           />
           <div>
-            <a class="text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white">
+            <a onclick="resetFilters()" class="text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white cursor-pointer">
               eepy amdl
             </a>
             <span class="text-xs block text-zinc-500 dark:text-zinc-400 font-medium">Apple Music Cloud Vault</span>
           </div>
         </div>
 
-        <!-- Controls: Theme Toggle & Server Status -->
+        <!-- Controls: Search Mode, Theme Toggle, Server Status -->
         <div class="flex items-center gap-3">
-          <!-- Health Badge -->
-          <div id="server-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span id="status-text">Server Online</span>
+          <!-- Search Source Mode Switcher -->
+          <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs">
+            <button onclick="setSearchSource('db')" id="source-db-btn" class="px-3 py-1 rounded-lg font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
+              <i class="fa-solid fa-database mr-1"></i> Vault DB
+            </button>
+            <button onclick="setSearchSource('catalog')" id="source-catalog-btn" class="px-3 py-1 rounded-lg font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
+              <i class="fa-brands fa-apple mr-1"></i> Apple Music API
+            </button>
           </div>
 
-          <!-- B/W Dark vs Light Theme Switcher Button -->
+          <!-- Health Badge -->
+          <div id="server-status" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span id="status-text">Online</span>
+          </div>
+
+          <!-- Theme Switcher -->
           <button 
             onclick="toggleTheme()" 
             id="theme-toggle-btn"
@@ -92,7 +102,6 @@
             title="Switch Theme"
           >
             <i id="theme-icon" class="fa-solid fa-sun text-sm"></i>
-            <span id="theme-text" class="hidden sm:inline">Light</span>
           </button>
         </div>
 
@@ -143,8 +152,8 @@
         <!-- Top Toolbar: Format Filter Tabs & Search Bar -->
         <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
           
-          <!-- Format Filter Tabs -->
-          <div class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
+          <!-- Format Filter Tabs (DB search mode) -->
+          <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
             <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
               All Tracks
             </button>
@@ -167,7 +176,7 @@
             <input 
               type="text" 
               id="search-input" 
-              placeholder="Search by title, artist, album, or ISRC..." 
+              placeholder="Search by artist, title, album, or Apple Music link..." 
               class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
               oninput="handleSearchInput()"
             />
@@ -175,6 +184,15 @@
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
+        </div>
+
+        <!-- Active Filter Indicator Bar -->
+        <div id="active-filter-bar" class="hidden flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+          <span>Filtering by:</span>
+          <span id="active-filter-badge" class="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold flex items-center gap-1.5">
+            <span id="filter-text">Artist</span>
+            <button onclick="resetFilters()" class="hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
+          </span>
         </div>
 
         <!-- Filter Sub-bar: Results count, View Mode, Limits -->
@@ -203,6 +221,26 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- Live Apple Music Catalog Results Section (Shown when in catalog search mode) -->
+      <section id="catalog-results-section" class="hidden space-y-6">
+        <!-- Catalog Artists Header -->
+        <div id="catalog-artists-container" class="hidden space-y-3">
+          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Artists from Apple Music</h3>
+          <div id="catalog-artists-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+        </div>
+
+        <!-- Catalog Albums Header -->
+        <div id="catalog-albums-container" class="hidden space-y-3">
+          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Albums from Apple Music</h3>
+          <div id="catalog-albums-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+        </div>
+
+        <!-- Catalog Songs Header -->
+        <div id="catalog-songs-container" class="space-y-3">
+          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Songs from Apple Music API</h3>
+        </div>
       </section>
 
       <!-- Track List Container -->
@@ -276,9 +314,12 @@
 
   <!-- Application Logic JavaScript -->
   <script>
-    // State Variables - Default to List/Table View
+    // State Variables
     let currentFormat = 'all';
     let currentSearch = '';
+    let searchSource = 'db'; // 'db' or 'catalog'
+    let activeArtistFilter = '';
+    let activeAlbumFilter = '';
     let currentPage = 1;
     let currentLimit = 24;
     let viewMode = 'table';
@@ -307,24 +348,20 @@
       isDarkMode = dark;
       const html = document.documentElement;
       const themeIcon = document.getElementById('theme-icon');
-      const themeText = document.getElementById('theme-text');
       const logoImg = document.getElementById('app-logo');
 
       if (dark) {
         html.classList.add('dark');
         localStorage.setItem('theme_mode', 'dark');
         themeIcon.className = "fa-solid fa-sun text-amber-400";
-        themeText.innerText = "Light";
         logoImg.src = "/app/logo/eepy_alt_icon_dark.svg";
       } else {
         html.classList.remove('dark');
         localStorage.setItem('theme_mode', 'light');
         themeIcon.className = "fa-solid fa-moon text-zinc-700";
-        themeText.innerText = "Dark";
         logoImg.src = "/app/logo/eepy_alt_icon_light.svg";
       }
 
-      // Re-render active tab styles for current theme
       setFormat(currentFormat);
       setViewMode(viewMode);
     }
@@ -335,13 +372,13 @@
         const res = await fetch('/health');
         if (res.ok) {
           document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300';
-          document.getElementById('status-text').innerText = 'Server Online';
+          document.getElementById('status-text').innerText = 'Online';
         } else {
           throw new Error();
         }
       } catch {
         document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-100 dark:bg-red-950/60 border border-red-200 dark:border-red-900 text-xs font-semibold text-red-700 dark:text-red-400';
-        document.getElementById('status-text').innerText = 'Server Error';
+        document.getElementById('status-text').innerText = 'Offline';
       }
     }
 
@@ -360,9 +397,79 @@
       }
     }
 
-    // Main Tracks Fetcher
+    // Search Source Switcher
+    function setSearchSource(source) {
+      searchSource = source;
+      const dbBtn = document.getElementById('source-db-btn');
+      const catalogBtn = document.getElementById('source-catalog-btn');
+      const formatTabs = document.getElementById('format-tabs-container');
+      const catalogSec = document.getElementById('catalog-results-section');
+
+      const activeBtnClass = "px-3 py-1 rounded-lg font-semibold bg-black text-white dark:bg-white dark:text-black transition-all";
+      const inactiveBtnClass = "px-3 py-1 rounded-lg font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+
+      if (source === 'catalog') {
+        dbBtn.className = inactiveBtnClass;
+        catalogBtn.className = activeBtnClass;
+        formatTabs.classList.add('hidden');
+        catalogSec.classList.remove('hidden');
+      } else {
+        catalogBtn.className = inactiveBtnClass;
+        dbBtn.className = activeBtnClass;
+        formatTabs.classList.remove('hidden');
+        catalogSec.classList.add('hidden');
+      }
+
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    // Filter by Artist Handler (Clicking artist name)
+    function filterByArtist(artistName) {
+      activeArtistFilter = artistName;
+      activeAlbumFilter = '';
+      currentSearch = artistName;
+      document.getElementById('search-input').value = artistName;
+      document.getElementById('clear-search-btn').classList.remove('hidden');
+      
+      updateFilterBadge('Artist: ' + artistName);
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    // Filter by Album Handler (Clicking album name)
+    function filterByAlbum(albumName) {
+      activeAlbumFilter = albumName;
+      activeArtistFilter = '';
+      currentSearch = albumName;
+      document.getElementById('search-input').value = albumName;
+      document.getElementById('clear-search-btn').classList.remove('hidden');
+
+      updateFilterBadge('Album: ' + albumName);
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    function updateFilterBadge(text) {
+      const bar = document.getElementById('active-filter-bar');
+      const textEl = document.getElementById('filter-text');
+      if (text) {
+        textEl.innerText = text;
+        bar.classList.remove('hidden');
+      } else {
+        bar.classList.add('hidden');
+      }
+    }
+
+    // Main Tracks / Catalog Fetcher
     async function fetchTracks() {
       showLoading(true);
+
+      if (searchSource === 'catalog') {
+        await fetchAppleCatalogSearch();
+        showLoading(false);
+        return;
+      }
       
       const url = new URL('/api/tracks', window.location.origin);
       url.searchParams.set('format', currentFormat);
@@ -383,6 +490,63 @@
         renderTracks([]);
       } finally {
         showLoading(false);
+      }
+    }
+
+    // Apple Music API Catalog Search Fetcher
+    async function fetchAppleCatalogSearch() {
+      const q = currentSearch.trim() || 'The Weeknd';
+      const url = new URL('/api/catalog/search', window.location.origin);
+      url.searchParams.set('q', q);
+
+      try {
+        const res = await fetch(url.toString());
+        if (!res.ok) throw new Error("Failed to load Apple Music catalog search");
+        
+        const data = await res.json();
+        renderCatalogSearch(data);
+        renderTracks(data.songs || []);
+        renderPagination(1, 1, (data.songs || []).length);
+      } catch (err) {
+        console.error(err);
+        showToast("Failed to search Apple Music catalog", "error");
+      }
+    }
+
+    // Render Catalog Artists & Albums
+    function renderCatalogSearch(data) {
+      const artistsContainer = document.getElementById('catalog-artists-container');
+      const albumsContainer = document.getElementById('catalog-albums-container');
+      const artistsList = document.getElementById('catalog-artists-list');
+      const albumsList = document.getElementById('catalog-albums-list');
+
+      // Artists
+      const artists = data.artists || [];
+      if (artists.length > 0) {
+        artistsContainer.classList.remove('hidden');
+        artistsList.innerHTML = artists.map(a => `
+          <div onclick="filterByArtist('${escapeHtml(a.name)}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+            <img src="${a.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-16 h-16 rounded-full mx-auto object-cover bg-zinc-950" alt="${escapeHtml(a.name)}" />
+            <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(a.name)}</div>
+          </div>
+        `).join('');
+      } else {
+        artistsContainer.classList.add('hidden');
+      }
+
+      // Albums
+      const albums = data.albums || [];
+      if (albums.length > 0) {
+        albumsContainer.classList.remove('hidden');
+        albumsList.innerHTML = albums.map(al => `
+          <div onclick="filterByAlbum('${escapeHtml(al.title)}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+            <img src="${al.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-full aspect-square rounded-lg object-cover bg-zinc-950" alt="${escapeHtml(al.title)}" />
+            <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(al.title)}</div>
+            <div class="text-[11px] text-zinc-500 line-clamp-1">${escapeHtml(al.artist)}</div>
+          </div>
+        `).join('');
+      } else {
+        albumsContainer.classList.add('hidden');
       }
     }
 
@@ -414,10 +578,15 @@
 
       emptyState.classList.add('hidden');
 
-      // Grid HTML (Clean Black & White Monochrome Style)
+      // Grid HTML (Clean Black & White Monochrome Style with Clickable Artist/Album)
       const gridCardsHtml = items.map(track => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const formattedSize = formatBytes(track.size);
+        const isAvailable = track.is_available !== false;
+
+        const actionBtn = isAvailable && track.download_url
+          ? `<a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
+          : `<button onclick="requestViaTelegram('${escapeHtml(track.url)}', '${escapeHtml(track.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
           <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
@@ -433,7 +602,7 @@
                 />
 
                 <div class="absolute top-3 left-3">
-                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format}</span>
+                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
                 </div>
               </div>
 
@@ -443,10 +612,10 @@
                   ${escapeHtml(track.title)}
                 </h3>
                 <p class="text-xs font-medium text-zinc-600 dark:text-zinc-400 line-clamp-1">
-                  ${escapeHtml(track.artist)}
+                  <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-black dark:hover:text-white">${escapeHtml(track.artist)}</button>
                 </p>
                 <p class="text-xs text-zinc-500 dark:text-zinc-500 line-clamp-1">
-                  ${escapeHtml(track.album)}
+                  <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-zinc-400">${escapeHtml(track.album)}</button>
                 </p>
               </div>
             </div>
@@ -456,21 +625,16 @@
               <span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">${formattedSize}</span>
 
               <div class="flex items-center gap-1.5">
-                <button 
-                  onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
-                  title="Copy Download Link"
-                >
-                  <i class="fa-solid fa-link"></i>
-                </button>
-
-                <a 
-                  href="${track.download_url}" 
-                  download
-                  class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"
-                >
-                  <i class="fa-solid fa-download"></i> Download
-                </a>
+                ${track.download_url ? `
+                  <button 
+                    onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
+                    class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                    title="Copy Download Link"
+                  >
+                    <i class="fa-solid fa-link"></i>
+                  </button>
+                ` : ''}
+                ${actionBtn}
               </div>
             </div>
 
@@ -480,10 +644,15 @@
 
       gridContainer.innerHTML = gridCardsHtml;
 
-      // Table HTML (Clean Black & White Monochrome Style)
+      // Table HTML (Clean Black & White Monochrome Style with Clickable Artist/Album)
       const tableRowsHtml = items.map((track, idx) => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
-        
+        const isAvailable = track.is_available !== false;
+
+        const actionBtn = isAvailable && track.download_url
+          ? `<a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
+          : `<button onclick="requestViaTelegram('${escapeHtml(track.url)}', '${escapeHtml(track.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+
         return `
           <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
             <td class="font-medium text-xs text-zinc-400 dark:text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
@@ -492,27 +661,31 @@
                 <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
                 <div>
                   <div class="font-bold text-sm text-zinc-950 dark:text-white">${escapeHtml(track.title)}</div>
-                  <div class="text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(track.artist)}</div>
+                  <div class="text-xs text-zinc-500 dark:text-zinc-400">
+                    <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-black dark:hover:text-white">${escapeHtml(track.artist)}</button>
+                  </div>
                 </div>
               </div>
             </td>
-            <td class="text-xs text-zinc-600 dark:text-zinc-400 py-3 px-4">${escapeHtml(track.album)}</td>
+            <td class="text-xs text-zinc-600 dark:text-zinc-400 py-3 px-4">
+              <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-zinc-950 dark:hover:text-white">${escapeHtml(track.album)}</button>
+            </td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format}</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format || 'ALAC'}</span>
             </td>
             <td class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
             <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
-                <button 
-                  onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
-                  title="Copy Link"
-                >
-                  <i class="fa-solid fa-link"></i>
-                </button>
-                <a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm">
-                  <i class="fa-solid fa-download"></i> Download
-                </a>
+                ${track.download_url ? `
+                  <button 
+                    onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
+                    class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                    title="Copy Link"
+                  >
+                    <i class="fa-solid fa-link"></i>
+                  </button>
+                ` : ''}
+                ${actionBtn}
               </div>
             </td>
           </tr>
@@ -599,6 +772,9 @@
       document.getElementById('search-input').value = '';
       document.getElementById('clear-search-btn').classList.add('hidden');
       currentSearch = '';
+      activeArtistFilter = '';
+      activeAlbumFilter = '';
+      updateFilterBadge('');
       currentPage = 1;
       fetchTracks();
     }
@@ -641,11 +817,26 @@
 
     function resetFilters() {
       currentSearch = '';
+      activeArtistFilter = '';
+      activeAlbumFilter = '';
       currentFormat = 'all';
       currentPage = 1;
       document.getElementById('search-input').value = '';
       document.getElementById('clear-search-btn').classList.add('hidden');
-      setFormat('all');
+      updateFilterBadge('');
+      setSearchSource('db');
+    }
+
+    // Request via Telegram Bot Helper
+    function requestViaTelegram(url, title) {
+      const botCmd = `/download ${url}`;
+      navigator.clipboard.writeText(botCmd).then(() => {
+        showToast("Bot command copied! Opening Telegram Bot...", "success");
+      }).catch(() => {});
+
+      setTimeout(() => {
+        window.open('https://t.me/applemusicdw_bot', '_blank');
+      }, 500);
     }
 
     // Copy Link Helper

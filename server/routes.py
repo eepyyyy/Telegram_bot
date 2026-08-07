@@ -1,12 +1,23 @@
 import logging
 import os
+import sys
 from pathlib import Path
 from aiohttp import web
 from sqlmodel import select, or_, func, col, case
 import crud
+import gamdlHelpUrl
 from database import Tracks, AACTracks, AtmosTracks, Albums, async_session
 from server import config
 from server.stream import handle_telegram_stream
+
+# Ensure stdout/stderr handle UTF-8 symbols (e.g. copyright ℗) safely on Windows
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 logger = logging.getLogger("server.routes")
 
@@ -202,6 +213,169 @@ async def list_tracks(request: web.Request):
         "limit": limit,
         "pages": total_pages,
     })
+
+
+@routes.get("/api/catalog/search")
+async def search_apple_catalog(request: web.Request):
+    """
+    Searches Apple Music API catalog via gamdlHelpUrl for artists, albums, and tracks.
+    Cross-checks songs with local DB to indicate download availability or Telegram Bot request.
+    """
+    q = request.query.get("q", "").strip()
+    if not q:
+        return web.json_response({"artists": [], "albums": [], "songs": []})
+
+    try:
+        api = await gamdlHelpUrl.get_api()
+        
+        # Check if input is direct Apple Music URL
+        if q.startswith("http://") or q.startswith("https://"):
+            meta = await gamdlHelpUrl.get_url_metadata(q)
+            m_type = meta.get("type", "")
+            if m_type == "artist":
+                return web.json_response({
+                    "artists": [{
+                        "id": meta.get("artist_id"),
+                        "name": meta.get("name"),
+                        "url": meta.get("url"),
+                        "artwork": meta.get("artwork")
+                    }],
+                    "albums": [],
+                    "songs": []
+                })
+            elif m_type in ("album", "playlist"):
+                songs_list = []
+                for tr in meta.get("tracks", []):
+                    songs_list.append({
+                        "song_id": tr.get("song_id"),
+                        "title": tr.get("title"),
+                        "artist": tr.get("artist"),
+                        "album": meta.get("title"),
+                        "isrc": tr.get("isrc"),
+                        "url": tr.get("url"),
+                        "artwork": meta.get("artwork"),
+                        "is_available": False,
+                        "download_url": None,
+                        "bot_request_cmd": f"/download {tr.get('url', '')}"
+                    })
+                return web.json_response({
+                    "artists": [],
+                    "albums": [{
+                        "id": meta.get("album_id") or meta.get("playlist_id"),
+                        "title": meta.get("title"),
+                        "artist": meta.get("artist") or meta.get("curator"),
+                        "url": meta.get("url"),
+                        "artwork": meta.get("artwork")
+                    }],
+                    "songs": songs_list
+                })
+
+        # Standard term search via Apple Music API
+        raw_res = await api.get_search_results(q, limit=10)
+        results = raw_res.get("results", {}) if isinstance(raw_res, dict) else {}
+        
+        artists = []
+        if "artists" in results:
+            for item in results["artists"].get("data", []):
+                attrs = item.get("attributes", {})
+                artists.append({
+                    "id": item.get("id"),
+                    "name": attrs.get("name", "Unknown Artist"),
+                    "url": attrs.get("url", ""),
+                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                })
+                
+        albums = []
+        if "albums" in results:
+            for item in results["albums"].get("data", []):
+                attrs = item.get("attributes", {})
+                albums.append({
+                    "id": item.get("id"),
+                    "title": attrs.get("name", "Unknown Album"),
+                    "artist": attrs.get("artistName", "Unknown Artist"),
+                    "release_date": attrs.get("releaseDate", "N/A"),
+                    "track_count": attrs.get("trackCount"),
+                    "url": attrs.get("url", ""),
+                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                })
+
+        songs = []
+        song_ids_to_check = []
+        isrcs_to_check = []
+
+        if "songs" in results:
+            for item in results["songs"].get("data", []):
+                attrs = item.get("attributes", {})
+                sid = item.get("id")
+                isrc = attrs.get("isrc")
+                if sid:
+                    song_ids_to_check.append(str(sid))
+                if isrc:
+                    isrcs_to_check.append(str(isrc))
+
+                songs.append({
+                    "song_id": sid,
+                    "title": attrs.get("name", "Unknown Song"),
+                    "artist": attrs.get("artistName", "Unknown Artist"),
+                    "album": attrs.get("albumName", "Unknown Album"),
+                    "isrc": isrc,
+                    "url": attrs.get("url", ""),
+                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                    "is_available": False,
+                    "download_url": None,
+                    "stream_url": None,
+                    "bot_request_cmd": f"/download {attrs.get('url', '')}"
+                })
+
+        # Cross-reference database for download availability
+        if song_ids_to_check or isrcs_to_check:
+            db_map = {}
+            async with async_session() as session:
+                for model_cls, format_type in [(Tracks, "alac"), (AACTracks, "aac"), (AtmosTracks, "atmos")]:
+                    stmt = select(model_cls).where(
+                        or_(
+                            col(model_cls.song_id).in_(song_ids_to_check),
+                            col(model_cls.isrc).in_(isrcs_to_check)
+                        )
+                    )
+                    res = await session.exec(stmt)
+                    found_tracks = res.all()
+                    for ft in found_tracks:
+                        key = ft.song_id or ft.isrc
+                        if key:
+                            db_map[key] = {
+                                "format": format_type,
+                                "song_id": ft.song_id,
+                                "message_id": ft.message_id,
+                                "is_available": ft.message_id is not None
+                            }
+
+            for s in songs:
+                key1 = str(s["song_id"])
+                key2 = str(s["isrc"])
+                if key1 in db_map:
+                    s["is_available"] = db_map[key1]["is_available"]
+                    fmt = db_map[key1]["format"]
+                    sid = db_map[key1]["song_id"]
+                    s["download_url"] = f"/download/{fmt}/{sid}"
+                    s["stream_url"] = f"/stream/{fmt}/{sid}"
+                elif key2 in db_map:
+                    s["is_available"] = db_map[key2]["is_available"]
+                    fmt = db_map[key2]["format"]
+                    sid = db_map[key2]["song_id"]
+                    s["download_url"] = f"/download/{fmt}/{sid}"
+                    s["stream_url"] = f"/stream/{fmt}/{sid}"
+
+        return web.json_response({
+            "artists": artists,
+            "albums": albums,
+            "songs": songs,
+            "bot_username": "applemusicdw_bot"
+        })
+
+    except Exception as e:
+        logger.error(f"Catalog search error: {e}")
+        return web.json_response({"artists": [], "albums": [], "songs": [], "error": str(e)})
 
 
 @routes.get("/info/{format_type}/{song_id}")
