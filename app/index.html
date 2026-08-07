@@ -1,13 +1,31 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>eepy amdl</title>
   
-  <!-- Tailwind CSS & DaisyUI via CDN -->
+  <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              darkBg: '#09090b',
+              darkCard: '#18181b',
+              darkBorder: '#27272a',
+              lightBg: '#f4f4f5',
+              lightCard: '#ffffff',
+              lightBorder: '#e4e4e7',
+            }
+          }
+        }
+      }
+    }
+  </script>
   
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -19,8 +37,6 @@
   <style>
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: #09090b;
-      color: #fafafa;
     }
     .line-clamp-1 {
       display: -webkit-box;
@@ -36,29 +52,50 @@
     }
   </style>
 </head>
-<body class="bg-[#09090b] min-h-screen text-zinc-100 flex flex-col justify-between selection:bg-zinc-800 selection:text-white">
+<body class="bg-zinc-950 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col justify-between transition-colors duration-200 selection:bg-zinc-800 selection:text-white">
 
   <!-- Main Wrapper -->
   <div>
     <!-- Navigation Bar -->
-    <header class="navbar bg-[#09090b]/90 border-b border-zinc-800/80 px-4 lg:px-8 sticky top-0 z-40 backdrop-blur-md">
-      <div class="flex-1 gap-3 items-center">
-        <!-- eepy amdl Logo -->
-        <img src="/app/logo/eepy_alt_icon_dark.svg" alt="eepy amdl logo" class="w-9 h-9 object-contain filter invert" onerror="this.style.display='none'" />
-        <div>
-          <a class="text-xl font-extrabold tracking-tight text-white">
-            eepy amdl
-          </a>
-          <span class="text-xs block text-zinc-400 font-medium">Apple Music Cloud Vault</span>
+    <header class="bg-white/90 dark:bg-[#09090b]/90 border-b border-zinc-200 dark:border-zinc-800/80 px-4 lg:px-8 py-3 sticky top-0 z-40 backdrop-blur-md transition-colors duration-200">
+      <div class="container mx-auto max-w-7xl flex items-center justify-between">
+        
+        <!-- eepy amdl Branding & Logo -->
+        <div class="flex items-center gap-3">
+          <img 
+            id="app-logo" 
+            src="/app/logo/eepy_alt_icon_dark.svg" 
+            alt="eepy amdl logo" 
+            class="w-10 h-10 object-contain transition-all" 
+          />
+          <div>
+            <a class="text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white">
+              eepy amdl
+            </a>
+            <span class="text-xs block text-zinc-500 dark:text-zinc-400 font-medium">Apple Music Cloud Vault</span>
+          </div>
         </div>
-      </div>
 
-      <div class="flex-none gap-3">
-        <!-- Server Health Indicator -->
-        <div id="server-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300">
-          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-          <span id="status-text">Server Online</span>
+        <!-- Controls: Theme Toggle & Server Status -->
+        <div class="flex items-center gap-3">
+          <!-- Health Badge -->
+          <div id="server-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span id="status-text">Server Online</span>
+          </div>
+
+          <!-- B/W Dark vs Light Theme Switcher Button -->
+          <button 
+            onclick="toggleTheme()" 
+            id="theme-toggle-btn"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all"
+            title="Switch Theme"
+          >
+            <i id="theme-icon" class="fa-solid fa-sun text-sm"></i>
+            <span id="theme-text" class="hidden sm:inline">Light</span>
+          </button>
         </div>
+
       </div>
     </header>
 
@@ -68,96 +105,96 @@
       <!-- Simple, Elegant Stat Cards Section -->
       <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- Total Tracks -->
-        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Total Tracks</div>
-          <div id="stat-total" class="text-3xl font-extrabold text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 font-medium">In database storage</div>
+        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Tracks</div>
+          <div id="stat-total" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">In database storage</div>
         </div>
 
         <!-- Total Cloud Tracks -->
-        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Total Cloud Tracks</div>
-          <div id="stat-available" class="text-3xl font-extrabold text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 font-medium">Available for download</div>
+        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Cloud Tracks</div>
+          <div id="stat-available" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Available for download</div>
         </div>
 
         <!-- Albums -->
-        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Albums</div>
-          <div id="stat-albums" class="text-3xl font-extrabold text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 font-medium">Unique discography</div>
+        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Albums</div>
+          <div id="stat-albums" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Unique discography</div>
         </div>
 
         <!-- Formats -->
-        <div class="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-2">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-400">Formats</div>
+        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Formats</div>
           <div class="flex items-center gap-1.5 pt-0.5">
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">ALAC</span>
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">AAC</span>
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200">Atmos</span>
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">ALAC</span>
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">AAC</span>
+            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">Atmos</span>
           </div>
-          <div class="text-xs text-zinc-500 font-medium">Hi-Res audio supported</div>
+          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Hi-Res audio supported</div>
         </div>
       </section>
 
       <!-- Controls & Search Header -->
-      <section class="bg-zinc-900/60 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
+      <section class="bg-white dark:bg-zinc-900/60 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 space-y-4 transition-colors">
         
         <!-- Top Toolbar: Format Filter Tabs & Search Bar -->
         <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
           
           <!-- Format Filter Tabs -->
-          <div class="flex items-center gap-1.5 p-1 bg-zinc-950/80 rounded-xl border border-zinc-800 flex-wrap">
-            <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-black">
+          <div class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
+            <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
               All Tracks
             </button>
-            <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+            <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
               ALAC (Lossless)
             </button>
-            <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+            <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
               AAC
             </button>
-            <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white">
+            <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
               Dolby Atmos
             </button>
           </div>
 
           <!-- Search Input -->
           <div class="relative flex-1 max-w-md">
-            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
               <i class="fa-solid fa-magnifying-glass"></i>
             </div>
             <input 
               type="text" 
               id="search-input" 
               placeholder="Search by title, artist, album, or ISRC..." 
-              class="w-full pl-10 pr-10 py-2 bg-zinc-950/90 border border-zinc-800 text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-500 transition-colors"
+              class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
               oninput="handleSearchInput()"
             />
-            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white">
+            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-black dark:hover:text-white">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
         </div>
 
         <!-- Filter Sub-bar: Results count, View Mode, Limits -->
-        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/60">
+        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
           <div class="flex items-center gap-4">
-            <span id="results-count" class="text-xs font-medium text-zinc-400">Showing 0 tracks</span>
+            <span id="results-count" class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Showing 0 tracks</span>
           </div>
 
           <!-- Right Controls: View Switcher & Limit selector -->
           <div class="flex items-center gap-3">
-            <div class="flex items-center p-1 bg-zinc-950/80 rounded-xl border border-zinc-800">
-              <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all">
+            <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
                 <i class="fa-solid fa-list mr-1"></i> List
               </button>
-              <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all">
+              <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
                 <i class="fa-solid fa-border-all mr-1"></i> Grid
               </button>
             </div>
 
-            <select id="limit-select" onchange="changeLimit()" class="bg-zinc-950/90 border border-zinc-800 text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
+            <select id="limit-select" onchange="changeLimit()" class="bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
               <option value="12">12 per page</option>
               <option value="24" selected>24 per page</option>
               <option value="48">48 per page</option>
@@ -172,27 +209,27 @@
       <section>
         <!-- Loading Spinner -->
         <div id="loading-state" class="py-20 flex flex-col items-center justify-center space-y-3">
-          <span class="loading loading-spinner loading-lg text-zinc-400"></span>
-          <p class="text-sm font-medium text-zinc-400">Searching tracks database...</p>
+          <div class="w-8 h-8 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
+          <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">Searching tracks database...</p>
         </div>
 
         <!-- Empty State -->
-        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-zinc-900/60 rounded-2xl border border-zinc-800">
-          <div class="w-16 h-16 rounded-full bg-zinc-800/80 inline-flex items-center justify-center text-zinc-400 text-2xl">
+        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+          <div class="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800/80 inline-flex items-center justify-center text-zinc-400 text-2xl">
             <i class="fa-solid fa-compact-disc"></i>
           </div>
           <div class="space-y-1">
-            <h3 class="text-lg font-bold text-white">No tracks found</h3>
-            <p class="text-xs text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
+            <h3 class="text-lg font-bold text-zinc-950 dark:text-white">No tracks found</h3>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
           </div>
-          <button onclick="resetFilters()" class="px-4 py-2 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200">Reset Search</button>
+          <button onclick="resetFilters()" class="px-4 py-2 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200">Reset Search</button>
         </div>
 
         <!-- Table Container (Default View) -->
-        <div id="tracks-table-wrapper" class="overflow-x-auto bg-zinc-900/60 rounded-2xl border border-zinc-800">
+        <div id="tracks-table-wrapper" class="overflow-x-auto bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800 transition-colors">
           <table class="table w-full text-left">
             <thead>
-              <tr class="text-xs uppercase font-bold text-zinc-400 border-b border-zinc-800 bg-zinc-950/40">
+              <tr class="text-xs uppercase font-bold text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40">
                 <th class="w-12 py-3 px-4">#</th>
                 <th class="py-3 px-4">Track</th>
                 <th class="py-3 px-4">Album</th>
@@ -201,7 +238,7 @@
                 <th class="text-right py-3 px-4">Actions</th>
               </tr>
             </thead>
-            <tbody id="tracks-table-body" class="divide-y divide-zinc-800/50"></tbody>
+            <tbody id="tracks-table-body" class="divide-y divide-zinc-200 dark:divide-zinc-800/50"></tbody>
           </table>
         </div>
 
@@ -210,17 +247,17 @@
       </section>
 
       <!-- Pagination Controls -->
-      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-zinc-800">
-        <div class="text-xs text-zinc-400 font-medium">
-          Page <span id="current-page-num" class="font-bold text-white">1</span> of <span id="total-pages-num" class="font-bold text-white">1</span>
+      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-zinc-200 dark:border-zinc-800">
+        <div class="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+          Page <span id="current-page-num" class="font-bold text-zinc-950 dark:text-white">1</span> of <span id="total-pages-num" class="font-bold text-zinc-950 dark:text-white">1</span>
         </div>
 
-        <div class="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800">
-          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+        <div class="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
             <i class="fa-solid fa-chevron-left mr-1"></i> Prev
           </button>
           <div id="page-buttons" class="flex items-center gap-1 hidden sm:flex"></div>
-          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
             Next <i class="fa-solid fa-chevron-right ml-1"></i>
           </button>
         </div>
@@ -233,7 +270,7 @@
   <div id="toast-container" class="fixed bottom-6 right-6 z-50 space-y-2"></div>
 
   <!-- Footer -->
-  <footer class="p-6 bg-zinc-950 text-zinc-500 text-xs text-center border-t border-zinc-800 mt-10">
+  <footer class="p-6 bg-zinc-100 dark:bg-zinc-950 text-zinc-500 text-xs text-center border-t border-zinc-200 dark:border-zinc-800 mt-10 transition-colors">
     <p>eepy amdl &bull; Telegram Cloud Streaming Server & Downloader</p>
   </footer>
 
@@ -245,27 +282,65 @@
     let currentPage = 1;
     let currentLimit = 24;
     let viewMode = 'table';
+    let isDarkMode = true;
     let searchDebounceTimeout = null;
 
     // Initialize Page
     document.addEventListener('DOMContentLoaded', () => {
+      initTheme();
       checkServerHealth();
       fetchStats();
       fetchTracks();
     });
+
+    // Theme Switcher (Dark vs Light)
+    function initTheme() {
+      const savedTheme = localStorage.getItem('theme_mode') || 'dark';
+      applyTheme(savedTheme === 'dark');
+    }
+
+    function toggleTheme() {
+      applyTheme(!isDarkMode);
+    }
+
+    function applyTheme(dark) {
+      isDarkMode = dark;
+      const html = document.documentElement;
+      const themeIcon = document.getElementById('theme-icon');
+      const themeText = document.getElementById('theme-text');
+      const logoImg = document.getElementById('app-logo');
+
+      if (dark) {
+        html.classList.add('dark');
+        localStorage.setItem('theme_mode', 'dark');
+        themeIcon.className = "fa-solid fa-sun text-amber-400";
+        themeText.innerText = "Light";
+        logoImg.src = "/app/logo/eepy_alt_icon_dark.svg";
+      } else {
+        html.classList.remove('dark');
+        localStorage.setItem('theme_mode', 'light');
+        themeIcon.className = "fa-solid fa-moon text-zinc-700";
+        themeText.innerText = "Dark";
+        logoImg.src = "/app/logo/eepy_alt_icon_light.svg";
+      }
+
+      // Re-render active tab styles for current theme
+      setFormat(currentFormat);
+      setViewMode(viewMode);
+    }
 
     // Health Check
     async function checkServerHealth() {
       try {
         const res = await fetch('/health');
         if (res.ok) {
-          document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300';
+          document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300';
           document.getElementById('status-text').innerText = 'Server Online';
         } else {
           throw new Error();
         }
       } catch {
-        document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-950/60 border border-red-900 text-xs font-semibold text-red-400';
+        document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-100 dark:bg-red-950/60 border border-red-200 dark:border-red-900 text-xs font-semibold text-red-700 dark:text-red-400';
         document.getElementById('status-text').innerText = 'Server Error';
       }
     }
@@ -345,11 +420,11 @@
         const formattedSize = formatBytes(track.size);
 
         return `
-          <div class="bg-zinc-900/80 border border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-600 transition-all duration-200">
+          <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
             
             <div>
               <!-- Artwork Image (Monochrome badge overlay) -->
-              <div class="relative aspect-square overflow-hidden bg-zinc-950">
+              <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-950">
                 <img 
                   src="${artworkUrl}" 
                   alt="${escapeHtml(track.title)}" 
@@ -358,32 +433,32 @@
                 />
 
                 <div class="absolute top-3 left-3">
-                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format}</span>
+                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format}</span>
                 </div>
               </div>
 
               <!-- Card Content -->
               <div class="p-4 space-y-1.5">
-                <h3 class="font-bold text-sm leading-tight line-clamp-1 text-white" title="${escapeHtml(track.title)}">
+                <h3 class="font-bold text-sm leading-tight line-clamp-1 text-zinc-950 dark:text-white" title="${escapeHtml(track.title)}">
                   ${escapeHtml(track.title)}
                 </h3>
-                <p class="text-xs font-medium text-zinc-400 line-clamp-1">
+                <p class="text-xs font-medium text-zinc-600 dark:text-zinc-400 line-clamp-1">
                   ${escapeHtml(track.artist)}
                 </p>
-                <p class="text-xs text-zinc-500 line-clamp-1">
+                <p class="text-xs text-zinc-500 dark:text-zinc-500 line-clamp-1">
                   ${escapeHtml(track.album)}
                 </p>
               </div>
             </div>
 
             <!-- Bottom Actions -->
-            <div class="px-4 pb-4 pt-2 border-t border-zinc-800/60 flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-zinc-400">${formattedSize}</span>
+            <div class="px-4 pb-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60 flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">${formattedSize}</span>
 
               <div class="flex items-center gap-1.5">
                 <button 
                   onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="p-2 text-zinc-400 hover:text-white transition-colors" 
+                  class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
                   title="Copy Download Link"
                 >
                   <i class="fa-solid fa-link"></i>
@@ -392,7 +467,7 @@
                 <a 
                   href="${track.download_url}" 
                   download
-                  class="px-3 py-1.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-1.5"
+                  class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"
                 >
                   <i class="fa-solid fa-download"></i> Download
                 </a>
@@ -410,32 +485,32 @@
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         
         return `
-          <tr class="hover:bg-zinc-800/30 transition-colors">
-            <td class="font-medium text-xs text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
+          <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+            <td class="font-medium text-xs text-zinc-400 dark:text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-3">
-                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-950 border border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
+                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
                 <div>
-                  <div class="font-bold text-sm text-white">${escapeHtml(track.title)}</div>
-                  <div class="text-xs text-zinc-400">${escapeHtml(track.artist)}</div>
+                  <div class="font-bold text-sm text-zinc-950 dark:text-white">${escapeHtml(track.title)}</div>
+                  <div class="text-xs text-zinc-500 dark:text-zinc-400">${escapeHtml(track.artist)}</div>
                 </div>
               </div>
             </td>
-            <td class="text-xs text-zinc-400 py-3 px-4">${escapeHtml(track.album)}</td>
+            <td class="text-xs text-zinc-600 dark:text-zinc-400 py-3 px-4">${escapeHtml(track.album)}</td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200 uppercase">${track.format}</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format}</span>
             </td>
-            <td class="text-xs font-semibold text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
+            <td class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
             <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
                 <button 
                   onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                  class="p-1.5 text-zinc-400 hover:text-white transition-colors" 
+                  class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
                   title="Copy Link"
                 >
                   <i class="fa-solid fa-link"></i>
                 </button>
-                <a href="${track.download_url}" download class="px-3 py-1.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-1.5">
+                <a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm">
                   <i class="fa-solid fa-download"></i> Download
                 </a>
               </div>
@@ -478,7 +553,8 @@
 
       for (let p = startPage; p <= endPage; p++) {
         const btn = document.createElement('button');
-        btn.className = `px-3 py-1 rounded-lg text-xs font-semibold ${p === page ? 'bg-white text-black font-bold' : 'text-zinc-400 hover:text-white'}`;
+        const activeClass = isDarkMode ? 'bg-white text-black font-bold' : 'bg-black text-white font-bold';
+        btn.className = `px-3 py-1 rounded-lg text-xs font-semibold ${p === page ? activeClass : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`;
         btn.innerText = p;
         btn.onclick = () => goToPage(p);
         pageButtonsContainer.appendChild(btn);
@@ -491,11 +567,11 @@
       currentPage = 1;
       
       document.querySelectorAll('[id^="tab-"]').forEach(el => {
-        el.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-400 hover:text-white";
+        el.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white";
       });
       const activeTab = document.getElementById(`tab-${fmt}`);
       if (activeTab) {
-        activeTab.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-white text-black";
+        activeTab.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black shadow-sm";
       }
 
       fetchTracks();
@@ -547,14 +623,17 @@
       const gridContainer = document.getElementById('tracks-grid');
       const tableWrapper = document.getElementById('tracks-table-wrapper');
 
+      const activeBtnClass = "px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all shadow-sm";
+      const inactiveBtnClass = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+
       if (mode === 'table') {
-        gridBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all";
-        tableBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all";
+        gridBtn.className = inactiveBtnClass;
+        tableBtn.className = activeBtnClass;
         gridContainer.classList.add('hidden');
         tableWrapper.classList.remove('hidden');
       } else {
-        tableBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-400 hover:text-white transition-all";
-        gridBtn.className = "px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black transition-all";
+        tableBtn.className = inactiveBtnClass;
+        gridBtn.className = activeBtnClass;
         tableWrapper.classList.add('hidden');
         gridContainer.classList.remove('hidden');
       }
@@ -583,8 +662,8 @@
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
       
-      toast.className = `px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs shadow-2xl flex items-center gap-2 transition-all transform translate-y-2`;
-      toast.innerHTML = `<i class="fa-solid fa-circle-check text-white"></i> <span>${escapeHtml(message)}</span>`;
+      toast.className = `px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-black text-xs font-semibold shadow-2xl flex items-center gap-2 transition-all transform translate-y-2`;
+      toast.innerHTML = `<i class="fa-solid fa-circle-check"></i> <span>${escapeHtml(message)}</span>`;
       
       container.appendChild(toast);
 
