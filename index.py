@@ -1,6 +1,15 @@
 import asyncio, glob, os, re, shutil, logging, sys, crud, database, schema, utils
 from datetime import date, datetime, timezone
 
+# Ensure stdout/stderr handle UTF-8 symbols safely on Windows
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 

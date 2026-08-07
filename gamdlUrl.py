@@ -1,6 +1,16 @@
+import sys
 import asyncio
 from typing import List, Optional, Dict
 from urllib.parse import urlparse, parse_qs
+
+# Ensure stdout/stderr handle UTF-8 symbols safely on Windows
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 from gamdl.api import AppleMusicApi
 from gamdl.interface import AppleMusicInterface
