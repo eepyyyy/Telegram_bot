@@ -128,8 +128,9 @@ async def cmd_start(msg: types.Message) -> None:
             position = download_queue.qsize()
 
             await download_queue.put({
-                "message": msg,
                 "url": target_url,
+                "msg": msg,
+                "user_id": user_id_local,
                 "format_type": "alac"
             })
             await msg.answer(f"✅ Queued at position #{position + 1}. Live download progress will update below:")
@@ -521,44 +522,43 @@ async def worker() -> None:
     """
     while True:
         task = await download_queue.get()
-        user_id = task["user_id"]
-        msg = task["msg"]
+        msg = task.get("msg") or task.get("message")
+        user_id = task.get("user_id")
+        if not user_id and msg and hasattr(msg, "from_user") and msg.from_user:
+            user_id = msg.from_user.id
+
+        if not user_id or not msg:
+            print(f"Worker received malformed task: {task}")
+            download_queue.task_done()
+            continue
 
         user_lock = user_locks.setdefault(user_id, asyncio.Lock())
 
         async with user_lock:
-            # Check database limit before starting download subprocess
-            async with async_session() as session:
-                result = await session.exec(select(User).where(User.user_id == user_id))
-                user = result.first()
-                current_date = datetime.now(timezone.utc).date()
-                if user:
-                    if user.last_download != current_date:
-                        user.downloaded_today = 0
-                        user.last_download = current_date
-                        session.add(user)
-                        await session.commit()
-                        await session.refresh(user)
-                    
-                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                        try:
-                            await msg.answer("❌ Daily download limit reached. Skipping queued item.")
-                        except Exception:
-                            pass
-                        download_queue.task_done()
-                        remaining = user_pending_jobs.get(user_id, 1) - 1
-                        if remaining <= 0:
-                            user_pending_jobs.pop(user_id, None)
-                            user_in_queue.discard(user_id)
-                            user_locks.pop(user_id, None)
-                        else:
-                            user_pending_jobs[user_id] = remaining
-                        continue
-
             try:
+                # Check database limit before starting download subprocess
+                async with async_session() as session:
+                    result = await session.exec(select(User).where(User.user_id == user_id))
+                    user = result.first()
+                    current_date = datetime.now(timezone.utc).date()
+                    if user:
+                        if user.last_download != current_date:
+                            user.downloaded_today = 0
+                            user.last_download = current_date
+                            session.add(user)
+                            await session.commit()
+                            await session.refresh(user)
+                        
+                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                            try:
+                                await msg.answer("❌ Daily download limit reached. Skipping queued item.")
+                            except Exception:
+                                pass
+                            continue
+
                 await process_download(task)
             except Exception as e:
-                print(f"Worker caught execution exception: {e}")
+                print(f"Worker caught execution exception for user {user_id}: {e}")
             finally:
                 remaining = user_pending_jobs.get(user_id, 1) - 1
                 if remaining <= 0:
