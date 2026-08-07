@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 from aiohttp import web
-from sqlmodel import select, or_, func, col
+from sqlmodel import select, or_, func, col, case
 import crud
 from database import Tracks, AACTracks, AtmosTracks, Albums, async_session
 from server import config
@@ -66,6 +66,7 @@ async def get_stats(request: web.Request):
 async def list_tracks(request: web.Request):
     """
     List tracks with search, format filtering, availability filter, and pagination.
+    Uses optimized Postgres ILIKE payload search and artist ranking.
     """
     params = request.query
     fmt = params.get("format", "all").lower()
@@ -107,14 +108,18 @@ async def list_tracks(request: web.Request):
                 conditions.append(model_cls.message_id.is_not(None))
 
             if q:
-                search_pattern = f"%{q}%"
+                cleaned_input = q.lower()
+                search_param = f"%{cleaned_input}%"
+                raw_alphanumeric_param = f"%{cleaned_input.replace('-', '')}%"
+
                 conditions.append(
                     or_(
-                        col(model_cls.title).ilike(search_pattern),
-                        col(model_cls.artist).ilike(search_pattern),
-                        col(model_cls.album).ilike(search_pattern),
-                        col(model_cls.isrc).ilike(search_pattern),
-                        col(model_cls.song_id).ilike(search_pattern),
+                        col(model_cls.title).ilike(search_param),
+                        col(model_cls.artist).ilike(search_param),
+                        col(model_cls.album).ilike(search_param),
+                        col(model_cls.isrc).ilike(search_param),
+                        col(model_cls.isrc).ilike(raw_alphanumeric_param),
+                        col(model_cls.song_id).ilike(search_param),
                     )
                 )
 
@@ -126,10 +131,16 @@ async def list_tracks(request: web.Request):
             count_res = await session.exec(count_stmt)
             total_count += count_res.one() or 0
 
-            # Execute pagination query
-            paged_query = query.order_by(model_cls.title, model_cls.song_id).offset(offset).limit(limit)
+            # Execute pagination query with Artist exact hit ranking
+            if q:
+                artist_order = case((col(model_cls.artist).ilike(f"%{q.strip()}%"), 1), else_=2)
+                paged_query = query.order_by(artist_order, model_cls.title, model_cls.song_id).offset(offset).limit(limit)
+            else:
+                paged_query = query.order_by(model_cls.title, model_cls.song_id).offset(offset).limit(limit)
+
             result = await session.exec(paged_query)
             tracks_list = result.all()
+
 
             for t in tracks_list:
                 is_avail = t.message_id is not None
