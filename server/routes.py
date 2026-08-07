@@ -456,6 +456,30 @@ async def search_apple_catalog(request: web.Request):
         return web.json_response({"artists": [], "albums": [], "songs": [], "error": str(e)})
 
 
+import base64
+
+@routes.get("/api/telegram/encode-url")
+async def encode_telegram_deeplink(request: web.Request):
+    """
+    Encodes Apple Music URL into Telegram deep-link parameter (dl_base64).
+    """
+    url = request.query.get("url", "").strip()
+    if not url:
+        return web.json_response({"error": "URL parameter required"}, status=400)
+
+    b64 = base64.urlsafe_b64encode(url.encode('utf-8')).decode('utf-8').rstrip('=')
+    param = f"dl_{b64}"
+    bot_username = "applemusicdw_bot"
+    deeplink = f"https://t.me/{bot_username}?start={param}"
+
+    return web.json_response({
+        "url": url,
+        "encoded_param": param,
+        "bot_username": bot_username,
+        "deeplink": deeplink
+    })
+
+
 @routes.get("/api/artist/{artist_id}")
 async def get_artist_detail(request: web.Request):
     """

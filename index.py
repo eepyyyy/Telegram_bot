@@ -84,13 +84,57 @@ async def handle_cancel_download(call: types.CallbackQuery) -> None:
         await call.answer("Task is no longer active.", show_alert=True)
 
 
+import base64
+
+def decode_deeplink_url(start_param: str) -> str:
+    """Decodes Telegram start parameter back into Apple Music URL."""
+    if not start_param or not start_param.startswith("dl_"):
+        return ""
+    raw_b64 = start_param[3:]
+    padding = len(raw_b64) % 4
+    if padding:
+        raw_b64 += "=" * (4 - padding)
+    try:
+        return base64.urlsafe_b64decode(raw_b64.encode('utf-8')).decode('utf-8')
+    except Exception:
+        return ""
+
+
 # Queue management for concurrent downloads
 
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
     """
-    Renders the elegant main landing dashboard for the bot.
+    Renders the main landing dashboard or processes deep-linked download requests.
     """
+    args = (msg.text or "").split(maxsplit=1)
+    if len(args) > 1:
+        param = args[1].strip()
+        target_url = decode_deeplink_url(param)
+        if target_url:
+            user_id_local = msg.from_user.id
+            if is_user_busy(user_id_local):
+                await msg.answer("⏳ You already have an active download task in progress. Please wait until it completes.")
+                return
+
+            await msg.answer(
+                f"📥 <b>Web Request Received:</b>\n<code>{target_url}</code>\n\n"
+                f"Queuing automatic download to your Telegram chat...",
+                parse_mode="HTML"
+            )
+
+            user_in_queue.add(user_id_local)
+            user_pending_jobs[user_id_local] = 1
+            position = download_queue.qsize()
+
+            await download_queue.put({
+                "message": msg,
+                "url": target_url,
+                "format_type": "alac"
+            })
+            await msg.answer(f"✅ Queued at position #{position + 1}. Live download progress will update below:")
+            return
+
     welcome_text = (
         f"<b>Apple Music Downloader</b>\n"
         f"Download studio-grade Lossless audio directly from Apple Music.\n\n"
@@ -109,17 +153,8 @@ async def cmd_start(msg: types.Message) -> None:
         f"• View all commands: /help"
     )
 
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="💎 Upgrade to Premium", callback_data="menu_premium"))
-    builder.row(
-        types.InlineKeyboardButton(text="🌍 Region Status", callback_data="menu_regions"),
-        types.InlineKeyboardButton(text="📖 Guide / FAQ", callback_data="menu_faq")
-    )
-    builder.row(types.InlineKeyboardButton(text="🔍 Inline Search", switch_inline_query_current_chat=""))
-
     await msg.answer(
         text=welcome_text,
-        # reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
 

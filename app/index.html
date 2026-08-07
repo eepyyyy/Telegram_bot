@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>eepy amdl</title>
   
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web_app.js"></script>
+
   <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -59,6 +62,50 @@
     html:not(.dark) .lyric-active {
       color: #000000 !important;
     }
+
+    /* Modern Dynamic Pill Button Styles */
+    .btn-pill-download {
+      background-color: #ffffff;
+      color: #000000;
+      border-radius: 9999px;
+      padding: 0.4rem 1.1rem;
+      font-weight: 700;
+      font-size: 0.75rem;
+      display: inline-flex;
+      items-center: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .btn-pill-download:hover {
+      background-color: #e4e4e7;
+      transform: translateY(-1px);
+    }
+    html:not(.dark) .btn-pill-download {
+      background-color: #09090b;
+      color: #ffffff;
+    }
+    html:not(.dark) .btn-pill-download:hover {
+      background-color: #27272a;
+    }
+
+    .btn-pill-request {
+      background-color: #0284c7;
+      color: #ffffff;
+      border-radius: 9999px;
+      padding: 0.4rem 1.1rem;
+      font-weight: 700;
+      font-size: 0.75rem;
+      display: inline-flex;
+      items-center: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 4px rgba(2, 132, 199, 0.3);
+    }
+    .btn-pill-request:hover {
+      background-color: #0369a1;
+      transform: translateY(-1px);
+    }
   </style>
 </head>
 <body class="bg-zinc-950 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col justify-between transition-colors duration-200 selection:bg-zinc-800 selection:text-white">
@@ -85,19 +132,25 @@
           </div>
         </div>
 
-        <!-- Controls: Search Mode, Theme Toggle, Server Status -->
+        <!-- Controls: Search Mode, Theme Toggle, Telegram User Badge, Server Status -->
         <div class="flex items-center gap-3">
-          <!-- Back to Home Button (Visible when viewing detail pages) -->
-          <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all">
+          <!-- Back to Home Button -->
+          <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all">
             <i class="fa-solid fa-arrow-left"></i> Vault Catalog
           </button>
 
+          <!-- Telegram Logged-in User Badge (When opened via Telegram WebApp) -->
+          <div id="tg-user-badge" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-950/80 border border-sky-800 text-xs font-bold text-sky-200 shadow-sm">
+            <i class="fa-brands fa-telegram text-sky-400"></i>
+            <span id="tg-username">@user</span>
+          </div>
+
           <!-- Search Source Mode Switcher -->
-          <div id="source-switcher" class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs">
-            <button onclick="setSearchSource('db')" id="source-db-btn" class="px-3 py-1 rounded-lg font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
+          <div id="source-switcher" class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-full border border-zinc-200 dark:border-zinc-800 text-xs">
+            <button onclick="setSearchSource('db')" id="source-db-btn" class="px-3.5 py-1 rounded-full font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
               <i class="fa-solid fa-database mr-1"></i> Vault DB
             </button>
-            <button onclick="setSearchSource('catalog')" id="source-catalog-btn" class="px-3 py-1 rounded-lg font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
+            <button onclick="setSearchSource('catalog')" id="source-catalog-btn" class="px-3.5 py-1 rounded-full font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
               <i class="fa-brands fa-apple mr-1"></i> Apple Music API
             </button>
           </div>
@@ -112,7 +165,7 @@
           <button 
             onclick="toggleTheme()" 
             id="theme-toggle-btn"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all"
             title="Switch Theme"
           >
             <i id="theme-icon" class="fa-solid fa-sun text-sm"></i>
@@ -163,17 +216,17 @@
         <section class="bg-white dark:bg-zinc-900/60 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 space-y-4 transition-colors">
           
           <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
-            <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
-              <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
+            <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-full border border-zinc-200 dark:border-zinc-800 flex-wrap">
+              <button onclick="setFormat('all')" id="tab-all" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
                 All Tracks
               </button>
-              <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('alac')" id="tab-alac" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 ALAC (Lossless)
               </button>
-              <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('aac')" id="tab-aac" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 AAC
               </button>
-              <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('atmos')" id="tab-atmos" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 Dolby Atmos
               </button>
             </div>
@@ -186,7 +239,7 @@
                 type="text" 
                 id="search-input" 
                 placeholder="Search by artist, title, album, or Apple Music link..." 
-                class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
+                class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-full text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
                 oninput="handleSearchInput()"
               />
               <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-black dark:hover:text-white">
@@ -197,7 +250,7 @@
 
           <div id="active-filter-bar" class="hidden flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
             <span>Filtering by:</span>
-            <span id="active-filter-badge" class="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold flex items-center gap-1.5">
+            <span id="active-filter-badge" class="px-3 py-1 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold flex items-center gap-1.5">
               <span id="filter-text">Artist</span>
               <button onclick="resetFilters()" class="hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
             </span>
@@ -209,16 +262,16 @@
             </div>
 
             <div class="flex items-center gap-3">
-              <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
+              <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-full border border-zinc-200 dark:border-zinc-800">
+                <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-full text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
                   <i class="fa-solid fa-list mr-1"></i> List
                 </button>
-                <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
+                <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-full text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
                   <i class="fa-solid fa-border-all mr-1"></i> Grid
                 </button>
               </div>
 
-              <select id="limit-select" onchange="changeLimit()" class="bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
+              <select id="limit-select" onchange="changeLimit()" class="bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 px-3 py-1 rounded-full text-xs focus:outline-none focus:border-zinc-500">
                 <option value="12">12 per page</option>
                 <option value="24" selected>24 per page</option>
                 <option value="48">48 per page</option>
@@ -261,7 +314,7 @@
               <h3 class="text-lg font-bold text-zinc-950 dark:text-white">No tracks found</h3>
               <p class="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
             </div>
-            <button onclick="resetFilters()" class="px-4 py-2 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200">Reset Search</button>
+            <button onclick="resetFilters()" class="px-4 py-2 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200">Reset Search</button>
           </div>
 
           <div id="tracks-table-wrapper" class="overflow-x-auto bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800 transition-colors">
@@ -289,12 +342,12 @@
             Page <span id="current-page-num" class="font-bold text-zinc-950 dark:text-white">1</span> of <span id="total-pages-num" class="font-bold text-zinc-950 dark:text-white">1</span>
           </div>
 
-          <div class="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
-            <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+          <div class="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950/80 p-1 rounded-full border border-zinc-200 dark:border-zinc-800">
+            <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-full text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
               <i class="fa-solid fa-chevron-left mr-1"></i> Prev
             </button>
             <div id="page-buttons" class="flex items-center gap-1 hidden sm:flex"></div>
-            <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+            <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-full text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
               Next <i class="fa-solid fa-chevron-right ml-1"></i>
             </button>
           </div>
@@ -318,7 +371,6 @@
 
             <h1 id="artist-name" class="text-3xl sm:text-4xl font-extrabold text-zinc-950 dark:text-white tracking-tight">Artist Name</h1>
             
-            <!-- Vault DB Coverage Stats -->
             <div class="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
               <div>
                 <span class="text-zinc-400">Vault Coverage:</span>
@@ -390,11 +442,10 @@
     </main>
   </div>
 
-  <!-- ================= LYRICS & STREAM ECOSYSTEM MODAL / DRAWER ================= -->
+  <!-- ================= LYRICS & STREAM ECOSYSTEM MODAL ================= -->
   <div id="lyrics-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
     <div class="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
       
-      <!-- Modal Header -->
       <div class="p-6 border-b border-zinc-800 flex items-center justify-between gap-4 bg-zinc-950/50">
         <div class="flex items-center gap-4">
           <img id="lyrics-song-artwork" src="" class="w-14 h-14 rounded-xl object-cover bg-zinc-950 border border-zinc-800" alt="Art" />
@@ -409,40 +460,36 @@
         </button>
       </div>
 
-      <!-- Audio Player Bar (If stream available) -->
       <div id="lyrics-audio-player-container" class="hidden px-6 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center gap-4">
         <audio id="lyrics-audio-player" controls class="w-full h-10 accent-white"></audio>
       </div>
 
-      <!-- Format Tabs -->
       <div class="px-6 py-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs font-semibold">
-        <div class="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-xl border border-zinc-800">
-          <button onclick="setLyricsFormat('synced')" id="lformat-synced" class="px-3 py-1 rounded-lg bg-white text-black font-bold">
+        <div class="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-full border border-zinc-800">
+          <button onclick="setLyricsFormat('synced')" id="lformat-synced" class="px-3.5 py-1 rounded-full bg-white text-black font-bold">
             <i class="fa-solid fa-microphone-lines mr-1"></i> Karaoke Sync
           </button>
-          <button onclick="setLyricsFormat('plain')" id="lformat-plain" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+          <button onclick="setLyricsFormat('plain')" id="lformat-plain" class="px-3.5 py-1 rounded-full text-zinc-400 hover:text-white">
             Plain Text
           </button>
-          <button onclick="setLyricsFormat('lrc')" id="lformat-lrc" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+          <button onclick="setLyricsFormat('lrc')" id="lformat-lrc" class="px-3.5 py-1 rounded-full text-zinc-400 hover:text-white">
             Synced LRC
           </button>
-          <button onclick="setLyricsFormat('ttml')" id="lformat-ttml" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+          <button onclick="setLyricsFormat('ttml')" id="lformat-ttml" class="px-3.5 py-1 rounded-full text-zinc-400 hover:text-white">
             TTML XML
           </button>
         </div>
 
-        <!-- Copy / Export Controls -->
         <div class="flex items-center gap-2">
-          <button onclick="copyCurrentLyrics()" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl flex items-center gap-1.5">
+          <button onclick="copyCurrentLyrics()" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full flex items-center gap-1.5">
             <i class="fa-solid fa-copy"></i> Copy
           </button>
-          <button onclick="downloadLrcFile()" class="px-3 py-1.5 bg-white text-black hover:bg-zinc-200 font-bold rounded-xl flex items-center gap-1.5">
+          <button onclick="downloadLrcFile()" class="px-3 py-1.5 bg-white text-black hover:bg-zinc-200 font-bold rounded-full flex items-center gap-1.5">
             <i class="fa-solid fa-download"></i> Save .lrc
           </button>
         </div>
       </div>
 
-      <!-- Modal Body Lyrics Content -->
       <div id="lyrics-modal-body" class="p-6 overflow-y-auto flex-1 space-y-4 text-center font-medium text-sm text-zinc-400 select-text">
         <div id="lyrics-loading" class="py-12 flex flex-col items-center justify-center space-y-2">
           <div class="w-6 h-6 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
@@ -481,8 +528,9 @@
     let currentLyricsFormat = 'synced';
     let lyricsAudioElement = null;
 
-    // Initialize SPA Page
+    // Initialize Telegram WebApp & SPA Router
     document.addEventListener('DOMContentLoaded', () => {
+      initTelegramWebApp();
       initTheme();
       checkServerHealth();
       fetchStats();
@@ -490,6 +538,23 @@
       window.addEventListener('hashchange', handleRoute);
       handleRoute();
     });
+
+    // Telegram WebApp Initialization
+    function initTelegramWebApp() {
+      if (window.Telegram && window.Telegram.WebApp) {
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const user = tg.initDataUnsafe?.user;
+        if (user) {
+          const badge = document.getElementById('tg-user-badge');
+          const usernameEl = document.getElementById('tg-username');
+          badge.classList.remove('hidden');
+          badge.classList.add('flex');
+          usernameEl.innerText = user.username ? `@${user.username}` : (user.first_name || 'Telegram User');
+        }
+      }
+    }
 
     // Hash Router
     function navigateTo(hash) {
@@ -596,8 +661,8 @@
       const formatTabs = document.getElementById('format-tabs-container');
       const catalogSec = document.getElementById('catalog-results-section');
 
-      const activeBtnClass = "px-3 py-1 rounded-lg font-semibold bg-black text-white dark:bg-white dark:text-black transition-all";
-      const inactiveBtnClass = "px-3 py-1 rounded-lg font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+      const activeBtnClass = "px-3.5 py-1 rounded-full font-semibold bg-black text-white dark:bg-white dark:text-black transition-all";
+      const inactiveBtnClass = "px-3.5 py-1 rounded-full font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
 
       if (source === 'catalog') {
         dbBtn.className = inactiveBtnClass;
@@ -714,7 +779,7 @@
       if (artists.length > 0) {
         artistsContainer.classList.remove('hidden');
         artistsList.innerHTML = artists.map(a => `
-          <div onclick="navigateTo('#artist/${a.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+          <div onclick="navigateTo('#artist/${a.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 text-center cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
             <img src="${a.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-16 h-16 rounded-full mx-auto object-cover bg-zinc-950" alt="${escapeHtml(a.name)}" />
             <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(a.name)}</div>
           </div>
@@ -727,8 +792,8 @@
       if (albums.length > 0) {
         albumsContainer.classList.remove('hidden');
         albumsList.innerHTML = albums.map(al => `
-          <div onclick="navigateTo('#album/${al.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
-            <img src="${al.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-full aspect-square rounded-lg object-cover bg-zinc-950" alt="${escapeHtml(al.title)}" />
+          <div onclick="navigateTo('#album/${al.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+            <img src="${al.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-full aspect-square rounded-xl object-cover bg-zinc-950" alt="${escapeHtml(al.title)}" />
             <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(al.title)}</div>
             <div class="text-[11px] text-zinc-500 line-clamp-1">${escapeHtml(al.artist)}</div>
           </div>
@@ -747,7 +812,7 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
-    // Render Track Cards / Table
+    // Render Dynamic Pill Buttons (Matching User Screenshots)
     function renderTracks(items) {
       const gridContainer = document.getElementById('tracks-grid');
       const tableBody = document.getElementById('tracks-table-body');
@@ -766,14 +831,15 @@
 
       emptyState.classList.add('hidden');
 
-      const gridCardsHtml = items.map(track => {
+      const gridCardsHtml = items.map((track, idx) => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const formattedSize = formatBytes(track.size);
         const isAvailable = track.is_available !== false;
+        const btnId = `btn-grid-${idx}`;
 
         const actionBtn = isAvailable && track.download_url
-          ? `<a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
-          : `<button onclick="requestViaTelegram('${escapeHtml(track.url)}', '${escapeHtml(track.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+          ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${track.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
+          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(track.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
           <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
@@ -786,7 +852,7 @@
                   onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'"
                 />
                 <div class="absolute top-3 left-3">
-                  <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
+                  <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
                 </div>
               </div>
 
@@ -830,10 +896,11 @@
       const tableRowsHtml = items.map((track, idx) => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const isAvailable = track.is_available !== false;
+        const btnId = `btn-tbl-${idx}`;
 
         const actionBtn = isAvailable && track.download_url
-          ? `<a href="${track.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
-          : `<button onclick="requestViaTelegram('${escapeHtml(track.url)}', '${escapeHtml(track.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+          ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${track.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
+          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(track.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
           <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -853,12 +920,12 @@
               <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-zinc-950 dark:hover:text-white">${escapeHtml(track.album)}</button>
             </td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format || 'ALAC'}</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format || 'ALAC'}</span>
             </td>
             <td class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
             <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
-                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-2.5 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
                   <i class="fa-solid fa-align-left"></i> Lyrics
                 </button>
                 ${track.download_url ? `
@@ -888,6 +955,66 @@
       }
     }
 
+    // Dynamic Download Pill Handler
+    function handleDynamicDownload(btnId, downloadUrl) {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Downloading...`;
+      btn.disabled = true;
+
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showToast("Download started!", "success");
+
+      setTimeout(() => {
+        btn.innerHTML = `<i class="fa-solid fa-check"></i> Ready`;
+        setTimeout(() => {
+          btn.innerHTML = `<i class="fa-solid fa-download"></i> Download`;
+          btn.disabled = false;
+        }, 1500);
+      }, 1000);
+    }
+
+    // Dynamic Bot Request Pill Handler
+    async function handleDynamicBotRequest(btnId, songUrl) {
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Launching...`;
+        btn.disabled = true;
+      }
+
+      try {
+        const res = await fetch(`/api/telegram/encode-url?url=${encodeURIComponent(songUrl)}`);
+        const data = await res.json();
+        const deeplink = data.deeplink || `https://t.me/applemusicdw_bot`;
+
+        showToast("Opening Telegram Bot to start download in chat...", "info");
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+          window.Telegram.WebApp.openTelegramLink(deeplink);
+        } else {
+          window.open(deeplink, '_blank');
+        }
+
+      } catch (err) {
+        console.error(err);
+        showToast("Error generating bot link", "error");
+      } finally {
+        if (btn) {
+          setTimeout(() => {
+            btn.innerHTML = `<i class="fa-brands fa-telegram"></i> Request Bot`;
+            btn.disabled = false;
+          }, 2000);
+        }
+      }
+    }
+
     // Pagination Renderer
     function renderPagination(page, totalPages, totalItems) {
       currentPage = page;
@@ -912,7 +1039,7 @@
       for (let p = startPage; p <= endPage; p++) {
         const btn = document.createElement('button');
         const activeClass = isDarkMode ? 'bg-white text-black font-bold' : 'bg-black text-white font-bold';
-        btn.className = `px-3 py-1 rounded-lg text-xs font-semibold ${p === page ? activeClass : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`;
+        btn.className = `px-3 py-1 rounded-full text-xs font-semibold ${p === page ? activeClass : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`;
         btn.innerText = p;
         btn.onclick = () => goToPage(p);
         pageButtonsContainer.appendChild(btn);
@@ -925,11 +1052,11 @@
       currentPage = 1;
       
       document.querySelectorAll('[id^="tab-"]').forEach(el => {
-        el.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white";
+        el.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white";
       });
       const activeTab = document.getElementById(`tab-${fmt}`);
       if (activeTab) {
-        activeTab.className = "px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black shadow-sm";
+        activeTab.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black shadow-sm";
       }
 
       fetchTracks();
@@ -984,8 +1111,8 @@
       const gridContainer = document.getElementById('tracks-grid');
       const tableWrapper = document.getElementById('tracks-table-wrapper');
 
-      const activeBtnClass = "px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all shadow-sm";
-      const inactiveBtnClass = "px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+      const activeBtnClass = "px-3 py-1 rounded-full text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all shadow-sm";
+      const inactiveBtnClass = "px-3 py-1 rounded-full text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
 
       if (mode === 'table') {
         gridBtn.className = inactiveBtnClass;
@@ -1041,7 +1168,7 @@
             <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">${escapeHtml(catName)}</h3>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               ${items.map(item => `
-                <div onclick="navigateTo('#album/${item.url ? extractIdFromUrl(item.url) : ''}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+                <div onclick="navigateTo('#album/${item.url ? extractIdFromUrl(item.url) : ''}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
                   <div class="font-bold text-xs line-clamp-1 text-zinc-950 dark:text-white">${escapeHtml(item.name)}</div>
                   <div class="text-[11px] text-zinc-500">${escapeHtml(item.release_date || 'N/A')}</div>
                 </div>
@@ -1073,15 +1200,17 @@
 
         const traitsContainer = document.getElementById('album-traits-container');
         traitsContainer.innerHTML = (data.audio_traits || ['Lossless']).map(t => `
-          <span class="px-2.5 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${escapeHtml(t)}</span>
+          <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${escapeHtml(t)}</span>
         `).join('');
 
         const tbody = document.getElementById('album-tracklist-body');
         tbody.innerHTML = (data.tracks || []).map((tr, idx) => {
           const isAvail = tr.is_available;
+          const btnId = `btn-alb-${idx}`;
+
           const actionBtn = isAvail && tr.download_url
-            ? `<a href="${tr.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
-            : `<button onclick="requestViaTelegram('${escapeHtml(tr.url)}', '${escapeHtml(tr.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+            ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${tr.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
+            : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(tr.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
           return `
             <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -1093,7 +1222,7 @@
               </td>
               <td class="text-right py-3 px-4">
                 <div class="flex items-center justify-end gap-2">
-                  <button onclick="openLyricsModal('${tr.song_id}', '${escapeHtml(tr.title)}', '${escapeHtml(data.artist)}', '${escapeHtml(data.artwork)}', '${tr.stream_url || ''}')" class="px-2.5 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                  <button onclick="openLyricsModal('${tr.song_id}', '${escapeHtml(tr.title)}', '${escapeHtml(data.artist)}', '${escapeHtml(data.artwork)}', '${tr.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
                     <i class="fa-solid fa-align-left"></i> Lyrics
                   </button>
                   ${actionBtn}
@@ -1177,9 +1306,9 @@
       ['synced', 'plain', 'lrc', 'ttml'].forEach(f => {
         const btn = document.getElementById(`lformat-${f}`);
         if (f === fmt) {
-          btn.className = "px-3 py-1 rounded-lg bg-white text-black font-bold shadow-sm";
+          btn.className = "px-3.5 py-1 rounded-full bg-white text-black font-bold shadow-sm";
         } else {
-          btn.className = "px-3 py-1 rounded-lg text-zinc-400 hover:text-white font-medium";
+          btn.className = "px-3.5 py-1 rounded-full text-zinc-400 hover:text-white font-medium";
         }
       });
 
@@ -1264,17 +1393,6 @@
     }
 
     // Helper functions
-    function requestViaTelegram(url, title) {
-      const botCmd = `/download ${url}`;
-      navigator.clipboard.writeText(botCmd).then(() => {
-        showToast("Bot command copied! Opening Telegram Bot...", "success");
-      }).catch(() => {});
-
-      setTimeout(() => {
-        window.open('https://t.me/applemusicdw_bot', '_blank');
-      }, 500);
-    }
-
     function copyDownloadLink(link) {
       navigator.clipboard.writeText(link).then(() => {
         showToast("Download link copied to clipboard!", "success");
@@ -1287,7 +1405,7 @@
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');
       
-      toast.className = `px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-black text-xs font-semibold shadow-2xl flex items-center gap-2 transition-all transform translate-y-2`;
+      toast.className = `px-4 py-2.5 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-black text-xs font-semibold shadow-2xl flex items-center gap-2 transition-all transform translate-y-2`;
       toast.innerHTML = `<i class="fa-solid fa-circle-check"></i> <span>${escapeHtml(message)}</span>`;
       
       container.appendChild(toast);
