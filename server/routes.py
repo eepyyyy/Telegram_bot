@@ -457,6 +457,33 @@ async def search_apple_catalog(request: web.Request):
 
 
 import base64
+import hmac
+import hashlib
+import json
+from urllib.parse import parse_qsl
+from aiogram import Bot
+from queues import download_queue, user_in_queue, user_pending_jobs, is_user_busy
+
+def validate_telegram_init_data(init_data: str, bot_token: str) -> dict:
+    """Validates Telegram WebApp initData HMAC signature."""
+    if not init_data or not bot_token:
+        return None
+    try:
+        parsed_data = dict(parse_qsl(init_data, keep_blank_values=True))
+        hash_val = parsed_data.pop("hash", None)
+        if not hash_val:
+            return None
+        
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
+        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        
+        if calculated_hash == hash_val:
+            return json.loads(parsed_data.get("user", "{}"))
+    except Exception as e:
+        logger.error(f"Telegram initData validation error: {e}")
+    return None
+
 
 @routes.get("/api/telegram/encode-url")
 async def encode_telegram_deeplink(request: web.Request):
@@ -478,6 +505,85 @@ async def encode_telegram_deeplink(request: web.Request):
         "bot_username": bot_username,
         "deeplink": deeplink
     })
+
+
+@routes.post("/api/telegram/request-download")
+async def request_telegram_download(request: web.Request):
+    """
+    Directly enqueues a download request to the user's Telegram chat from the Web App.
+    Validates Telegram initData HMAC or authenticated user context.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    init_data = body.get("init_data", "").strip()
+    target_url = body.get("url", "").strip()
+    chat_id_override = body.get("chat_id")
+
+    if not target_url:
+        return web.json_response({"error": "Target track URL is required"}, status=400)
+
+    user_id = None
+    user_data = None
+
+    if init_data:
+        bot_token = os.getenv("TOKEN_API", "").strip()
+        user_data = validate_telegram_init_data(init_data, bot_token)
+        if user_data:
+            user_id = user_data.get("id")
+
+    if not user_id and chat_id_override:
+        try:
+            user_id = int(chat_id_override)
+        except (ValueError, TypeError):
+            pass
+
+    if not user_id:
+        return web.json_response({
+            "error": "Telegram authorization required.",
+            "message": "Please launch via Telegram Mini App or connect your Telegram account."
+        }, status=401)
+
+    if is_user_busy(user_id):
+        return web.json_response({
+            "error": "User Busy",
+            "message": "You already have an active download in progress in Telegram. Please wait until it completes."
+        }, status=429)
+
+    try:
+        bot_token = os.getenv("TOKEN_API", "").strip()
+        bot = Bot(token=bot_token)
+        
+        msg = await bot.send_message(
+            chat_id=user_id,
+            text=f"📥 <b>Web Mini App Request:</b>\n<code>{target_url}</code>\n\nQueuing automatic download to your chat...",
+            parse_mode="HTML"
+        )
+        await bot.session.close()
+
+        user_in_queue.add(user_id)
+        user_pending_jobs[user_id] = 1
+        position = download_queue.qsize()
+
+        await download_queue.put({
+            "url": target_url,
+            "msg": msg,
+            "user_id": user_id,
+            "format_type": "alac"
+        })
+
+        return web.json_response({
+            "status": "ok",
+            "message": f"Queued at position #{position + 1}. Live progress is updating in your Telegram chat!",
+            "user_id": user_id,
+            "position": position + 1
+        })
+
+    except Exception as e:
+        logger.error(f"Error requesting download for user {user_id}: {e}")
+        return web.json_response({"error": f"Failed to send request to Telegram: {str(e)}"}, status=500)
 
 
 @routes.get("/api/artist/{artist_id}")

@@ -142,7 +142,7 @@
           </button>
 
           <!-- Telegram Logged-in User Badge -->
-          <div id="tg-user-badge" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-950/80 border border-sky-800 text-xs font-bold text-sky-200 shadow-sm">
+          <div id="tg-user-badge" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-950/80 border border-sky-800 text-xs font-bold text-sky-200 shadow-sm cursor-pointer" onclick="openTgAccountModal()">
             <i class="fa-brands fa-telegram text-sky-400"></i>
             <span id="tg-username">@user</span>
           </div>
@@ -503,6 +503,37 @@
     </div>
   </div>
 
+  <!-- TELEGRAM CONNECT MODAL -->
+  <div id="tg-connect-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md p-6 space-y-6 shadow-2xl text-center">
+      <div class="w-14 h-14 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 inline-flex items-center justify-center text-2xl">
+        <i class="fa-brands fa-telegram"></i>
+      </div>
+
+      <div class="space-y-2">
+        <h3 class="text-xl font-bold text-white">Connect Telegram Account</h3>
+        <p class="text-xs text-zinc-400">Enter your Telegram User ID (or Chat ID) to receive music downloads directly in your Telegram chat!</p>
+      </div>
+
+      <div class="space-y-3">
+        <input 
+          type="text" 
+          id="tg-account-input" 
+          placeholder="Telegram User ID (e.g. 987654321)" 
+          class="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-2xl text-sm text-white focus:outline-none focus:border-sky-500 placeholder-zinc-500"
+        />
+        <button onclick="saveTelegramAccount()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-2xl transition-all shadow-md">
+          Save & Send Request
+        </button>
+      </div>
+
+      <div class="pt-2 border-t border-zinc-800 flex items-center justify-between text-xs">
+        <button onclick="closeTgConnectModal()" class="text-zinc-400 hover:text-white">Cancel</button>
+        <button onclick="fallbackLaunchBotChat()" class="text-sky-400 hover:underline font-bold">Open Bot Chat Instead</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div id="toast-container" class="fixed bottom-6 right-6 z-50 space-y-2"></div>
 
@@ -524,6 +555,7 @@
     let viewMode = 'table';
     let isDarkMode = true;
     let searchDebounceTimeout = null;
+    let pendingSongUrlForRequest = '';
 
     // Lyrics Ecosystem State
     let currentLyricsData = null;
@@ -543,18 +575,28 @@
 
     // Telegram WebApp Initialization
     function initTelegramWebApp() {
+      const badge = document.getElementById('tg-user-badge');
+      const usernameEl = document.getElementById('tg-username');
+
       if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
         tg.expand();
 
         const user = tg.initDataUnsafe?.user;
         if (user) {
-          const badge = document.getElementById('tg-user-badge');
-          const usernameEl = document.getElementById('tg-username');
           badge.classList.remove('hidden');
           badge.classList.add('flex');
           usernameEl.innerText = user.username ? `@${user.username}` : (user.first_name || 'Telegram User');
+          localStorage.setItem('tg_chat_id', user.id);
+          return;
         }
+      }
+
+      const savedChatId = localStorage.getItem('tg_chat_id');
+      if (savedChatId) {
+        badge.classList.remove('hidden');
+        badge.classList.add('flex');
+        usernameEl.innerText = `ID: ${savedChatId}`;
       }
     }
 
@@ -981,44 +1023,107 @@
       }, 1000);
     }
 
-    // Dynamic Bot Request Pill Handler
+    // Dynamic Bot Request Pill Handler - Direct Telegram Download Trigger!
     async function handleDynamicBotRequest(btnId, songUrl) {
       const btn = document.getElementById(btnId);
       if (btn) {
-        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Launching...`;
+        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Requesting...`;
         btn.disabled = true;
       }
 
-      try {
-        const res = await fetch(`/api/telegram/encode-url?url=${encodeURIComponent(songUrl)}`);
-        const data = await res.json();
-        const deeplink = data.deeplink || `https://t.me/applemusicdw_bot`;
+      const tgInitData = window.Telegram?.WebApp?.initData || '';
+      const savedTelegramChatId = localStorage.getItem('tg_chat_id') || '';
 
-        // Automatically copy bot command to clipboard
-        const botCmd = `/download ${songUrl}`;
-        navigator.clipboard.writeText(botCmd).then(() => {
-          showToast("Copied bot command & opening Telegram!", "success");
-        }).catch(() => {});
-
-        setTimeout(() => {
-          if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
-            window.Telegram.WebApp.openTelegramLink(deeplink);
+      if (tgInitData || savedTelegramChatId) {
+        try {
+          const res = await fetch('/api/telegram/request-download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              init_data: tgInitData,
+              chat_id: savedTelegramChatId,
+              url: songUrl
+            })
+          });
+          const data = await res.json();
+          
+          if (res.ok) {
+            showToast("📥 Queued! Progress is updating in your Telegram chat.", "success");
+            if (btn) {
+              btn.innerHTML = `<i class="fa-solid fa-check text-emerald-300"></i> Request Sent!`;
+              btn.className = "btn-pill-request bg-emerald-600 hover:bg-emerald-700 text-white";
+            }
+            return;
+          } else if (res.status === 401 && !savedTelegramChatId) {
+            promptConnectTelegram(songUrl);
+            return;
           } else {
-            window.open(deeplink, '_blank');
+            showToast(data.message || data.error || "Failed to enqueue request", "error");
           }
-        }, 300);
-
-      } catch (err) {
-        console.error(err);
-        showToast("Error generating bot link", "error");
-      } finally {
-        if (btn) {
-          setTimeout(() => {
+        } catch (err) {
+          console.error(err);
+          showToast("Error connecting to server", "error");
+        } finally {
+          if (btn && !btn.innerText.includes("Sent")) {
             btn.innerHTML = `<i class="fa-brands fa-telegram"></i> Request Bot`;
             btn.disabled = false;
-          }, 2000);
+          }
+        }
+      } else {
+        promptConnectTelegram(songUrl);
+        if (btn) {
+          btn.innerHTML = `<i class="fa-brands fa-telegram"></i> Request Bot`;
+          btn.disabled = false;
         }
       }
+    }
+
+    // Telegram Account Connection Modal Handlers
+    function promptConnectTelegram(songUrl) {
+      pendingSongUrlForRequest = songUrl;
+      const modal = document.getElementById('tg-connect-modal');
+      const input = document.getElementById('tg-account-input');
+      input.value = localStorage.getItem('tg_chat_id') || '';
+      modal.classList.remove('hidden');
+    }
+
+    function closeTgConnectModal() {
+      document.getElementById('tg-connect-modal').classList.add('hidden');
+    }
+
+    async function saveTelegramAccount() {
+      const val = document.getElementById('tg-account-input').value.trim();
+      if (!val) {
+        showToast("Please enter a valid Telegram User ID", "error");
+        return;
+      }
+      
+      const cleanId = val.replace('@', '');
+      localStorage.setItem('tg_chat_id', cleanId);
+      initTelegramWebApp();
+      closeTgConnectModal();
+
+      if (pendingSongUrlForRequest) {
+        await handleDynamicBotRequest('', pendingSongUrlForRequest);
+        pendingSongUrlForRequest = '';
+      }
+    }
+
+    async function fallbackLaunchBotChat() {
+      closeTgConnectModal();
+      if (pendingSongUrlForRequest) {
+        try {
+          const res = await fetch(`/api/telegram/encode-url?url=${encodeURIComponent(pendingSongUrlForRequest)}`);
+          const data = await res.json();
+          window.open(data.deeplink || `https://t.me/applemusicdw_bot`, '_blank');
+        } catch {
+          window.open(`https://t.me/applemusicdw_bot`, '_blank');
+        }
+      }
+    }
+
+    function openTgAccountModal() {
+      promptConnectTelegram('');
     }
 
     // Copy Track URL helper
