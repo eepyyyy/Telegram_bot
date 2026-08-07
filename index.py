@@ -21,7 +21,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode, hunderline
 from sqlmodel import select
@@ -111,6 +111,15 @@ def decode_deeplink_url(start_param: str) -> str:
 
 # Queue management for concurrent downloads
 
+def get_start_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🌐 Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
+        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/jGfqYaJkg3")],
+        [InlineKeyboardButton(text="🔎 Apple Music Storefront Search", url="https://am-l.eepy.in/")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 @dp.message(CommandStart())
 async def cmd_start(msg: types.Message) -> None:
     """
@@ -155,13 +164,15 @@ async def cmd_start(msg: types.Message) -> None:
         f"Send any track, album, or artist link directly to this chat.\n\n"
         f"<b>Shortcuts & Commands</b>\n"
         f"• Inline search: @applemusicdw_bot\n"
-        f"• For finding different and IN storefront: https://am-l.eepy.in/\n"
+        f"• Web Vault Streaming: https://stream.eepy.in/\n"
+        f"• Storefront Search: https://am-l.eepy.in/\n"
         f"• View all commands: /help"
     )
 
     await msg.answer(
         text=welcome_text,
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_start_keyboard()
     )
 
 
@@ -298,7 +309,7 @@ async def process_download(task: dict) -> None:
 
             if not tracks_to_download:
                 try:
-                    await status_msg.edit_text("✅ All tracks delivered from cache!")
+                    await status_msg.edit_text("✅ All tracks delivered from cache!\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
                 except Exception:
                     pass
                 return
@@ -489,12 +500,12 @@ async def process_download(task: dict) -> None:
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
             if return_code == 0:
                 try:
-                    await status_msg.edit_text("✅ All tracks processed successfully.")
+                    await status_msg.edit_text("✅ All tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
                 except Exception:
                     pass
             else:
                 try:
-                    await status_msg.edit_text("⚠ Some tracks might have failed to download.")
+                    await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
                 except Exception:
                     pass
 

@@ -18,6 +18,17 @@ def escape_html(text: str) -> str:
     return html.escape(str(text))
 
 
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+def get_help_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🌐 Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
+        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/jGfqYaJkg3")],
+        [InlineKeyboardButton(text="🔎 Apple Music Storefront Search", url="https://am-l.eepy.in/")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 @help_router.message(Command("help"))
 async def help_command(msg: types.Message, command: CommandObject) -> None:
     """
@@ -41,7 +52,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             "• <b>Artist:</b> <code>/help https://music.apple.com/us/artist/artist-name/123456789</code>"
         )
         try:
-            await msg.answer(help_text, parse_mode=ParseMode.HTML)
+            await msg.answer(help_text, parse_mode=ParseMode.HTML, reply_markup=get_help_keyboard())
         except Exception:
             pass
         return

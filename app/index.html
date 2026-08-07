@@ -141,11 +141,7 @@
             <i class="fa-solid fa-arrow-left"></i> Vault Catalog
           </button>
 
-          <!-- Telegram Logged-in User Badge -->
-          <div id="tg-user-badge" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-950/80 border border-sky-800 text-xs font-bold text-sky-200 shadow-sm cursor-pointer" onclick="openTgAccountModal()">
-            <i class="fa-brands fa-telegram text-sky-400"></i>
-            <span id="tg-username">@user</span>
-          </div>
+
 
           <!-- Search Source Mode Switcher -->
           <div id="source-switcher" class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-full border border-zinc-200 dark:border-zinc-800 text-xs">
@@ -546,28 +542,8 @@
 
     // Telegram WebApp Initialization
     function initTelegramWebApp() {
-      const badge = document.getElementById('tg-user-badge');
-      const usernameEl = document.getElementById('tg-username');
-
       if (window.Telegram && window.Telegram.WebApp) {
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-
-        const user = tg.initDataUnsafe?.user;
-        if (user) {
-          badge.classList.remove('hidden');
-          badge.classList.add('flex');
-          usernameEl.innerText = user.username ? `@${user.username}` : (user.first_name || 'Telegram User');
-          localStorage.setItem('tg_chat_id', user.id);
-          return;
-        }
-      }
-
-      const savedChatId = localStorage.getItem('tg_chat_id');
-      if (savedChatId) {
-        badge.classList.remove('hidden');
-        badge.classList.add('flex');
-        usernameEl.innerText = `ID: ${savedChatId}`;
+        window.Telegram.WebApp.expand();
       }
     }
 

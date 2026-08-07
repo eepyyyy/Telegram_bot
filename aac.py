@@ -280,12 +280,12 @@ async def process_aac_download(task: dict) -> None:
         return_code = await process.wait()
         if return_code == 0:
             try:
-                await status_msg.edit_text("AAC download and upload completed.")
+                await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
             except Exception:
                 pass
         else:
             try:
-                await status_msg.edit_text("AAC download finished with errors. Check logs.")
+                await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
             except Exception:
                 pass
 
