@@ -50,6 +50,15 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    .lyric-active {
+      color: #ffffff !important;
+      font-weight: 800 !important;
+      transform: scale(1.02);
+      transition: all 0.2s ease;
+    }
+    html:not(.dark) .lyric-active {
+      color: #000000 !important;
+    }
   </style>
 </head>
 <body class="bg-zinc-950 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col justify-between transition-colors duration-200 selection:bg-zinc-800 selection:text-white">
@@ -69,7 +78,7 @@
             class="w-10 h-10 object-contain transition-all" 
           />
           <div>
-            <a onclick="resetFilters()" class="text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white cursor-pointer">
+            <a onclick="navigateTo('#home')" class="text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white cursor-pointer">
               eepy amdl
             </a>
             <span class="text-xs block text-zinc-500 dark:text-zinc-400 font-medium">Apple Music Cloud Vault</span>
@@ -78,8 +87,13 @@
 
         <!-- Controls: Search Mode, Theme Toggle, Server Status -->
         <div class="flex items-center gap-3">
+          <!-- Back to Home Button (Visible when viewing detail pages) -->
+          <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all">
+            <i class="fa-solid fa-arrow-left"></i> Vault Catalog
+          </button>
+
           <!-- Search Source Mode Switcher -->
-          <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs">
+          <div id="source-switcher" class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs">
             <button onclick="setSearchSource('db')" id="source-db-btn" class="px-3 py-1 rounded-lg font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
               <i class="fa-solid fa-database mr-1"></i> Vault DB
             </button>
@@ -111,200 +125,336 @@
     <!-- Main Container -->
     <main class="container mx-auto px-4 lg:px-8 py-8 space-y-6 max-w-7xl">
 
-      <!-- Simple, Elegant Stat Cards Section -->
-      <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Total Tracks -->
-        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Tracks</div>
-          <div id="stat-total" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">In database storage</div>
-        </div>
+      <!-- ================= PAGE VIEW 1: MAIN HOME / VAULT VIEW ================= -->
+      <div id="view-home" class="space-y-6">
 
-        <!-- Total Cloud Tracks -->
-        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Cloud Tracks</div>
-          <div id="stat-available" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Available for download</div>
-        </div>
-
-        <!-- Albums -->
-        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Albums</div>
-          <div id="stat-albums" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
-          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Unique discography</div>
-        </div>
-
-        <!-- Formats -->
-        <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
-          <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Formats</div>
-          <div class="flex items-center gap-1.5 pt-0.5">
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">ALAC</span>
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">AAC</span>
-            <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">Atmos</span>
+        <!-- Stat Cards Section -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+            <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Tracks</div>
+            <div id="stat-total" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">In database storage</div>
           </div>
-          <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Hi-Res audio supported</div>
-        </div>
-      </section>
 
-      <!-- Controls & Search Header -->
-      <section class="bg-white dark:bg-zinc-900/60 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 space-y-4 transition-colors">
-        
-        <!-- Top Toolbar: Format Filter Tabs & Search Bar -->
-        <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+          <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+            <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Cloud Tracks</div>
+            <div id="stat-available" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Available for download</div>
+          </div>
+
+          <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+            <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Albums</div>
+            <div id="stat-albums" class="text-3xl font-extrabold text-zinc-950 dark:text-white tracking-tight">--</div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Unique discography</div>
+          </div>
+
+          <div class="bg-white dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-2 transition-colors">
+            <div class="text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Formats</div>
+            <div class="flex items-center gap-1.5 pt-0.5">
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">ALAC</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">AAC</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200">Atmos</span>
+            </div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-500 font-medium">Hi-Res audio supported</div>
+          </div>
+        </section>
+
+        <!-- Controls & Search Header -->
+        <section class="bg-white dark:bg-zinc-900/60 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 space-y-4 transition-colors">
           
-          <!-- Format Filter Tabs (DB search mode) -->
-          <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
-            <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
-              All Tracks
-            </button>
-            <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
-              ALAC (Lossless)
-            </button>
-            <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
-              AAC
-            </button>
-            <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
-              Dolby Atmos
-            </button>
-          </div>
-
-          <!-- Search Input -->
-          <div class="relative flex-1 max-w-md">
-            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-              <i class="fa-solid fa-magnifying-glass"></i>
-            </div>
-            <input 
-              type="text" 
-              id="search-input" 
-              placeholder="Search by artist, title, album, or Apple Music link..." 
-              class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
-              oninput="handleSearchInput()"
-            />
-            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-black dark:hover:text-white">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- Active Filter Indicator Bar -->
-        <div id="active-filter-bar" class="hidden flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-          <span>Filtering by:</span>
-          <span id="active-filter-badge" class="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold flex items-center gap-1.5">
-            <span id="filter-text">Artist</span>
-            <button onclick="resetFilters()" class="hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
-          </span>
-        </div>
-
-        <!-- Filter Sub-bar: Results count, View Mode, Limits -->
-        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
-          <div class="flex items-center gap-4">
-            <span id="results-count" class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Showing 0 tracks</span>
-          </div>
-
-          <!-- Right Controls: View Switcher & Limit selector -->
-          <div class="flex items-center gap-3">
-            <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
-                <i class="fa-solid fa-list mr-1"></i> List
+          <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+            <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800 flex-wrap">
+              <button onclick="setFormat('all')" id="tab-all" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
+                All Tracks
               </button>
-              <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
-                <i class="fa-solid fa-border-all mr-1"></i> Grid
+              <button onclick="setFormat('alac')" id="tab-alac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+                ALAC (Lossless)
+              </button>
+              <button onclick="setFormat('aac')" id="tab-aac" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+                AAC
+              </button>
+              <button onclick="setFormat('atmos')" id="tab-atmos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+                Dolby Atmos
               </button>
             </div>
 
-            <select id="limit-select" onchange="changeLimit()" class="bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
-              <option value="12">12 per page</option>
-              <option value="24" selected>24 per page</option>
-              <option value="48">48 per page</option>
-              <option value="96">96 per page</option>
-            </select>
+            <div class="relative flex-1 max-w-md">
+              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
+                <i class="fa-solid fa-magnifying-glass"></i>
+              </div>
+              <input 
+                type="text" 
+                id="search-input" 
+                placeholder="Search by artist, title, album, or Apple Music link..." 
+                class="w-full pl-10 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm focus:outline-none focus:border-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-500 transition-colors"
+                oninput="handleSearchInput()"
+              />
+              <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-black dark:hover:text-white">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
           </div>
-        </div>
 
-      </section>
-
-      <!-- Live Apple Music Catalog Results Section (Shown when in catalog search mode) -->
-      <section id="catalog-results-section" class="hidden space-y-6">
-        <!-- Catalog Artists Header -->
-        <div id="catalog-artists-container" class="hidden space-y-3">
-          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Artists from Apple Music</h3>
-          <div id="catalog-artists-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
-        </div>
-
-        <!-- Catalog Albums Header -->
-        <div id="catalog-albums-container" class="hidden space-y-3">
-          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Albums from Apple Music</h3>
-          <div id="catalog-albums-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
-        </div>
-
-        <!-- Catalog Songs Header -->
-        <div id="catalog-songs-container" class="space-y-3">
-          <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Songs from Apple Music API</h3>
-        </div>
-      </section>
-
-      <!-- Track List Container -->
-      <section>
-        <!-- Loading Spinner -->
-        <div id="loading-state" class="py-20 flex flex-col items-center justify-center space-y-3">
-          <div class="w-8 h-8 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
-          <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">Searching tracks database...</p>
-        </div>
-
-        <!-- Empty State -->
-        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-          <div class="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800/80 inline-flex items-center justify-center text-zinc-400 text-2xl">
-            <i class="fa-solid fa-compact-disc"></i>
+          <div id="active-filter-bar" class="hidden flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+            <span>Filtering by:</span>
+            <span id="active-filter-badge" class="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold flex items-center gap-1.5">
+              <span id="filter-text">Artist</span>
+              <button onclick="resetFilters()" class="hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
+            </span>
           </div>
-          <div class="space-y-1">
-            <h3 class="text-lg font-bold text-zinc-950 dark:text-white">No tracks found</h3>
-            <p class="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
+
+          <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
+            <div class="flex items-center gap-4">
+              <span id="results-count" class="text-xs font-medium text-zinc-500 dark:text-zinc-400">Showing 0 tracks</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <div class="flex items-center p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <button onclick="setViewMode('table')" id="view-btn-table" class="px-3 py-1 rounded-lg text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
+                  <i class="fa-solid fa-list mr-1"></i> List
+                </button>
+                <button onclick="setViewMode('grid')" id="view-btn-grid" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
+                  <i class="fa-solid fa-border-all mr-1"></i> Grid
+                </button>
+              </div>
+
+              <select id="limit-select" onchange="changeLimit()" class="bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 px-3 py-1 rounded-xl text-xs focus:outline-none focus:border-zinc-500">
+                <option value="12">12 per page</option>
+                <option value="24" selected>24 per page</option>
+                <option value="48">48 per page</option>
+                <option value="96">96 per page</option>
+              </select>
+            </div>
           </div>
-          <button onclick="resetFilters()" class="px-4 py-2 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200">Reset Search</button>
-        </div>
 
-        <!-- Table Container (Default View) -->
-        <div id="tracks-table-wrapper" class="overflow-x-auto bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800 transition-colors">
-          <table class="table w-full text-left">
-            <thead>
-              <tr class="text-xs uppercase font-bold text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40">
-                <th class="w-12 py-3 px-4">#</th>
-                <th class="py-3 px-4">Track</th>
-                <th class="py-3 px-4">Album</th>
-                <th class="py-3 px-4">Format</th>
-                <th class="py-3 px-4">Size</th>
-                <th class="text-right py-3 px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="tracks-table-body" class="divide-y divide-zinc-200 dark:divide-zinc-800/50"></tbody>
-          </table>
-        </div>
+        </section>
 
-        <!-- Grid Container -->
-        <div id="tracks-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"></div>
-      </section>
+        <!-- Live Apple Music Catalog Results Section -->
+        <section id="catalog-results-section" class="hidden space-y-6">
+          <div id="catalog-artists-container" class="hidden space-y-3">
+            <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Artists from Apple Music</h3>
+            <div id="catalog-artists-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+          </div>
 
-      <!-- Pagination Controls -->
-      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-zinc-200 dark:border-zinc-800">
-        <div class="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-          Page <span id="current-page-num" class="font-bold text-zinc-950 dark:text-white">1</span> of <span id="total-pages-num" class="font-bold text-zinc-950 dark:text-white">1</span>
-        </div>
+          <div id="catalog-albums-container" class="hidden space-y-3">
+            <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Albums from Apple Music</h3>
+            <div id="catalog-albums-list" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+          </div>
 
-        <div class="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
-          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
-            <i class="fa-solid fa-chevron-left mr-1"></i> Prev
-          </button>
-          <div id="page-buttons" class="flex items-center gap-1 hidden sm:flex"></div>
-          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
-            Next <i class="fa-solid fa-chevron-right ml-1"></i>
-          </button>
-        </div>
-      </section>
+          <div id="catalog-songs-container" class="space-y-3">
+            <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">Songs from Apple Music API</h3>
+          </div>
+        </section>
+
+        <!-- Track List Container -->
+        <section>
+          <div id="loading-state" class="py-20 flex flex-col items-center justify-center space-y-3">
+            <div class="w-8 h-8 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">Searching tracks database...</p>
+          </div>
+
+          <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+            <div class="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800/80 inline-flex items-center justify-center text-zinc-400 text-2xl">
+              <i class="fa-solid fa-compact-disc"></i>
+            </div>
+            <div class="space-y-1">
+              <h3 class="text-lg font-bold text-zinc-950 dark:text-white">No tracks found</h3>
+              <p class="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mx-auto">No matching tracks found for your search criteria. Try typing artist or album name.</p>
+            </div>
+            <button onclick="resetFilters()" class="px-4 py-2 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200">Reset Search</button>
+          </div>
+
+          <div id="tracks-table-wrapper" class="overflow-x-auto bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800 transition-colors">
+            <table class="table w-full text-left">
+              <thead>
+                <tr class="text-xs uppercase font-bold text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40">
+                  <th class="w-12 py-3 px-4">#</th>
+                  <th class="py-3 px-4">Track</th>
+                  <th class="py-3 px-4">Album</th>
+                  <th class="py-3 px-4">Format</th>
+                  <th class="py-3 px-4">Size</th>
+                  <th class="text-right py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tracks-table-body" class="divide-y divide-zinc-200 dark:divide-zinc-800/50"></tbody>
+            </table>
+          </div>
+
+          <div id="tracks-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"></div>
+        </section>
+
+        <!-- Pagination Controls -->
+        <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-zinc-200 dark:border-zinc-800">
+          <div class="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+            Page <span id="current-page-num" class="font-bold text-zinc-950 dark:text-white">1</span> of <span id="total-pages-num" class="font-bold text-zinc-950 dark:text-white">1</span>
+          </div>
+
+          <div class="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+              <i class="fa-solid fa-chevron-left mr-1"></i> Prev
+            </button>
+            <div id="page-buttons" class="flex items-center gap-1 hidden sm:flex"></div>
+            <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="px-3 py-1 rounded-lg text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white disabled:opacity-30 disabled:pointer-events-none">
+              Next <i class="fa-solid fa-chevron-right ml-1"></i>
+            </button>
+          </div>
+        </section>
+
+      </div>
+
+
+      <!-- ================= PAGE VIEW 2: DEDICATED ARTIST PAGE ================= -->
+      <div id="view-artist" class="hidden space-y-8">
+        
+        <!-- Artist Hero Header -->
+        <section id="artist-hero-card" class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center md:items-start gap-6 relative overflow-hidden">
+          <img id="artist-avatar" src="" class="w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover bg-zinc-950 border-4 border-zinc-200 dark:border-zinc-800 shadow-xl" alt="Artist" />
+
+          <div class="space-y-3 text-center md:text-left flex-1">
+            <div class="flex flex-wrap items-center justify-center md:justify-start gap-2">
+              <span class="px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase">Artist Profile</span>
+              <span id="artist-genre-badge" class="px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-500 dark:text-zinc-400">R&B/Soul</span>
+            </div>
+
+            <h1 id="artist-name" class="text-3xl sm:text-4xl font-extrabold text-zinc-950 dark:text-white tracking-tight">Artist Name</h1>
+            
+            <!-- Vault DB Coverage Stats -->
+            <div class="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+              <div>
+                <span class="text-zinc-400">Vault Coverage:</span>
+                <span id="artist-vault-count" class="font-bold text-zinc-950 dark:text-white">0 tracks</span>
+              </div>
+              <div id="artist-apple-link-container">
+                <a id="artist-apple-link" href="#" target="_blank" class="hover:underline text-sky-500 font-bold"><i class="fa-brands fa-apple mr-1"></i> Open on Apple Music</a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Artist Discography Categories -->
+        <section class="space-y-6">
+          <h2 class="text-xl font-bold text-zinc-950 dark:text-white">Discography</h2>
+          <div id="artist-discography-container" class="space-y-8"></div>
+        </section>
+
+      </div>
+
+
+      <!-- ================= PAGE VIEW 3: DEDICATED ALBUM PAGE ================= -->
+      <div id="view-album" class="hidden space-y-8">
+        
+        <!-- Album Header -->
+        <section id="album-hero-card" class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center md:items-start gap-6">
+          <img id="album-cover-img" src="" class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl object-cover bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-2xl" alt="Album Cover" />
+
+          <div class="space-y-3 text-center md:text-left flex-1">
+            <div class="flex flex-wrap items-center justify-center md:justify-start gap-2">
+              <span class="px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase">Album</span>
+              <span id="album-release-badge" class="px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-500 dark:text-zinc-400">Release Date</span>
+            </div>
+
+            <h1 id="album-title-header" class="text-3xl sm:text-4xl font-extrabold text-zinc-950 dark:text-white tracking-tight">Album Title</h1>
+            <p id="album-artist-subheader" class="text-base font-semibold text-zinc-600 dark:text-zinc-300">By Artist Name</p>
+
+            <div id="album-traits-container" class="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-1"></div>
+
+            <div class="pt-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              <span>Vault Available: </span>
+              <span id="album-vault-coverage" class="font-bold text-zinc-950 dark:text-white">0 / 0 tracks</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Album Tracklist -->
+        <section class="space-y-4">
+          <h2 class="text-xl font-bold text-zinc-950 dark:text-white">Tracklist</h2>
+          
+          <div class="overflow-x-auto bg-white dark:bg-zinc-900/60 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+            <table class="table w-full text-left">
+              <thead>
+                <tr class="text-xs uppercase font-bold text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40">
+                  <th class="w-12 py-3 px-4">#</th>
+                  <th class="py-3 px-4">Title</th>
+                  <th class="py-3 px-4">Duration</th>
+                  <th class="py-3 px-4">Status</th>
+                  <th class="text-right py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="album-tracklist-body" class="divide-y divide-zinc-200 dark:divide-zinc-800/50"></tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
 
     </main>
   </div>
 
-  <!-- Toast Notification Container -->
+  <!-- ================= LYRICS & STREAM ECOSYSTEM MODAL / DRAWER ================= -->
+  <div id="lyrics-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+      
+      <!-- Modal Header -->
+      <div class="p-6 border-b border-zinc-800 flex items-center justify-between gap-4 bg-zinc-950/50">
+        <div class="flex items-center gap-4">
+          <img id="lyrics-song-artwork" src="" class="w-14 h-14 rounded-xl object-cover bg-zinc-950 border border-zinc-800" alt="Art" />
+          <div>
+            <h3 id="lyrics-song-title" class="font-extrabold text-base text-white line-clamp-1">Song Title</h3>
+            <p id="lyrics-song-artist" class="text-xs font-semibold text-zinc-400 line-clamp-1">Artist Name</p>
+          </div>
+        </div>
+
+        <button onclick="closeLyricsModal()" class="p-2 text-zinc-400 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Audio Player Bar (If stream available) -->
+      <div id="lyrics-audio-player-container" class="hidden px-6 py-3 bg-zinc-950 border-b border-zinc-800 flex items-center gap-4">
+        <audio id="lyrics-audio-player" controls class="w-full h-10 accent-white"></audio>
+      </div>
+
+      <!-- Format Tabs -->
+      <div class="px-6 py-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs font-semibold">
+        <div class="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-xl border border-zinc-800">
+          <button onclick="setLyricsFormat('synced')" id="lformat-synced" class="px-3 py-1 rounded-lg bg-white text-black font-bold">
+            <i class="fa-solid fa-microphone-lines mr-1"></i> Karaoke Sync
+          </button>
+          <button onclick="setLyricsFormat('plain')" id="lformat-plain" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+            Plain Text
+          </button>
+          <button onclick="setLyricsFormat('lrc')" id="lformat-lrc" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+            Synced LRC
+          </button>
+          <button onclick="setLyricsFormat('ttml')" id="lformat-ttml" class="px-3 py-1 rounded-lg text-zinc-400 hover:text-white">
+            TTML XML
+          </button>
+        </div>
+
+        <!-- Copy / Export Controls -->
+        <div class="flex items-center gap-2">
+          <button onclick="copyCurrentLyrics()" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl flex items-center gap-1.5">
+            <i class="fa-solid fa-copy"></i> Copy
+          </button>
+          <button onclick="downloadLrcFile()" class="px-3 py-1.5 bg-white text-black hover:bg-zinc-200 font-bold rounded-xl flex items-center gap-1.5">
+            <i class="fa-solid fa-download"></i> Save .lrc
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Body Lyrics Content -->
+      <div id="lyrics-modal-body" class="p-6 overflow-y-auto flex-1 space-y-4 text-center font-medium text-sm text-zinc-400 select-text">
+        <div id="lyrics-loading" class="py-12 flex flex-col items-center justify-center space-y-2">
+          <div class="w-6 h-6 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>
+          <p class="text-xs text-zinc-500">Fetching lyrics from Apple Music Ecosystem...</p>
+        </div>
+        <div id="lyrics-content-display" class="space-y-3"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Container -->
   <div id="toast-container" class="fixed bottom-6 right-6 z-50 space-y-2"></div>
 
   <!-- Footer -->
@@ -317,7 +467,7 @@
     // State Variables
     let currentFormat = 'all';
     let currentSearch = '';
-    let searchSource = 'db'; // 'db' or 'catalog'
+    let searchSource = 'db';
     let activeArtistFilter = '';
     let activeAlbumFilter = '';
     let currentPage = 1;
@@ -326,15 +476,56 @@
     let isDarkMode = true;
     let searchDebounceTimeout = null;
 
-    // Initialize Page
+    // Lyrics Ecosystem State
+    let currentLyricsData = null;
+    let currentLyricsFormat = 'synced';
+    let lyricsAudioElement = null;
+
+    // Initialize SPA Page
     document.addEventListener('DOMContentLoaded', () => {
       initTheme();
       checkServerHealth();
       fetchStats();
-      fetchTracks();
+      
+      window.addEventListener('hashchange', handleRoute);
+      handleRoute();
     });
 
-    // Theme Switcher (Dark vs Light)
+    // Hash Router
+    function navigateTo(hash) {
+      window.location.hash = hash;
+    }
+
+    function handleRoute() {
+      const hash = window.location.hash || '#home';
+      const backBtn = document.getElementById('back-home-btn');
+      const sourceSwitcher = document.getElementById('source-switcher');
+
+      document.getElementById('view-home').classList.add('hidden');
+      document.getElementById('view-artist').classList.add('hidden');
+      document.getElementById('view-album').classList.add('hidden');
+
+      if (hash.startsWith('#artist/')) {
+        const artistId = hash.replace('#artist/', '');
+        backBtn.classList.remove('hidden');
+        sourceSwitcher.classList.add('hidden');
+        document.getElementById('view-artist').classList.remove('hidden');
+        loadArtistPage(artistId);
+      } else if (hash.startsWith('#album/')) {
+        const albumId = hash.replace('#album/', '');
+        backBtn.classList.remove('hidden');
+        sourceSwitcher.classList.add('hidden');
+        document.getElementById('view-album').classList.remove('hidden');
+        loadAlbumPage(albumId);
+      } else {
+        backBtn.classList.add('hidden');
+        sourceSwitcher.classList.remove('hidden');
+        document.getElementById('view-home').classList.remove('hidden');
+        fetchTracks();
+      }
+    }
+
+    // Theme Switcher
     function initTheme() {
       const savedTheme = localStorage.getItem('theme_mode') || 'dark';
       applyTheme(savedTheme === 'dark');
@@ -424,7 +615,7 @@
       fetchTracks();
     }
 
-    // Filter by Artist Handler (Clicking artist name)
+    // Filter Handlers
     function filterByArtist(artistName) {
       activeArtistFilter = artistName;
       activeAlbumFilter = '';
@@ -437,7 +628,6 @@
       fetchTracks();
     }
 
-    // Filter by Album Handler (Clicking album name)
     function filterByAlbum(albumName) {
       activeAlbumFilter = albumName;
       activeArtistFilter = '';
@@ -461,7 +651,7 @@
       }
     }
 
-    // Main Tracks / Catalog Fetcher
+    // Main Vault Fetcher
     async function fetchTracks() {
       showLoading(true);
 
@@ -520,12 +710,11 @@
       const artistsList = document.getElementById('catalog-artists-list');
       const albumsList = document.getElementById('catalog-albums-list');
 
-      // Artists
       const artists = data.artists || [];
       if (artists.length > 0) {
         artistsContainer.classList.remove('hidden');
         artistsList.innerHTML = artists.map(a => `
-          <div onclick="filterByArtist('${escapeHtml(a.name)}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+          <div onclick="navigateTo('#artist/${a.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
             <img src="${a.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-16 h-16 rounded-full mx-auto object-cover bg-zinc-950" alt="${escapeHtml(a.name)}" />
             <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(a.name)}</div>
           </div>
@@ -534,12 +723,11 @@
         artistsContainer.classList.add('hidden');
       }
 
-      // Albums
       const albums = data.albums || [];
       if (albums.length > 0) {
         albumsContainer.classList.remove('hidden');
         albumsList.innerHTML = albums.map(al => `
-          <div onclick="filterByAlbum('${escapeHtml(al.title)}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+          <div onclick="navigateTo('#album/${al.id}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
             <img src="${al.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'}" class="w-full aspect-square rounded-lg object-cover bg-zinc-950" alt="${escapeHtml(al.title)}" />
             <div class="font-bold text-xs line-clamp-1 text-zinc-900 dark:text-white">${escapeHtml(al.title)}</div>
             <div class="text-[11px] text-zinc-500 line-clamp-1">${escapeHtml(al.artist)}</div>
@@ -578,7 +766,6 @@
 
       emptyState.classList.add('hidden');
 
-      // Grid HTML (Clean Black & White Monochrome Style with Clickable Artist/Album)
       const gridCardsHtml = items.map(track => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const formattedSize = formatBytes(track.size);
@@ -590,9 +777,7 @@
 
         return `
           <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
-            
             <div>
-              <!-- Artwork Image (Monochrome badge overlay) -->
               <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-950">
                 <img 
                   src="${artworkUrl}" 
@@ -600,13 +785,11 @@
                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'"
                 />
-
                 <div class="absolute top-3 left-3">
                   <span class="px-2 py-0.5 text-xs font-bold rounded-md bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
                 </div>
               </div>
 
-              <!-- Card Content -->
               <div class="p-4 space-y-1.5">
                 <h3 class="font-bold text-sm leading-tight line-clamp-1 text-zinc-950 dark:text-white" title="${escapeHtml(track.title)}">
                   ${escapeHtml(track.title)}
@@ -620,9 +803,10 @@
               </div>
             </div>
 
-            <!-- Bottom Actions -->
             <div class="px-4 pb-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60 flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-zinc-500 dark:text-zinc-400">${formattedSize}</span>
+              <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="text-xs font-bold text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-1">
+                <i class="fa-solid fa-align-left"></i> Lyrics
+              </button>
 
               <div class="flex items-center gap-1.5">
                 ${track.download_url ? `
@@ -637,14 +821,12 @@
                 ${actionBtn}
               </div>
             </div>
-
           </div>
         `;
       }).join('');
 
       gridContainer.innerHTML = gridCardsHtml;
 
-      // Table HTML (Clean Black & White Monochrome Style with Clickable Artist/Album)
       const tableRowsHtml = items.map((track, idx) => {
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const isAvailable = track.is_available !== false;
@@ -676,6 +858,9 @@
             <td class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
             <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
+                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-2.5 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                  <i class="fa-solid fa-align-left"></i> Lyrics
+                </button>
                 ${track.download_url ? `
                   <button 
                     onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
@@ -825,9 +1010,260 @@
       document.getElementById('clear-search-btn').classList.add('hidden');
       updateFilterBadge('');
       setSearchSource('db');
+      navigateTo('#home');
     }
 
-    // Request via Telegram Bot Helper
+
+    // ================= DEDICATED ARTIST PAGE LOADER =================
+    async function loadArtistPage(artistId) {
+      try {
+        const res = await fetch(`/api/artist/${encodeURIComponent(artistId)}`);
+        if (!res.ok) throw new Error("Failed to fetch artist profile");
+        const data = await res.json();
+
+        document.getElementById('artist-name').innerText = data.name || "Unknown Artist";
+        document.getElementById('artist-avatar').src = data.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500';
+        document.getElementById('artist-genre-badge').innerText = (data.genres || ['R&B/Soul'])[0];
+        document.getElementById('artist-vault-count').innerText = `${data.vault_track_count || 0} tracks stored in Vault DB`;
+        document.getElementById('artist-apple-link').href = data.url || '#';
+
+        const categories = data.categories || {};
+        const container = document.getElementById('artist-discography-container');
+        container.innerHTML = '';
+
+        Object.keys(categories).forEach(catName => {
+          const items = categories[catName];
+          if (!items || items.length === 0) return;
+
+          const catSection = document.createElement('div');
+          catSection.className = "space-y-3";
+          catSection.innerHTML = `
+            <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider">${escapeHtml(catName)}</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              ${items.map(item => `
+                <div onclick="navigateTo('#album/${item.url ? extractIdFromUrl(item.url) : ''}')" class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-left cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 transition-all space-y-2">
+                  <div class="font-bold text-xs line-clamp-1 text-zinc-950 dark:text-white">${escapeHtml(item.name)}</div>
+                  <div class="text-[11px] text-zinc-500">${escapeHtml(item.release_date || 'N/A')}</div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+          container.appendChild(catSection);
+        });
+
+      } catch (err) {
+        console.error(err);
+        showToast("Error loading artist profile", "error");
+      }
+    }
+
+
+    // ================= DEDICATED ALBUM PAGE LOADER =================
+    async function loadAlbumPage(albumId) {
+      try {
+        const res = await fetch(`/api/album/${encodeURIComponent(albumId)}`);
+        if (!res.ok) throw new Error("Failed to fetch album details");
+        const data = await res.json();
+
+        document.getElementById('album-title-header').innerText = data.title || "Album Title";
+        document.getElementById('album-artist-subheader').innerText = `By ${data.artist || 'Unknown Artist'}`;
+        document.getElementById('album-cover-img').src = data.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500';
+        document.getElementById('album-release-badge').innerText = data.release_date || "N/A";
+        document.getElementById('album-vault-coverage').innerText = `${data.available_track_count || 0} / ${data.track_count || (data.tracks || []).length} tracks ready in Vault DB`;
+
+        const traitsContainer = document.getElementById('album-traits-container');
+        traitsContainer.innerHTML = (data.audio_traits || ['Lossless']).map(t => `
+          <span class="px-2.5 py-0.5 text-xs font-bold rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${escapeHtml(t)}</span>
+        `).join('');
+
+        const tbody = document.getElementById('album-tracklist-body');
+        tbody.innerHTML = (data.tracks || []).map((tr, idx) => {
+          const isAvail = tr.is_available;
+          const actionBtn = isAvail && tr.download_url
+            ? `<a href="${tr.download_url}" download class="px-3 py-1.5 bg-black text-white dark:bg-white dark:text-black font-bold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-download"></i> Download</a>`
+            : `<button onclick="requestViaTelegram('${escapeHtml(tr.url)}', '${escapeHtml(tr.title)}')" class="px-3 py-1.5 bg-sky-600 text-white font-bold text-xs rounded-xl hover:bg-sky-500 transition-colors flex items-center gap-1.5 shadow-sm" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+
+          return `
+            <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+              <td class="font-medium text-xs text-zinc-400 py-3 px-4">${tr.track_number || idx + 1}</td>
+              <td class="py-3 px-4 font-bold text-sm text-zinc-950 dark:text-white">${escapeHtml(tr.title)}</td>
+              <td class="text-xs text-zinc-500 py-3 px-4">${tr.duration || 'N/A'}</td>
+              <td class="py-3 px-4 text-xs font-semibold">
+                ${isAvail ? '<span class="text-emerald-500 font-bold">Ready</span>' : '<span class="text-zinc-500">Not in DB</span>'}
+              </td>
+              <td class="text-right py-3 px-4">
+                <div class="flex items-center justify-end gap-2">
+                  <button onclick="openLyricsModal('${tr.song_id}', '${escapeHtml(tr.title)}', '${escapeHtml(data.artist)}', '${escapeHtml(data.artwork)}', '${tr.stream_url || ''}')" class="px-2.5 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                    <i class="fa-solid fa-align-left"></i> Lyrics
+                  </button>
+                  ${actionBtn}
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (err) {
+        console.error(err);
+        showToast("Error loading album details", "error");
+      }
+    }
+
+    function extractIdFromUrl(url) {
+      if (!url) return '';
+      const parts = url.split('/');
+      return parts[parts.length - 1];
+    }
+
+
+    // ================= LYRICS & STREAMING ECOSYSTEM =================
+    async function openLyricsModal(songId, title, artist, artwork, streamUrl) {
+      const modal = document.getElementById('lyrics-modal');
+      const modalBody = document.getElementById('lyrics-content-display');
+      const loading = document.getElementById('lyrics-loading');
+      const playerContainer = document.getElementById('lyrics-audio-player-container');
+      const player = document.getElementById('lyrics-audio-player');
+
+      document.getElementById('lyrics-song-title').innerText = title || "Song Title";
+      document.getElementById('lyrics-song-artist').innerText = artist || "Artist Name";
+      document.getElementById('lyrics-song-artwork').src = artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500';
+
+      modal.classList.remove('hidden');
+      loading.classList.remove('hidden');
+      modalBody.innerHTML = '';
+
+      if (streamUrl) {
+        playerContainer.classList.remove('hidden');
+        player.src = streamUrl;
+        lyricsAudioElement = player;
+        
+        player.ontimeupdate = syncLyricsTimeUpdate;
+      } else {
+        playerContainer.classList.add('hidden');
+        player.pause();
+        lyricsAudioElement = null;
+      }
+
+      try {
+        const res = await fetch(`/api/song/${songId}/lyrics`);
+        const data = await res.json();
+        currentLyricsData = data;
+        loading.classList.add('hidden');
+
+        if (!data.has_lyrics || !data.formats) {
+          modalBody.innerHTML = `<p class="py-12 text-zinc-500 font-semibold">No lyrics available for this track.</p>`;
+          return;
+        }
+
+        renderLyricsDisplay();
+
+      } catch (err) {
+        console.error(err);
+        loading.classList.add('hidden');
+        modalBody.innerHTML = `<p class="py-12 text-red-500 font-semibold">Failed to fetch lyrics.</p>`;
+      }
+    }
+
+    function closeLyricsModal() {
+      const modal = document.getElementById('lyrics-modal');
+      const player = document.getElementById('lyrics-audio-player');
+      player.pause();
+      modal.classList.add('hidden');
+    }
+
+    function setLyricsFormat(fmt) {
+      currentLyricsFormat = fmt;
+      
+      ['synced', 'plain', 'lrc', 'ttml'].forEach(f => {
+        const btn = document.getElementById(`lformat-${f}`);
+        if (f === fmt) {
+          btn.className = "px-3 py-1 rounded-lg bg-white text-black font-bold shadow-sm";
+        } else {
+          btn.className = "px-3 py-1 rounded-lg text-zinc-400 hover:text-white font-medium";
+        }
+      });
+
+      renderLyricsDisplay();
+    }
+
+    function renderLyricsDisplay() {
+      const container = document.getElementById('lyrics-content-display');
+      if (!currentLyricsData || !currentLyricsData.formats) return;
+
+      const formats = currentLyricsData.formats;
+
+      if (currentLyricsFormat === 'synced') {
+        const synced = formats.synced || [];
+        if (synced.length === 0) {
+          container.innerHTML = `<p class="py-8 text-zinc-500">No time-synced lyrics available.</p>`;
+          return;
+        }
+
+        container.innerHTML = synced.map((line, i) => `
+          <p id="lyric-line-${i}" data-start="${line.start}" data-end="${line.end}" class="py-1.5 transition-all text-zinc-400 hover:text-white cursor-pointer" onclick="seekAudioTo(${line.start})">
+            ${escapeHtml(line.text)}
+          </p>
+        `).join('');
+
+      } else if (currentLyricsFormat === 'plain') {
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-sans leading-relaxed text-zinc-200 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${escapeHtml(formats.plain)}</pre>`;
+      } else if (currentLyricsFormat === 'lrc') {
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-xs text-zinc-300 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${escapeHtml(formats.lrc)}</pre>`;
+      } else if (currentLyricsFormat === 'ttml') {
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-[11px] text-zinc-400 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800 overflow-x-auto">${escapeHtml(formats.ttml)}</pre>`;
+      }
+    }
+
+    function syncLyricsTimeUpdate() {
+      if (currentLyricsFormat !== 'synced' || !lyricsAudioElement || !currentLyricsData) return;
+      const currentTime = lyricsAudioElement.currentTime;
+      const synced = currentLyricsData.formats.synced || [];
+
+      synced.forEach((line, i) => {
+        const el = document.getElementById(`lyric-line-${i}`);
+        if (!el) return;
+
+        if (currentTime >= line.start && (i === synced.length - 1 || currentTime < synced[i + 1].start)) {
+          if (!el.classList.contains('lyric-active')) {
+            document.querySelectorAll('#lyrics-content-display p').forEach(p => p.classList.remove('lyric-active'));
+            el.classList.add('lyric-active');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      });
+    }
+
+    function seekAudioTo(seconds) {
+      if (lyricsAudioElement) {
+        lyricsAudioElement.currentTime = seconds;
+        lyricsAudioElement.play();
+      }
+    }
+
+    function copyCurrentLyrics() {
+      if (!currentLyricsData || !currentLyricsData.formats) return;
+      const fmt = currentLyricsFormat;
+      const text = currentLyricsData.formats[fmt] || currentLyricsData.formats.plain;
+      navigator.clipboard.writeText(typeof text === 'string' ? text : JSON.stringify(text, null, 2)).then(() => {
+        showToast("Lyrics copied to clipboard!", "success");
+      });
+    }
+
+    function downloadLrcFile() {
+      if (!currentLyricsData || !currentLyricsData.formats || !currentLyricsData.formats.lrc) {
+        showToast("No LRC lyrics available to export", "error");
+        return;
+      }
+      const title = currentLyricsData.title || "lyrics";
+      const blob = new Blob([currentLyricsData.formats.lrc], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${title}.lrc`;
+      link.click();
+      showToast(`Exported ${title}.lrc`, "success");
+    }
+
+    // Helper functions
     function requestViaTelegram(url, title) {
       const botCmd = `/download ${url}`;
       navigator.clipboard.writeText(botCmd).then(() => {
@@ -839,7 +1275,6 @@
       }, 500);
     }
 
-    // Copy Link Helper
     function copyDownloadLink(link) {
       navigator.clipboard.writeText(link).then(() => {
         showToast("Download link copied to clipboard!", "success");
@@ -848,7 +1283,6 @@
       });
     }
 
-    // Toast Notification Manager
     function showToast(message, type = 'info') {
       const container = document.getElementById('toast-container');
       const toast = document.createElement('div');

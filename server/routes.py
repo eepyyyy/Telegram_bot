@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from aiohttp import web
 from sqlmodel import select, or_, func, col, case
@@ -10,7 +11,7 @@ from database import Tracks, AACTracks, AtmosTracks, Albums, async_session
 from server import config
 from server.stream import handle_telegram_stream
 
-# Ensure stdout/stderr handle UTF-8 symbols (e.g. copyright ℗) safely on Windows
+# Ensure stdout/stderr handle UTF-8 symbols safely on Windows
 try:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -23,6 +24,83 @@ logger = logging.getLogger("server.routes")
 
 routes = web.RouteTableDef()
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
+
+
+# Helper functions for Lyrics Parser Ecosystem
+def parse_time(time_str: str) -> float:
+    """Converts TTML time string (e.g. '27.395', '1:00.964', '01:23.456') to seconds float."""
+    if not time_str:
+        return 0.0
+    time_str = time_str.rstrip('s')
+    parts = time_str.split(':')
+    try:
+        if len(parts) == 1:
+            return float(parts[0])
+        elif len(parts) == 2:
+            return float(parts[0]) * 60 + float(parts[1])
+        elif len(parts) == 3:
+            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+    except ValueError:
+        pass
+    return 0.0
+
+
+def format_lrc_timestamp(seconds: float) -> str:
+    """Formats seconds into [mm:ss.xx] LRC format."""
+    mins = int(seconds // 60)
+    secs = seconds % 60
+    return f"[{mins:02d}:{secs:05.2f}]"
+
+
+def parse_ttml_lyrics(ttml_xml: str):
+    """
+    Parses Apple Music TTML XML string into 4 ecosystem formats:
+    - lrc: Synced LRC file format string
+    - plain: Plain text lyrics string
+    - ttml: Raw TTML XML
+    - synced: Array of dicts with start, end, text, part
+    """
+    synced_lines = []
+    plain_lines = []
+    lrc_lines = []
+
+    if not ttml_xml:
+        return {"lrc": "", "plain": "", "ttml": "", "synced": []}
+
+    try:
+        root = ET.fromstring(ttml_xml)
+        for body in root.findall("{http://www.w3.org/ns/ttml}body"):
+            for div in body.findall("{http://www.w3.org/ns/ttml}div"):
+                part_name = div.attrib.get("{http://music.apple.com/lyric-ttml-internal}songPart", "")
+                for p in div.findall("{http://www.w3.org/ns/ttml}p"):
+                    text = "".join(p.itertext()).strip()
+                    begin_attr = p.attrib.get("begin", "0")
+                    end_attr = p.attrib.get("end", "0")
+
+                    if not text:
+                        continue
+
+                    start_sec = parse_time(begin_attr)
+                    end_sec = parse_time(end_attr)
+
+                    synced_lines.append({
+                        "start": start_sec,
+                        "end": end_sec,
+                        "text": text,
+                        "part": part_name
+                    })
+                    plain_lines.append(text)
+                    lrc_lines.append(f"{format_lrc_timestamp(start_sec)} {text}")
+
+    except Exception as e:
+        logger.error(f"Error parsing TTML lyrics: {e}")
+
+    return {
+        "lrc": "\n".join(lrc_lines),
+        "plain": "\n".join(plain_lines),
+        "ttml": ttml_xml,
+        "synced": synced_lines
+    }
 
 
 @routes.get("/health")
@@ -376,6 +454,156 @@ async def search_apple_catalog(request: web.Request):
     except Exception as e:
         logger.error(f"Catalog search error: {e}")
         return web.json_response({"artists": [], "albums": [], "songs": [], "error": str(e)})
+
+
+@routes.get("/api/artist/{artist_id}")
+async def get_artist_detail(request: web.Request):
+    """
+    Returns full artist profile, artwork, categorized discography, and Vault DB coverage metrics.
+    """
+    artist_id = request.match_info.get("artist_id", "").strip()
+    if not artist_id:
+        raise web.HTTPBadRequest(text="Artist ID required")
+
+    try:
+        url = f"https://music.apple.com/us/artist/artist/{artist_id}" if artist_id.isdigit() else artist_id
+        meta = await gamdlHelpUrl.get_artist_metadata(url)
+        artist_name = meta.get("name", "Unknown Artist")
+
+        # Query local database tracks by artist to compute vault coverage
+        async with async_session() as session:
+            stmt = select(func.count()).select_from(Tracks).where(col(Tracks.artist).ilike(f"%{artist_name}%"))
+            db_tracks_res = await session.exec(stmt)
+            vault_track_count = db_tracks_res.one() or 0
+
+        meta["vault_track_count"] = vault_track_count
+        return web.json_response(meta)
+
+    except Exception as e:
+        logger.error(f"Error fetching artist detail for {artist_id}: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@routes.get("/api/album/{album_id}")
+async def get_album_detail(request: web.Request):
+    """
+    Returns full album details and tracklist cross-referenced with local database for downloads.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        raise web.HTTPBadRequest(text="Album ID required")
+
+    try:
+        url = f"https://music.apple.com/us/album/album/{album_id}" if album_id.isdigit() else album_id
+        meta = await gamdlHelpUrl.get_album_metadata(url)
+
+        tracks = meta.get("tracks", [])
+        song_ids_to_check = [str(t["song_id"]) for t in tracks if t.get("song_id")]
+        isrcs_to_check = [str(t["isrc"]) for t in tracks if t.get("isrc")]
+
+        # Cross-reference with database
+        db_map = {}
+        if song_ids_to_check or isrcs_to_check:
+            async with async_session() as session:
+                for model_cls, format_type in [(Tracks, "alac"), (AACTracks, "aac"), (AtmosTracks, "atmos")]:
+                    stmt = select(model_cls).where(
+                        or_(
+                            col(model_cls.song_id).in_(song_ids_to_check),
+                            col(model_cls.isrc).in_(isrcs_to_check)
+                        )
+                    )
+                    res = await session.exec(stmt)
+                    found_tracks = res.all()
+                    for ft in found_tracks:
+                        key = ft.song_id or ft.isrc
+                        if key:
+                            db_map[key] = {
+                                "format": format_type,
+                                "song_id": ft.song_id,
+                                "message_id": ft.message_id,
+                                "is_available": ft.message_id is not None
+                            }
+
+        available_count = 0
+        for tr in tracks:
+            key1 = str(tr.get("song_id"))
+            key2 = str(tr.get("isrc"))
+            tr["is_available"] = False
+            tr["download_url"] = None
+            tr["stream_url"] = None
+            tr["bot_request_cmd"] = f"/download {tr.get('url', '')}"
+
+            if key1 in db_map:
+                tr["is_available"] = db_map[key1]["is_available"]
+                fmt = db_map[key1]["format"]
+                sid = db_map[key1]["song_id"]
+                tr["download_url"] = f"/download/{fmt}/{sid}"
+                tr["stream_url"] = f"/stream/{fmt}/{sid}"
+                if tr["is_available"]:
+                    available_count += 1
+            elif key2 in db_map:
+                tr["is_available"] = db_map[key2]["is_available"]
+                fmt = db_map[key2]["format"]
+                sid = db_map[key2]["song_id"]
+                tr["download_url"] = f"/download/{fmt}/{sid}"
+                tr["stream_url"] = f"/stream/{fmt}/{sid}"
+                if tr["is_available"]:
+                    available_count += 1
+
+        meta["available_track_count"] = available_count
+        return web.json_response(meta)
+
+    except Exception as e:
+        logger.error(f"Error fetching album detail for {album_id}: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@routes.get("/api/song/{song_id}/lyrics")
+async def get_song_lyrics(request: web.Request):
+    """
+    Fetches Apple Music TTML lyrics for a song and parses it into 4 ecosystem formats:
+    Synced LRC (.lrc), Plain Text (.txt), Raw TTML XML, and Synced JSON.
+    """
+    song_id = request.match_info.get("song_id", "").strip()
+    if not song_id:
+        raise web.HTTPBadRequest(text="Song ID required")
+
+    try:
+        api = await gamdlHelpUrl.get_api()
+        song = await api.get_song(song_id)
+        if not song or "data" not in song or not song["data"]:
+            return web.json_response({"has_lyrics": False, "formats": None, "message": "Song not found"})
+
+        song_data = song["data"][0]
+        attrs = song_data.get("attributes", {})
+        rel = song_data.get("relationships", {})
+        lyrics_rel = rel.get("lyrics", {}).get("data", [])
+
+        if not lyrics_rel:
+            return web.json_response({
+                "song_id": song_id,
+                "title": attrs.get("name", "Unknown Title"),
+                "artist": attrs.get("artistName", "Unknown Artist"),
+                "has_lyrics": False,
+                "formats": None
+            })
+
+        ttml_xml = lyrics_rel[0].get("attributes", {}).get("ttml", "")
+        parsed_lyrics = parse_ttml_lyrics(ttml_xml)
+
+        return web.json_response({
+            "song_id": song_id,
+            "title": attrs.get("name", "Unknown Title"),
+            "artist": attrs.get("artistName", "Unknown Artist"),
+            "album": attrs.get("albumName", "Unknown Album"),
+            "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=600),
+            "has_lyrics": True,
+            "formats": parsed_lyrics
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching lyrics for song {song_id}: {e}")
+        return web.json_response({"has_lyrics": False, "error": str(e)}, status=500)
 
 
 @routes.get("/info/{format_type}/{song_id}")
