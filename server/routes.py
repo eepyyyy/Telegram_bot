@@ -78,7 +78,7 @@ async def stream_track(request: web.Request):
         logger.info(f"Redirecting stream request for track {song_id} to TG-FileStreamBot: {fsb_url}")
         raise web.HTTPFound(location=fsb_url)
 
-    ext = "m4a" if format_type == "aac" else ("caf" if format_type == "atmos" else "flac")
+    ext = "caf" if format_type == "atmos" else "m4a"
     clean_title = "".join(c for c in (track.title or "track") if c.isalnum() or c in (" ", "_", "-")).strip()
     filename = f"{clean_title}.{ext}"
 
@@ -118,7 +118,7 @@ async def download_track(request: web.Request):
         logger.info(f"Redirecting download request for track {song_id} to TG-FileStreamBot: {fsb_url}")
         raise web.HTTPFound(location=fsb_url)
 
-    ext = "m4a" if format_type == "aac" else ("caf" if format_type == "atmos" else "flac")
+    ext = "caf" if format_type == "atmos" else "m4a"
     clean_title = "".join(c for c in (track.title or "track") if c.isalnum() or c in (" ", "_", "-")).strip()
     filename = f"{clean_title}.{ext}"
 

@@ -63,8 +63,8 @@ def get_media_from_message(message: Message):
         return None, 0, "application/octet-stream", "media_file"
 
     file_size = getattr(media, "file_size", 0)
-    mime_type = getattr(media, "mime_type", "audio/flac") or "application/octet-stream"
-    file_name = getattr(media, "file_name", None) or f"track_{message.id}.flac"
+    mime_type = getattr(media, "mime_type", "audio/mp4") or "audio/mp4"
+    file_name = getattr(media, "file_name", None) or f"track_{message.id}.m4a"
 
     return media, file_size, mime_type, file_name
 
