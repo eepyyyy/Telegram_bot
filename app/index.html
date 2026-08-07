@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telegram Cloud Music Vault - Track Browser & Downloader</title>
+  
+  <!-- Tailwind CSS & DaisyUI via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .line-clamp-1 {
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .artwork-glow {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-base-300 min-h-screen text-base-content flex flex-col justify-between">
+
+  <!-- Main Wrapper -->
+  <div>
+    <!-- Navigation Bar -->
+    <header class="navbar bg-base-100 shadow-lg px-4 lg:px-8 sticky top-0 z-40 border-b border-base-200/50 backdrop-blur-md bg-base-100/90">
+      <div class="flex-1 gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-primary-content font-black text-xl shadow-md">
+          <i class="fa-solid fa-music"></i>
+        </div>
+        <div>
+          <a class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent">
+            Music Vault
+          </a>
+          <span class="text-xs block text-base-content/60 font-medium">Telegram Cloud Downloader</span>
+        </div>
+      </div>
+
+      <div class="flex-none gap-3">
+        <!-- Health Badge -->
+        <div id="server-status" class="badge badge-success gap-1 px-3 py-3 font-semibold text-xs shadow-sm">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="status-text">Server Online</span>
+        </div>
+
+        <!-- Theme Controller Dropdown -->
+        <div class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-ghost btn-circle btn-sm">
+            <i class="fa-solid fa-palette text-lg"></i>
+          </div>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-48 p-2 shadow-xl border border-base-200 mt-3">
+            <li class="menu-title text-xs font-bold uppercase tracking-wider text-base-content/50">Select Theme</li>
+            <li><button onclick="setTheme('dark')"><i class="fa-solid fa-moon text-primary"></i> Dark (Default)</button></li>
+            <li><button onclick="setTheme('emerald')"><i class="fa-solid fa-leaf text-emerald-500"></i> Emerald</button></li>
+            <li><button onclick="setTheme('synthwave')"><i class="fa-solid fa-[#f40] text-secondary"></i> Synthwave</button></li>
+            <li><button onclick="setTheme('dim')"><i class="fa-solid fa-circle-half-stroke text-accent"></i> Dim</button></li>
+            <li><button onclick="setTheme('light')"><i class="fa-solid fa-sun text-warning"></i> Light</button></li>
+          </ul>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="container mx-auto px-4 lg:px-8 py-6 space-y-6 max-w-7xl">
+
+      <!-- Stats Summary Banner -->
+      <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Total Tracks -->
+        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
+          <div class="stat-figure text-primary">
+            <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary text-xl">
+              <i class="fa-solid fa-compact-disc"></i>
+            </div>
+          </div>
+          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Total Tracks</div>
+          <div id="stat-total" class="stat-value text-2xl lg:text-3xl font-black text-primary">--</div>
+          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">In database storage</div>
+        </div>
+
+        <!-- Available Downloads -->
+        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
+          <div class="stat-figure text-success">
+            <div class="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center text-success text-xl">
+              <i class="fa-solid fa-cloud-arrow-down"></i>
+            </div>
+          </div>
+          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Ready to Download</div>
+          <div id="stat-available" class="stat-value text-2xl lg:text-3xl font-black text-success">--</div>
+          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Cached in Telegram</div>
+        </div>
+
+        <!-- Total Albums -->
+        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
+          <div class="stat-figure text-secondary">
+            <div class="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary text-xl">
+              <i class="fa-solid fa-record-vinyl"></i>
+            </div>
+          </div>
+          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Albums</div>
+          <div id="stat-albums" class="stat-value text-2xl lg:text-3xl font-black text-secondary">--</div>
+          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Unique discography</div>
+        </div>
+
+        <!-- Quality Formats -->
+        <div class="stat bg-base-100 rounded-2xl shadow-md border border-base-200/60 p-4 transition-all hover:shadow-lg">
+          <div class="stat-figure text-accent">
+            <div class="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent text-xl">
+              <i class="fa-solid fa-sliders"></i>
+            </div>
+          </div>
+          <div class="stat-title text-xs font-semibold uppercase tracking-wider text-base-content/60">Formats</div>
+          <div id="stat-formats" class="stat-value text-xl font-bold text-accent flex gap-1.5 items-center mt-1">
+            <span class="badge badge-primary badge-sm">ALAC</span>
+            <span class="badge badge-secondary badge-sm">AAC</span>
+            <span class="badge badge-accent badge-sm">Atmos</span>
+          </div>
+          <div class="stat-desc font-medium text-xs mt-1 text-base-content/70">Hi-Res audio supported</div>
+        </div>
+      </section>
+
+      <!-- Controls & Search Header -->
+      <section class="bg-base-100 p-5 rounded-2xl shadow-md border border-base-200/60 space-y-4">
+        
+        <!-- Top Toolbar: Format Tabs & Search Bar -->
+        <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+          
+          <!-- Format Filter Tabs -->
+          <div class="role-tablist tabs tabs-boxed bg-base-200/70 p-1.5 rounded-xl flex-wrap">
+            <button onclick="setFormat('all')" id="tab-all" class="tab tab-active font-semibold text-sm rounded-lg transition-all">
+              <i class="fa-solid fa-[#f00] fa-layer-group mr-1.5"></i> All Tracks
+            </button>
+            <button onclick="setFormat('alac')" id="tab-alac" class="tab font-semibold text-sm rounded-lg transition-all">
+              <i class="fa-solid fa-compact-disc mr-1.5 text-primary"></i> ALAC (Lossless)
+            </button>
+            <button onclick="setFormat('aac')" id="tab-aac" class="tab font-semibold text-sm rounded-lg transition-all">
+              <i class="fa-solid fa-file-audio mr-1.5 text-secondary"></i> AAC
+            </button>
+            <button onclick="setFormat('atmos')" id="tab-atmos" class="tab font-semibold text-sm rounded-lg transition-all">
+              <i class="fa-solid fa-vr-cardboard mr-1.5 text-accent"></i> Dolby Atmos
+            </button>
+          </div>
+
+          <!-- Search Input -->
+          <div class="relative flex-1 max-w-md">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-base-content/50">
+              <i class="fa-solid fa-magnifying-glass"></i>
+            </div>
+            <input 
+              type="text" 
+              id="search-input" 
+              placeholder="Search by title, artist, album, or ISRC..." 
+              class="input input-bordered w-full pl-10 pr-10 focus:outline-none focus:border-primary rounded-xl text-sm"
+              oninput="handleSearchInput()"
+            />
+            <button onclick="clearSearch()" id="clear-search-btn" class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-base-content/40 hover:text-base-content">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Sub-bar: Availability Toggle, View Mode, Limits -->
+        <div class="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-base-200/60">
+          
+          <div class="flex items-center gap-4">
+            <!-- Available Only Toggle -->
+            <label class="label cursor-pointer gap-2.5 bg-base-200/50 px-3 py-1.5 rounded-xl border border-base-200">
+              <input type="checkbox" id="available-toggle" class="toggle toggle-success toggle-sm" onchange="toggleAvailableOnly()" />
+              <span class="label-text font-semibold text-xs text-base-content/80 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-check text-success"></i> Ready to Download Only
+              </span>
+            </label>
+
+            <span id="results-count" class="text-xs font-medium text-base-content/60">Showing 0 tracks</span>
+          </div>
+
+          <!-- Right Controls: View Switcher & Limit selector -->
+          <div class="flex items-center gap-3">
+            <div class="join border border-base-200 rounded-xl overflow-hidden">
+              <button onclick="setViewMode('grid')" id="view-btn-grid" class="btn btn-sm join-item btn-active">
+                <i class="fa-solid fa-border-all"></i> Grid
+              </button>
+              <button onclick="setViewMode('table')" id="view-btn-table" class="btn btn-sm join-item">
+                <i class="fa-solid fa-list"></i> Table
+              </button>
+            </div>
+
+            <select id="limit-select" onchange="changeLimit()" class="select select-bordered select-sm rounded-xl text-xs focus:outline-none">
+              <option value="12">12 per page</option>
+              <option value="24" selected>24 per page</option>
+              <option value="48">48 per page</option>
+              <option value="96">96 per page</option>
+            </select>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Track List Container -->
+      <section>
+        <!-- Loading Spinner -->
+        <div id="loading-state" class="py-20 flex flex-col items-center justify-center space-y-3">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <p class="text-sm font-medium text-base-content/60">Loading tracks database...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden py-16 text-center space-y-4 bg-base-100 rounded-2xl border border-base-200 shadow-sm">
+          <div class="w-16 h-16 rounded-full bg-base-200 inline-flex items-center justify-center text-base-content/40 text-2xl">
+            <i class="fa-solid fa-compact-disc"></i>
+          </div>
+          <div class="space-y-1">
+            <h3 class="text-lg font-bold">No tracks found</h3>
+            <p class="text-xs text-base-content/60 max-w-sm mx-auto">No matching tracks found for your search or filter criteria. Try adjusting your search query.</p>
+          </div>
+          <button onclick="resetFilters()" class="btn btn-primary btn-sm rounded-xl">Reset Filters</button>
+        </div>
+
+        <!-- Grid Container -->
+        <div id="tracks-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"></div>
+
+        <!-- Table Container -->
+        <div id="tracks-table-wrapper" class="hidden overflow-x-auto bg-base-100 rounded-2xl shadow-sm border border-base-200">
+          <table class="table table-zebra w-full">
+            <thead>
+              <tr class="text-xs uppercase font-bold text-base-content/60 bg-base-200/50">
+                <th class="w-12">#</th>
+                <th>Track</th>
+                <th>Album</th>
+                <th>Format</th>
+                <th>Size</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tracks-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Pagination Controls -->
+      <section id="pagination-section" class="flex flex-col sm:flex-row items-center justify-between gap-4 py-4 border-t border-base-200">
+        <div class="text-xs text-base-content/60 font-medium">
+          Page <span id="current-page-num" class="font-bold text-base-content">1</span> of <span id="total-pages-num" class="font-bold text-base-content">1</span>
+        </div>
+
+        <div class="join">
+          <button onclick="goToPage(currentPage - 1)" id="prev-page-btn" class="btn btn-sm join-item rounded-l-xl">
+            <i class="fa-solid fa-chevron-left mr-1"></i> Prev
+          </button>
+          <div id="page-buttons" class="join hidden sm:flex"></div>
+          <button onclick="goToPage(currentPage + 1)" id="next-page-btn" class="btn btn-sm join-item rounded-r-xl">
+            Next <i class="fa-solid fa-chevron-right ml-1"></i>
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Sticky Audio Player Footer -->
+  <div id="audio-player-bar" class="hidden fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-200 shadow-2xl p-3 z-50 backdrop-blur-md bg-base-100/95 transition-all duration-300">
+    <div class="container mx-auto max-w-7xl flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      <!-- Track Info -->
+      <div class="flex items-center gap-3 w-full md:w-1/3">
+        <img id="player-artwork" src="" class="w-12 h-12 rounded-xl object-cover shadow-sm border border-base-200" alt="Artwork" />
+        <div class="min-w-0 flex-1">
+          <h4 id="player-title" class="font-bold text-sm line-clamp-1">Track Title</h4>
+          <p id="player-artist" class="text-xs text-base-content/70 line-clamp-1">Artist Name</p>
+        </div>
+        <span id="player-format-badge" class="badge badge-primary badge-sm uppercase font-semibold">ALAC</span>
+      </div>
+
+      <!-- HTML5 Audio Controller -->
+      <div class="w-full md:w-2/3 flex items-center gap-3">
+        <audio id="audio-element" controls class="w-full h-10 rounded-xl focus:outline-none">
+          Your browser does not support audio playback.
+        </audio>
+        <button onclick="closeAudioPlayer()" class="btn btn-ghost btn-circle btn-sm text-base-content/60 hover:text-base-content" title="Close Player">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast toast-end toast-bottom z-50 mb-16 md:mb-0"></div>
+
+  <!-- Footer -->
+  <footer class="footer footer-center p-6 bg-base-200 text-base-content/60 text-xs border-t border-base-300 mt-10">
+    <aside>
+      <p>Telegram Cloud Music Streaming & Downloader Server &bull; Powered by Pyrogram MTProto & DaisyUI</p>
+    </aside>
+  </footer>
+
+  <!-- Application Logic JavaScript -->
+  <script>
+    // State Variables
+    let currentFormat = 'all';
+    let currentSearch = '';
+    let availableOnly = false;
+    let currentPage = 1;
+    let currentLimit = 24;
+    let viewMode = 'grid';
+    let searchDebounceTimeout = null;
+
+    // Initialize Page
+    document.addEventListener('DOMContentLoaded', () => {
+      loadTheme();
+      checkServerHealth();
+      fetchStats();
+      fetchTracks();
+    });
+
+    // Theme Management
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('ui_theme', theme);
+    }
+
+    function loadTheme() {
+      const savedTheme = localStorage.getItem('ui_theme') || 'dark';
+      setTheme(savedTheme);
+    }
+
+    // Health Check
+    async function checkServerHealth() {
+      try {
+        const res = await fetch('/health');
+        if (res.ok) {
+          document.getElementById('server-status').className = 'badge badge-success gap-1 px-3 py-3 font-semibold text-xs shadow-sm';
+          document.getElementById('status-text').innerText = 'Server Online';
+        } else {
+          throw new Error();
+        }
+      } catch {
+        document.getElementById('server-status').className = 'badge badge-error gap-1 px-3 py-3 font-semibold text-xs shadow-sm';
+        document.getElementById('status-text').innerText = 'Server Error';
+      }
+    }
+
+    // Stats Fetcher
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        document.getElementById('stat-total').innerText = (data.total_tracks || 0).toLocaleString();
+        document.getElementById('stat-available').innerText = (data.available_tracks || 0).toLocaleString();
+        document.getElementById('stat-albums').innerText = (data.total_albums || 0).toLocaleString();
+      } catch (e) {
+        console.error("Failed to load stats:", e);
+      }
+    }
+
+    // Main Tracks Fetcher
+    async function fetchTracks() {
+      showLoading(true);
+      
+      const url = new URL('/api/tracks', window.location.origin);
+      url.searchParams.set('format', currentFormat);
+      url.searchParams.set('page', currentPage);
+      url.searchParams.set('limit', currentLimit);
+      if (currentSearch) url.searchParams.set('q', currentSearch);
+      if (availableOnly) url.searchParams.set('available_only', 'true');
+
+      try {
+        const res = await fetch(url.toString());
+        if (!res.ok) throw new Error("Failed to load tracks");
+        
+        const data = await res.json();
+        renderTracks(data.items || []);
+        renderPagination(data.page, data.pages, data.total);
+      } catch (err) {
+        console.error(err);
+        showToast("Error loading tracks from server database", "error");
+        renderTracks([]);
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // Format Bytes helper
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return 'Unknown size';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // Render Track Cards / Table
+    function renderTracks(items) {
+      const gridContainer = document.getElementById('tracks-grid');
+      const tableBody = document.getElementById('tracks-table-body');
+      const emptyState = document.getElementById('empty-state');
+      const countEl = document.getElementById('results-count');
+
+      countEl.innerText = `Showing ${items.length} tracks`;
+
+      if (!items || items.length === 0) {
+        gridContainer.innerHTML = '';
+        tableBody.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        document.getElementById('tracks-table-wrapper').classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+
+      // Grid HTML
+      const gridCardsHtml = items.map(track => {
+        const formatBadgeClass = track.format === 'alac' ? 'badge-primary' : track.format === 'atmos' ? 'badge-accent' : 'badge-secondary';
+        const isAvailable = track.is_available;
+        const statusBadge = isAvailable 
+          ? `<span class="badge badge-success badge-sm font-semibold gap-1"><i class="fa-solid fa-circle-check"></i> Ready</span>`
+          : `<span class="badge badge-ghost badge-sm text-base-content/50 gap-1"><i class="fa-solid fa-clock"></i> Database Only</span>`;
+
+        const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
+        const formattedSize = formatBytes(track.size);
+
+        return `
+          <div class="card bg-base-100 border border-base-200/80 shadow-md hover:shadow-xl transition-all duration-200 overflow-hidden flex flex-col justify-between group">
+            
+            <div>
+              <!-- Artwork Image with Hover Play Overlay -->
+              <div class="relative aspect-square overflow-hidden bg-base-300">
+                <img 
+                  src="${artworkUrl}" 
+                  alt="${escapeHtml(track.title)}" 
+                  class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'"
+                />
+
+                <div class="absolute top-3 left-3 flex gap-1.5 flex-wrap">
+                  <span class="badge ${formatBadgeClass} uppercase text-xs font-bold shadow-md">${track.format}</span>
+                </div>
+
+                <div class="absolute top-3 right-3">
+                  ${statusBadge}
+                </div>
+
+                ${isAvailable ? `
+                  <button 
+                    onclick="playTrack('${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${artworkUrl}', '${track.stream_url}', '${track.format}')"
+                    class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-4xl"
+                    title="Play Preview"
+                  >
+                    <i class="fa-solid fa-circle-play text-primary hover:scale-110 transition-transform"></i>
+                  </button>
+                ` : ''}
+              </div>
+
+              <!-- Card Content -->
+              <div class="p-4 space-y-2">
+                <h3 class="font-bold text-base leading-tight line-clamp-1 text-base-content group-hover:text-primary transition-colors" title="${escapeHtml(track.title)}">
+                  ${escapeHtml(track.title)}
+                </h3>
+                <p class="text-xs font-medium text-base-content/70 line-clamp-1">
+                  <i class="fa-solid fa-user-ninja mr-1 opacity-50"></i>${escapeHtml(track.artist)}
+                </p>
+                <p class="text-xs text-base-content/50 line-clamp-1">
+                  <i class="fa-solid fa-compact-disc mr-1 opacity-50"></i>${escapeHtml(track.album)}
+                </p>
+              </div>
+            </div>
+
+            <!-- Bottom Actions -->
+            <div class="px-4 pb-4 pt-2 border-t border-base-200/50 flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-base-content/60">${formattedSize}</span>
+
+              <div class="flex items-center gap-1.5">
+                ${isAvailable ? `
+                  <button 
+                    onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
+                    class="btn btn-ghost btn-circle btn-xs text-base-content/70 hover:text-primary" 
+                    title="Copy Download Link"
+                  >
+                    <i class="fa-solid fa-link"></i>
+                  </button>
+
+                  <a 
+                    href="${track.download_url}" 
+                    download
+                    class="btn btn-primary btn-sm rounded-xl gap-1.5 font-bold shadow-sm"
+                  >
+                    <i class="fa-solid fa-download"></i> Download
+                  </a>
+                ` : `
+                  <div class="tooltip tooltip-left" data-tip="Message not migrated to Telegram channel yet">
+                    <button class="btn btn-disabled btn-sm rounded-xl gap-1" disabled>
+                      <i class="fa-solid fa-lock text-xs"></i> Unavailable
+                    </button>
+                  </div>
+                `}
+              </div>
+            </div>
+
+          </div>
+        `;
+      }).join('');
+
+      gridContainer.innerHTML = gridCardsHtml;
+
+      // Table HTML
+      const tableRowsHtml = items.map((track, idx) => {
+        const isAvailable = track.is_available;
+        const formatBadgeClass = track.format === 'alac' ? 'badge-primary' : track.format === 'atmos' ? 'badge-accent' : 'badge-secondary';
+        const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
+        
+        return `
+          <tr>
+            <td class="font-medium text-xs opacity-50">${(currentPage - 1) * currentLimit + idx + 1}</td>
+            <td>
+              <div class="flex items-center gap-3">
+                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
+                <div>
+                  <div class="font-bold text-sm">${escapeHtml(track.title)}</div>
+                  <div class="text-xs opacity-60">${escapeHtml(track.artist)}</div>
+                </div>
+              </div>
+            </td>
+            <td class="text-xs opacity-70">${escapeHtml(track.album)}</td>
+            <td><span class="badge ${formatBadgeClass} badge-sm uppercase font-bold">${track.format}</span></td>
+            <td class="text-xs font-semibold">${formatBytes(track.size)}</td>
+            <td>
+              ${isAvailable 
+                ? `<span class="badge badge-success badge-sm font-semibold">Ready</span>` 
+                : `<span class="badge badge-ghost badge-sm text-base-content/40">In DB</span>`}
+            </td>
+            <td class="text-right">
+              <div class="flex items-center justify-end gap-2">
+                ${isAvailable ? `
+                  <button onclick="playTrack('${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${artworkUrl}', '${track.stream_url}', '${track.format}')" class="btn btn-circle btn-ghost btn-xs text-primary" title="Play">
+                    <i class="fa-solid fa-play"></i>
+                  </button>
+                  <a href="${track.download_url}" download class="btn btn-primary btn-xs rounded-lg gap-1 font-bold">
+                    <i class="fa-solid fa-download"></i> Download
+                  </a>
+                ` : `
+                  <button class="btn btn-xs btn-disabled rounded-lg" disabled>Unavailable</button>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      tableBody.innerHTML = tableRowsHtml;
+
+      if (viewMode === 'table') {
+        gridContainer.classList.add('hidden');
+        document.getElementById('tracks-table-wrapper').classList.remove('hidden');
+      } else {
+        gridContainer.classList.remove('hidden');
+        document.getElementById('tracks-table-wrapper').classList.add('hidden');
+      }
+    }
+
+    // Pagination Renderer
+    function renderPagination(page, totalPages, totalItems) {
+      currentPage = page;
+      document.getElementById('current-page-num').innerText = page;
+      document.getElementById('total-pages-num').innerText = Math.max(1, totalPages);
+
+      const prevBtn = document.getElementById('prev-page-btn');
+      const nextBtn = document.getElementById('next-page-btn');
+      
+      prevBtn.disabled = (page <= 1);
+      nextBtn.disabled = (page >= totalPages);
+
+      const pageButtonsContainer = document.getElementById('page-buttons');
+      pageButtonsContainer.innerHTML = '';
+
+      let startPage = Math.max(1, page - 2);
+      let endPage = Math.min(totalPages, startPage + 4);
+      if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+      }
+
+      for (let p = startPage; p <= endPage; p++) {
+        const btn = document.createElement('button');
+        btn.className = `btn btn-sm join-item ${p === page ? 'btn-active font-bold btn-primary' : ''}`;
+        btn.innerText = p;
+        btn.onclick = () => goToPage(p);
+        pageButtonsContainer.appendChild(btn);
+      }
+    }
+
+    // Handlers
+    function setFormat(fmt) {
+      currentFormat = fmt;
+      currentPage = 1;
+      
+      document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.remove('tab-active'));
+      const activeTab = document.getElementById(`tab-${fmt}`);
+      if (activeTab) activeTab.classList.add('tab-active');
+
+      fetchTracks();
+    }
+
+    function handleSearchInput() {
+      const val = document.getElementById('search-input').value.trim();
+      currentSearch = val;
+      
+      const clearBtn = document.getElementById('clear-search-btn');
+      if (val) {
+        clearBtn.classList.remove('hidden');
+      } else {
+        clearBtn.classList.add('hidden');
+      }
+
+      clearTimeout(searchDebounceTimeout);
+      searchDebounceTimeout = setTimeout(() => {
+        currentPage = 1;
+        fetchTracks();
+      }, 350);
+    }
+
+    function clearSearch() {
+      document.getElementById('search-input').value = '';
+      document.getElementById('clear-search-btn').classList.add('hidden');
+      currentSearch = '';
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    function toggleAvailableOnly() {
+      availableOnly = document.getElementById('available-toggle').checked;
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    function changeLimit() {
+      currentLimit = parseInt(document.getElementById('limit-select').value);
+      currentPage = 1;
+      fetchTracks();
+    }
+
+    function goToPage(page) {
+      if (page < 1) return;
+      currentPage = page;
+      fetchTracks();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function setViewMode(mode) {
+      viewMode = mode;
+      const gridBtn = document.getElementById('view-btn-grid');
+      const tableBtn = document.getElementById('view-btn-table');
+      const gridContainer = document.getElementById('tracks-grid');
+      const tableWrapper = document.getElementById('tracks-table-wrapper');
+
+      if (mode === 'table') {
+        gridBtn.classList.remove('btn-active');
+        tableBtn.classList.add('btn-active');
+        gridContainer.classList.add('hidden');
+        tableWrapper.classList.remove('hidden');
+      } else {
+        tableBtn.classList.remove('btn-active');
+        gridBtn.classList.add('btn-active');
+        tableWrapper.classList.add('hidden');
+        gridContainer.classList.remove('hidden');
+      }
+    }
+
+    function resetFilters() {
+      currentSearch = '';
+      availableOnly = false;
+      currentFormat = 'all';
+      currentPage = 1;
+      document.getElementById('search-input').value = '';
+      document.getElementById('available-toggle').checked = false;
+      document.getElementById('clear-search-btn').classList.add('hidden');
+      setFormat('all');
+    }
+
+    // Audio Streaming Player
+    function playTrack(title, artist, artwork, streamUrl, format) {
+      const playerBar = document.getElementById('audio-player-bar');
+      const audioEl = document.getElementById('audio-element');
+
+      document.getElementById('player-title').innerText = title;
+      document.getElementById('player-artist').innerText = artist;
+      document.getElementById('player-artwork').src = artwork;
+      document.getElementById('player-format-badge').innerText = format;
+
+      audioEl.src = streamUrl;
+      audioEl.play().catch(e => console.log('Audio autoplay prevented:', e));
+
+      playerBar.classList.remove('hidden');
+    }
+
+    function closeAudioPlayer() {
+      const audioEl = document.getElementById('audio-element');
+      audioEl.pause();
+      document.getElementById('audio-player-bar').classList.add('hidden');
+    }
+
+    // Copy Link Helper
+    function copyDownloadLink(link) {
+      navigator.clipboard.writeText(link).then(() => {
+        showToast("Download link copied to clipboard!", "success");
+      }).catch(() => {
+        showToast("Failed to copy link", "error");
+      });
+    }
+
+    // Toast Notification Manager
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      const alertClass = type === 'success' ? 'alert-success' : type === 'error' ? 'alert-error' : 'alert-info';
+      const icon = type === 'success' ? 'fa-circle-check' : type === 'error' ? 'fa-circle-xmark' : 'fa-circle-info';
+      
+      toast.className = `alert ${alertClass} shadow-lg text-sm rounded-xl py-2 px-4 flex items-center gap-2 transition-all transform translate-y-2`;
+      toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(message)}</span>`;
+      
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-4');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function showLoading(show) {
+      const loadingState = document.getElementById('loading-state');
+      if (show) {
+        loadingState.classList.remove('hidden');
+      } else {
+        loadingState.classList.add('hidden');
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+
+</body>
+</html>
