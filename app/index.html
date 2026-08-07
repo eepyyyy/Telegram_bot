@@ -72,10 +72,11 @@
       font-weight: 700;
       font-size: 0.75rem;
       display: inline-flex;
-      items-center: center;
+      align-items: center;
       gap: 0.4rem;
       transition: all 0.2s ease;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      cursor: pointer;
     }
     .btn-pill-download:hover {
       background-color: #e4e4e7;
@@ -97,10 +98,11 @@
       font-weight: 700;
       font-size: 0.75rem;
       display: inline-flex;
-      items-center: center;
+      align-items: center;
       gap: 0.4rem;
       transition: all 0.2s ease;
       box-shadow: 0 1px 4px rgba(2, 132, 199, 0.3);
+      cursor: pointer;
     }
     .btn-pill-request:hover {
       background-color: #0369a1;
@@ -139,7 +141,7 @@
             <i class="fa-solid fa-arrow-left"></i> Vault Catalog
           </button>
 
-          <!-- Telegram Logged-in User Badge (When opened via Telegram WebApp) -->
+          <!-- Telegram Logged-in User Badge -->
           <div id="tg-user-badge" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-950/80 border border-sky-800 text-xs font-bold text-sky-200 shadow-sm">
             <i class="fa-brands fa-telegram text-sky-400"></i>
             <span id="tg-username">@user</span>
@@ -812,7 +814,7 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
-    // Render Dynamic Pill Buttons (Matching User Screenshots)
+    // Render Dynamic Pill Buttons with Copy Link on every row
     function renderTracks(items) {
       const gridContainer = document.getElementById('tracks-grid');
       const tableBody = document.getElementById('tracks-table-body');
@@ -836,10 +838,11 @@
         const formattedSize = formatBytes(track.size);
         const isAvailable = track.is_available !== false;
         const btnId = `btn-grid-${idx}`;
+        const rawSongUrl = track.url || `https://music.apple.com/song/${track.song_id}`;
 
         const actionBtn = isAvailable && track.download_url
           ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${track.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
-          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(track.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(rawSongUrl)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
           <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
@@ -875,15 +878,13 @@
               </button>
 
               <div class="flex items-center gap-1.5">
-                ${track.download_url ? `
-                  <button 
-                    onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                    class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
-                    title="Copy Download Link"
-                  >
-                    <i class="fa-solid fa-link"></i>
-                  </button>
-                ` : ''}
+                <button 
+                  onclick="copyTrackUrl('${escapeHtml(rawSongUrl)}')"
+                  class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                  title="Copy Track Link"
+                >
+                  <i class="fa-solid fa-link"></i>
+                </button>
                 ${actionBtn}
               </div>
             </div>
@@ -897,10 +898,11 @@
         const artworkUrl = track.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60';
         const isAvailable = track.is_available !== false;
         const btnId = `btn-tbl-${idx}`;
+        const rawSongUrl = track.url || `https://music.apple.com/song/${track.song_id}`;
 
         const actionBtn = isAvailable && track.download_url
           ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${track.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
-          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(track.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+          : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(rawSongUrl)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
           <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -928,15 +930,13 @@
                 <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
                   <i class="fa-solid fa-align-left"></i> Lyrics
                 </button>
-                ${track.download_url ? `
-                  <button 
-                    onclick="copyDownloadLink('${window.location.origin}${track.download_url}')"
-                    class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
-                    title="Copy Link"
-                  >
-                    <i class="fa-solid fa-link"></i>
-                  </button>
-                ` : ''}
+                <button 
+                  onclick="copyTrackUrl('${escapeHtml(rawSongUrl)}')"
+                  class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                  title="Copy Track Link"
+                >
+                  <i class="fa-solid fa-link"></i>
+                </button>
                 ${actionBtn}
               </div>
             </td>
@@ -994,13 +994,19 @@
         const data = await res.json();
         const deeplink = data.deeplink || `https://t.me/applemusicdw_bot`;
 
-        showToast("Opening Telegram Bot to start download in chat...", "info");
+        // Automatically copy bot command to clipboard
+        const botCmd = `/download ${songUrl}`;
+        navigator.clipboard.writeText(botCmd).then(() => {
+          showToast("Copied bot command & opening Telegram!", "success");
+        }).catch(() => {});
 
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
-          window.Telegram.WebApp.openTelegramLink(deeplink);
-        } else {
-          window.open(deeplink, '_blank');
-        }
+        setTimeout(() => {
+          if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+            window.Telegram.WebApp.openTelegramLink(deeplink);
+          } else {
+            window.open(deeplink, '_blank');
+          }
+        }, 300);
 
       } catch (err) {
         console.error(err);
@@ -1013,6 +1019,16 @@
           }, 2000);
         }
       }
+    }
+
+    // Copy Track URL helper
+    function copyTrackUrl(url) {
+      if (!url) return;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast("Track link copied to clipboard!", "success");
+      }).catch(() => {
+        showToast("Failed to copy track link", "error");
+      });
     }
 
     // Pagination Renderer
@@ -1207,10 +1223,11 @@
         tbody.innerHTML = (data.tracks || []).map((tr, idx) => {
           const isAvail = tr.is_available;
           const btnId = `btn-alb-${idx}`;
+          const rawSongUrl = tr.url || `https://music.apple.com/song/${tr.song_id}`;
 
           const actionBtn = isAvail && tr.download_url
             ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${tr.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`
-            : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(tr.url)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
+            : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(rawSongUrl)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
           return `
             <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -1224,6 +1241,13 @@
                 <div class="flex items-center justify-end gap-2">
                   <button onclick="openLyricsModal('${tr.song_id}', '${escapeHtml(tr.title)}', '${escapeHtml(data.artist)}', '${escapeHtml(data.artwork)}', '${tr.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
                     <i class="fa-solid fa-align-left"></i> Lyrics
+                  </button>
+                  <button 
+                    onclick="copyTrackUrl('${escapeHtml(rawSongUrl)}')"
+                    class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                    title="Copy Track Link"
+                  >
+                    <i class="fa-solid fa-link"></i>
                   </button>
                   ${actionBtn}
                 </div>

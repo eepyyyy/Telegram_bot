@@ -725,7 +725,11 @@ async def download_track(request: web.Request):
     message_id = track.message_id
 
     if not message_id:
-        raise web.HTTPBadRequest(text=f"Track {song_id} does not have a cached Telegram message_id.")
+        song_url = track.url or f"https://music.apple.com/song/{song_id}"
+        b64 = base64.urlsafe_b64encode(song_url.encode('utf-8')).decode('utf-8').rstrip('=')
+        deeplink = f"https://t.me/applemusicdw_bot?start=dl_{b64}"
+        logger.info(f"Track {song_id} not cached. Redirecting browser download request to Telegram Bot deep-link: {deeplink}")
+        raise web.HTTPFound(location=deeplink)
 
     # Redirect to TG-FileStreamBot if enabled
     if config.USE_FILESTREAMBOT_REDIRECT:
