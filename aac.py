@@ -227,11 +227,16 @@ async def process_aac_download(task: dict) -> None:
                                 session.add(user)
                                 await session.commit()
 
+                            media_obj = sent_msg.audio or sent_msg.document
+                            file_id_val = media_obj.file_id if media_obj else None
+                            file_uniq_val = media_obj.file_unique_id if media_obj else None
+                            file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
+
                             tbot = schema.TrackInputSchema(
-                                file_id=sent_msg.audio.file_id,
-                                file_unique_id=sent_msg.audio.file_unique_id,
+                                file_id=file_id_val,
+                                file_unique_id=file_uniq_val,
                                 title=track_title,
-                                size=sent_msg.audio.file_size,
+                                size=file_sz_val,
                                 isrc=isrc,
                                 chat_id=saved_chat_id,
                                 message_id=saved_message_id
