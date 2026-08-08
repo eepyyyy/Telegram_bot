@@ -621,6 +621,8 @@ async def get_artist_detail(request: web.Request):
         url = f"https://music.apple.com/us/artist/artist/{artist_id}" if artist_id.isdigit() else artist_id
         meta = await gamdlHelpUrl.get_artist_metadata(url)
         artist_name = meta.get("name", "Unknown Artist")
+        if not meta.get("url"):
+            meta["url"] = url
 
         # Query local database tracks by artist to compute vault coverage
         async with async_session() as session:
@@ -648,6 +650,8 @@ async def get_album_detail(request: web.Request):
     try:
         url = f"https://music.apple.com/us/album/album/{album_id}" if album_id.isdigit() else album_id
         meta = await gamdlHelpUrl.get_album_metadata(url)
+        if not meta.get("url"):
+            meta["url"] = url
 
         tracks = meta.get("tracks", [])
         song_ids_to_check = [str(t["song_id"]) for t in tracks if t.get("song_id")]
