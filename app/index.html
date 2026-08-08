@@ -68,15 +68,23 @@
       background-color: #ffffff;
       color: #000000;
       border-radius: 9999px;
-      padding: 0.4rem 1.1rem;
+      padding: 0.35rem 0.75rem;
       font-weight: 700;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.3rem;
       transition: all 0.2s ease;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       cursor: pointer;
+      white-space: nowrap;
+    }
+    @media (min-width: 640px) {
+      .btn-pill-download {
+        padding: 0.4rem 1.1rem;
+        font-size: 0.75rem;
+        gap: 0.4rem;
+      }
     }
     .btn-pill-download:hover {
       background-color: #e4e4e7;
@@ -94,19 +102,35 @@
       background-color: #0284c7;
       color: #ffffff;
       border-radius: 9999px;
-      padding: 0.4rem 1.1rem;
+      padding: 0.35rem 0.75rem;
       font-weight: 700;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.3rem;
       transition: all 0.2s ease;
       box-shadow: 0 1px 4px rgba(2, 132, 199, 0.3);
       cursor: pointer;
+      white-space: nowrap;
+    }
+    @media (min-width: 640px) {
+      .btn-pill-request {
+        padding: 0.4rem 1.1rem;
+        font-size: 0.75rem;
+        gap: 0.4rem;
+      }
     }
     .btn-pill-request:hover {
       background-color: #0369a1;
       transform: translateY(-1px);
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
     }
   </style>
 </head>
@@ -214,17 +238,17 @@
         <section class="bg-white dark:bg-zinc-900/60 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 space-y-4 transition-colors">
           
           <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
-            <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-full border border-zinc-200 dark:border-zinc-800 flex-wrap">
-              <button onclick="setFormat('all')" id="tab-all" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
+            <div id="format-tabs-container" class="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-950/80 rounded-full border border-zinc-200 dark:border-zinc-800 overflow-x-auto no-scrollbar max-w-full">
+              <button onclick="setFormat('all')" id="tab-all" class="whitespace-nowrap px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black">
                 All Tracks
               </button>
-              <button onclick="setFormat('alac')" id="tab-alac" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('alac')" id="tab-alac" class="whitespace-nowrap px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 ALAC (Lossless)
               </button>
-              <button onclick="setFormat('aac')" id="tab-aac" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('aac')" id="tab-aac" class="whitespace-nowrap px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 AAC
               </button>
-              <button onclick="setFormat('atmos')" id="tab-atmos" class="px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
+              <button onclick="setFormat('atmos')" id="tab-atmos" class="whitespace-nowrap px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white">
                 Dolby Atmos
               </button>
             </div>
@@ -331,7 +355,7 @@
             </table>
           </div>
 
-          <div id="tracks-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5"></div>
+          <div id="tracks-grid" class="hidden grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5"></div>
         </section>
 
         <!-- Pagination Controls -->
@@ -519,7 +543,7 @@
     let activeAlbumFilter = '';
     let currentPage = 1;
     let currentLimit = 24;
-    let viewMode = 'table';
+    let viewMode = (window.innerWidth < 640) ? 'grid' : 'table';
     let isDarkMode = true;
     let searchDebounceTimeout = null;
     let pendingSongUrlForRequest = '';
@@ -531,6 +555,9 @@
 
     // Initialize Telegram WebApp & SPA Router
     document.addEventListener('DOMContentLoaded', () => {
+      if (window.innerWidth < 640) {
+        viewMode = 'grid';
+      }
       initTelegramWebApp();
       initTheme();
       checkServerHealth();

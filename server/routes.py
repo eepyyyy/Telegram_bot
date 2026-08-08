@@ -277,8 +277,17 @@ async def list_tracks(request: web.Request):
         total_count = len(items)
         items = items[offset : offset + limit]
     else:
-        # Default sort by title
-        items.sort(key=lambda x: (x["title"] or "").lower())
+        # Default sort: Show latest available/downloadable tracks first, ordered by newest ID
+        def get_latest_key(x):
+            avail_score = 0 if x.get("is_available") else 1
+            msg_id = x.get("message_id") or 0
+            song_id_num = 0
+            sid = str(x.get("song_id") or "")
+            if sid.isdigit():
+                song_id_num = int(sid)
+            return (avail_score, -msg_id, -song_id_num)
+
+        items.sort(key=get_latest_key)
         total_count = len(items)
         items = items[offset : offset + limit]
 
