@@ -136,13 +136,27 @@ async def get_stats(request: web.Request):
         atmos_avail_res = await session.exec(select(func.count()).select_from(AtmosTracks).where(AtmosTracks.message_id.is_not(None)))
         atmos_avail = atmos_avail_res.one() or 0
 
+        # Sum total file sizes across tables
+        alac_sz_res = await session.exec(select(func.sum(Tracks.size)))
+        alac_sz = alac_sz_res.one() or 0
+
+        aac_sz_res = await session.exec(select(func.sum(AACTracks.size)))
+        aac_sz = aac_sz_res.one() or 0
+
+        atmos_sz_res = await session.exec(select(func.sum(AtmosTracks.size)))
+        atmos_sz = atmos_sz_res.one() or 0
+
     total_tracks = alac_cnt + aac_cnt + atmos_cnt
     total_available = alac_avail + aac_avail + atmos_avail
+    total_size_bytes = int((alac_sz or 0) + (aac_sz or 0) + (atmos_sz or 0))
+    total_size_gb = round(total_size_bytes / (1024 ** 3), 2) if total_size_bytes else 0.0
 
     return web.json_response({
         "total_tracks": total_tracks,
         "available_tracks": total_available,
         "total_albums": albums_cnt,
+        "total_size_bytes": total_size_bytes,
+        "total_size_gb": total_size_gb,
         "formats": {
             "alac": {"total": alac_cnt, "available": alac_avail},
             "aac": {"total": aac_cnt, "available": aac_avail},
