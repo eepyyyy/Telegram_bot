@@ -500,9 +500,12 @@
       </div>
 
       <div class="px-6 py-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between flex-wrap gap-2 text-xs font-semibold">
-        <div class="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-full border border-zinc-800">
+        <div class="flex items-center gap-1.5 p-1 bg-zinc-950 rounded-full border border-zinc-800 flex-wrap">
           <button onclick="setLyricsFormat('synced')" id="lformat-synced" class="px-3.5 py-1 rounded-full bg-white text-black font-bold">
-            <i class="fa-solid fa-microphone-lines mr-1"></i> Karaoke Sync
+            <i class="fa-solid fa-microphone-lines mr-1"></i> Karaoke Line
+          </button>
+          <button onclick="setLyricsFormat('word')" id="lformat-word" class="px-3.5 py-1 rounded-full text-zinc-400 hover:text-white">
+            <i class="fa-solid fa-bolt mr-1 text-amber-400"></i> Word Sync
           </button>
           <button onclick="setLyricsFormat('plain')" id="lformat-plain" class="px-3.5 py-1 rounded-full text-zinc-400 hover:text-white">
             Plain Text
@@ -1387,12 +1390,13 @@
     function setLyricsFormat(fmt) {
       currentLyricsFormat = fmt;
       
-      ['synced', 'plain', 'lrc', 'ttml'].forEach(f => {
+      ['synced', 'word', 'plain', 'lrc', 'ttml'].forEach(f => {
         const btn = document.getElementById(`lformat-${f}`);
+        if (!btn) return;
         if (f === fmt) {
-          btn.className = "px-3.5 py-1 rounded-full bg-white text-black font-bold shadow-sm";
+          btn.className = "px-3.5 py-1 rounded-full bg-white text-black font-bold shadow-sm transition-all";
         } else {
-          btn.className = "px-3.5 py-1 rounded-full text-zinc-400 hover:text-white font-medium";
+          btn.className = "px-3.5 py-1 rounded-full text-zinc-400 hover:text-white font-medium transition-all";
         }
       });
 
@@ -1412,43 +1416,99 @@
       if (!currentLyricsData || !currentLyricsData.formats) return;
 
       const formats = currentLyricsData.formats;
+      const synced = formats.synced || [];
 
       if (currentLyricsFormat === 'synced') {
-        const synced = formats.synced || [];
         if (synced.length === 0) {
           container.innerHTML = `<p class="py-8 text-zinc-500">No time-synced lyrics available.</p>`;
           return;
         }
 
         container.innerHTML = synced.map((line, i) => `
-          <p id="lyric-line-${i}" data-start="${line.start}" data-end="${line.end}" class="py-1.5 transition-all text-zinc-400 hover:text-white cursor-pointer" onclick="seekAudioTo(${line.start})">
+          <p id="lyric-line-${i}" data-start="${line.start}" data-end="${line.end}" class="py-1.5 transition-all text-zinc-400 hover:text-white cursor-pointer select-none" onclick="seekAudioTo(${line.start})">
             ${escapeHtml(line.text)}
           </p>
         `).join('');
 
+      } else if (currentLyricsFormat === 'word') {
+        if (synced.length === 0) {
+          container.innerHTML = `<p class="py-8 text-zinc-500">No time-synced lyrics available for this song.</p>`;
+          return;
+        }
+
+        const hasWordData = synced.some(line => line.words && line.words.length > 0);
+        let noticeHeader = '';
+        if (!hasWordData) {
+          noticeHeader = `
+            <div class="mb-4 px-3.5 py-1.5 text-xs font-semibold rounded-full bg-amber-950/50 border border-amber-800/80 text-amber-300 inline-flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-triangle-exclamation"></i> Line-only source TTML (No word timing in Apple Music for this song)
+            </div>
+          `;
+        }
+
+        const linesHtml = synced.map((line, i) => {
+          const words = line.words || [];
+          let body = '';
+          if (words.length > 0) {
+            body = words.map((w, wj) => `
+              <span id="word-span-${i}-${wj}" data-start="${w.start}" data-end="${w.end}" class="lyric-word inline-block transition-all duration-150 text-zinc-400 font-medium px-0.5">${escapeHtml(w.text)}</span>
+            `).join('');
+          } else {
+            body = escapeHtml(line.text);
+          }
+
+          return `
+            <p id="lyric-line-${i}" data-start="${line.start}" data-end="${line.end}" class="py-1.5 transition-all text-zinc-400 hover:text-white cursor-pointer select-none" onclick="seekAudioTo(${line.start})">
+              ${body}
+            </p>
+          `;
+        }).join('');
+
+        container.innerHTML = noticeHeader + linesHtml;
+
       } else if (currentLyricsFormat === 'plain') {
-        container.innerHTML = `<pre class="whitespace-pre-wrap font-sans leading-relaxed text-zinc-200 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${escapeHtml(formats.plain)}</pre>`;
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-sans leading-relaxed text-zinc-200 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800 select-text">${escapeHtml(formats.plain)}</pre>`;
       } else if (currentLyricsFormat === 'lrc') {
-        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-xs text-zinc-300 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800">${escapeHtml(formats.lrc)}</pre>`;
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-xs text-zinc-300 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800 select-text">${escapeHtml(formats.lrc)}</pre>`;
       } else if (currentLyricsFormat === 'ttml') {
-        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-[11px] text-zinc-400 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800 overflow-x-auto">${escapeHtml(formats.ttml)}</pre>`;
+        container.innerHTML = `<pre class="whitespace-pre-wrap font-mono text-[11px] text-zinc-400 text-left bg-zinc-950 p-4 rounded-2xl border border-zinc-800 overflow-x-auto select-text">${escapeHtml(formats.ttml)}</pre>`;
       }
     }
 
     function syncLyricsTimeUpdate() {
-      if (currentLyricsFormat !== 'synced' || !lyricsAudioElement || !currentLyricsData) return;
+      if ((currentLyricsFormat !== 'synced' && currentLyricsFormat !== 'word') || !lyricsAudioElement || !currentLyricsData) return;
       const currentTime = lyricsAudioElement.currentTime;
       const synced = currentLyricsData.formats.synced || [];
 
       synced.forEach((line, i) => {
-        const el = document.getElementById(`lyric-line-${i}`);
-        if (!el) return;
+        const lineEl = document.getElementById(`lyric-line-${i}`);
+        if (!lineEl) return;
 
-        if (currentTime >= line.start && (i === synced.length - 1 || currentTime < synced[i + 1].start)) {
-          if (!el.classList.contains('lyric-active')) {
+        const isLineActive = currentTime >= line.start && (i === synced.length - 1 || currentTime < synced[i + 1].start);
+
+        if (isLineActive) {
+          if (!lineEl.classList.contains('lyric-active')) {
             document.querySelectorAll('#lyrics-content-display p').forEach(p => p.classList.remove('lyric-active'));
-            el.classList.add('lyric-active');
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            lineEl.classList.add('lyric-active');
+            lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+
+          if (currentLyricsFormat === 'word' && line.words && line.words.length > 0) {
+            line.words.forEach((w, wj) => {
+              const wordSpan = document.getElementById(`word-span-${i}-${wj}`);
+              if (!wordSpan) return;
+
+              if (currentTime >= w.start && currentTime <= w.end) {
+                wordSpan.classList.add('text-sky-400', 'font-extrabold', 'scale-110', 'drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]');
+                wordSpan.classList.remove('text-zinc-400', 'text-zinc-100');
+              } else if (currentTime > w.end) {
+                wordSpan.classList.remove('text-sky-400', 'scale-110', 'drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]');
+                wordSpan.classList.add('text-zinc-100', 'font-bold');
+              } else {
+                wordSpan.classList.remove('text-sky-400', 'text-zinc-100', 'font-bold', 'font-extrabold', 'scale-110', 'drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]');
+                wordSpan.classList.add('text-zinc-400');
+              }
+            });
           }
         }
       });

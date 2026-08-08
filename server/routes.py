@@ -83,11 +83,26 @@ def parse_ttml_lyrics(ttml_xml: str):
                     start_sec = parse_time(begin_attr)
                     end_sec = parse_time(end_attr)
 
+                    words = []
+                    spans = p.findall("{http://www.w3.org/ns/ttml}span")
+                    if spans:
+                        for s in spans:
+                            s_begin = s.attrib.get("begin") or begin_attr
+                            s_end = s.attrib.get("end") or end_attr
+                            s_text = "".join(s.itertext())
+                            if s_text:
+                                words.append({
+                                    "start": parse_time(s_begin),
+                                    "end": parse_time(s_end),
+                                    "text": s_text
+                                })
+
                     synced_lines.append({
                         "start": start_sec,
                         "end": end_sec,
                         "text": text,
-                        "part": part_name
+                        "part": part_name,
+                        "words": words
                     })
                     plain_lines.append(text)
                     lrc_lines.append(f"{format_lrc_timestamp(start_sec)} {text}")
