@@ -233,12 +233,13 @@ async def list_tracks(request: web.Request):
             patterns.append(f"%{q_clean.replace('-', '')}%")
 
     async with async_session() as session:
+        seq_idx = 0
         for model_cls, format_type in models_to_query:
             query = select(model_cls)
 
             conditions = []
             if available_only:
-                conditions.append(model_cls.message_id.is_not(None))
+                conditions.append(or_(model_cls.message_id.is_not(None), model_cls.file_id.is_not(None)))
 
             if patterns:
                 or_conditions = []
@@ -259,7 +260,8 @@ async def list_tracks(request: web.Request):
             tracks_list = result.all()
 
             for t in tracks_list:
-                is_avail = t.message_id is not None
+                seq_idx += 1
+                is_avail = (t.message_id is not None) or (t.file_id is not None and t.file_id != "")
                 items.append({
                     "song_id": t.song_id,
                     "title": t.title or "Unknown Track",
@@ -276,6 +278,7 @@ async def list_tracks(request: web.Request):
                     "stream_url": f"/stream/{format_type}/{t.song_id}",
                     "download_url": f"/download/{format_type}/{t.song_id}",
                     "info_url": f"/info/{format_type}/{t.song_id}",
+                    "_seq_idx": seq_idx,
                 })
 
     # If searching, calculate relevance rank (Artist hits first, then Title hits, then Album hits)
@@ -306,15 +309,12 @@ async def list_tracks(request: web.Request):
         total_count = len(items)
         items = items[offset : offset + limit]
     else:
-        # Default sort: Show latest uploaded / newly added tracks first
+        # Default sort: Show latest downloaded / most recently inserted tracks first
         def get_latest_key(x):
-            msg_id = x.get("message_id") or 0
-            song_id_num = 0
-            sid = str(x.get("song_id") or "")
-            if sid.isdigit():
-                song_id_num = int(sid)
             avail_score = 0 if x.get("is_available") else 1
-            return (-msg_id, avail_score, -song_id_num)
+            msg_id = x.get("message_id") or 0
+            seq_idx = x.get("_seq_idx") or 0
+            return (avail_score, -msg_id, -seq_idx)
 
         items.sort(key=get_latest_key)
         total_count = len(items)
