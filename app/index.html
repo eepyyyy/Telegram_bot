@@ -20,9 +20,6 @@
               darkBg: '#09090b',
               darkCard: '#18181b',
               darkBorder: '#27272a',
-              lightBg: '#f4f4f5',
-              lightCard: '#ffffff',
-              lightBorder: '#e4e4e7',
             }
           }
         }
@@ -40,6 +37,8 @@
   <style>
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #09090b;
+      color: #f4f4f5;
     }
     .line-clamp-1 {
       display: -webkit-box;
@@ -59,9 +58,6 @@
       transform: scale(1.02);
       transition: all 0.2s ease;
     }
-    html:not(.dark) .lyric-active {
-      color: #000000 !important;
-    }
 
     /* Modern Dynamic Pill Button Styles */
     .btn-pill-download {
@@ -75,9 +71,10 @@
       align-items: center;
       gap: 0.3rem;
       transition: all 0.2s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     @media (min-width: 640px) {
       .btn-pill-download {
@@ -89,13 +86,6 @@
     .btn-pill-download:hover {
       background-color: #e4e4e7;
       transform: translateY(-1px);
-    }
-    html:not(.dark) .btn-pill-download {
-      background-color: #09090b;
-      color: #ffffff;
-    }
-    html:not(.dark) .btn-pill-download:hover {
-      background-color: #27272a;
     }
 
     .btn-pill-request {
@@ -109,9 +99,10 @@
       align-items: center;
       gap: 0.3rem;
       transition: all 0.2s ease;
-      box-shadow: 0 1px 4px rgba(2, 132, 199, 0.3);
+      box-shadow: 0 1px 4px rgba(2, 132, 199, 0.4);
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     @media (min-width: 640px) {
       .btn-pill-request {
@@ -134,12 +125,12 @@
     }
   </style>
 </head>
-<body class="bg-zinc-950 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col justify-between transition-colors duration-200 selection:bg-zinc-800 selection:text-white">
+<body class="bg-[#09090b] text-zinc-100 min-h-screen flex flex-col justify-between selection:bg-zinc-800 selection:text-white">
 
   <!-- Main Wrapper -->
   <div>
     <!-- Navigation Bar -->
-    <header class="bg-white/90 dark:bg-[#09090b]/90 border-b border-zinc-200 dark:border-zinc-800/80 px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 sticky top-0 z-40 backdrop-blur-md transition-colors duration-200">
+    <header class="bg-[#09090b]/90 border-b border-zinc-800/80 px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 sticky top-0 z-40 backdrop-blur-md">
       <div class="container mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-2 sm:gap-4">
         
         <!-- eepy amdl Branding & Logo -->
@@ -151,45 +142,29 @@
             class="w-8 h-8 sm:w-10 sm:h-10 object-contain transition-all" 
           />
           <div>
-            <a onclick="navigateTo('#home')" class="text-base sm:text-xl font-extrabold tracking-tight text-zinc-950 dark:text-white cursor-pointer">
+            <a onclick="navigateTo('#home')" class="text-base sm:text-xl font-extrabold tracking-tight text-white cursor-pointer">
               eepy amdl
             </a>
-            <span class="text-[10px] sm:text-xs block text-zinc-500 dark:text-zinc-400 font-medium leading-none">Apple Music Cloud Vault</span>
+            <span class="text-[10px] sm:text-xs block text-zinc-400 font-medium leading-none">Apple Music Cloud Vault</span>
           </div>
         </div>
 
-        <!-- Controls: Search Mode, Theme Toggle, Server Status -->
+        <!-- Controls: Search Mode, Back Button -->
         <div class="flex items-center gap-2 sm:gap-3">
           <!-- Back to Home Button -->
-          <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all">
+          <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border border-zinc-800 bg-zinc-900 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 transition-all">
             <i class="fa-solid fa-arrow-left"></i> Catalog
           </button>
 
           <!-- Search Source Mode Switcher -->
-          <div id="source-switcher" class="flex items-center p-0.5 sm:p-1 bg-zinc-100 dark:bg-zinc-900 rounded-full border border-zinc-200 dark:border-zinc-800 text-[11px] sm:text-xs">
-            <button onclick="setSearchSource('db')" id="source-db-btn" class="px-2.5 sm:px-3.5 py-1 rounded-full font-semibold bg-black text-white dark:bg-white dark:text-black transition-all">
+          <div id="source-switcher" class="flex items-center p-0.5 sm:p-1 bg-zinc-900 rounded-full border border-zinc-800 text-[11px] sm:text-xs">
+            <button onclick="setSearchSource('db')" id="source-db-btn" class="px-2.5 sm:px-3.5 py-1 rounded-full font-semibold bg-white text-black transition-all">
               <i class="fa-solid fa-database mr-1"></i> Vault DB
             </button>
-            <button onclick="setSearchSource('catalog')" id="source-catalog-btn" class="px-2.5 sm:px-3.5 py-1 rounded-full font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all">
+            <button onclick="setSearchSource('catalog')" id="source-catalog-btn" class="px-2.5 sm:px-3.5 py-1 rounded-full font-semibold text-zinc-400 hover:text-white transition-all">
               <i class="fa-brands fa-apple mr-1"></i> Apple Music API
             </button>
           </div>
-
-          <!-- Health Badge -->
-          <div id="server-status" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span id="status-text">Online</span>
-          </div>
-
-          <!-- Theme Switcher -->
-          <button 
-            onclick="toggleTheme()" 
-            id="theme-toggle-btn"
-            class="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all"
-            title="Switch Theme"
-          >
-            <i id="theme-icon" class="fa-solid fa-sun text-xs sm:text-sm"></i>
-          </button>
         </div>
 
       </div>
@@ -575,8 +550,6 @@
         viewMode = 'grid';
       }
       initTelegramWebApp();
-      initTheme();
-      checkServerHealth();
       fetchStats();
       
       window.addEventListener('hashchange', handleRoute);
@@ -624,54 +597,6 @@
       }
     }
 
-    // Theme Switcher
-    function initTheme() {
-      const savedTheme = localStorage.getItem('theme_mode') || 'dark';
-      applyTheme(savedTheme === 'dark');
-    }
-
-    function toggleTheme() {
-      applyTheme(!isDarkMode);
-    }
-
-    function applyTheme(dark) {
-      isDarkMode = dark;
-      const html = document.documentElement;
-      const themeIcon = document.getElementById('theme-icon');
-      const logoImg = document.getElementById('app-logo');
-
-      if (dark) {
-        html.classList.add('dark');
-        localStorage.setItem('theme_mode', 'dark');
-        themeIcon.className = "fa-solid fa-sun text-amber-400";
-        logoImg.src = "/app/logo/eepy_alt_icon_dark.svg";
-      } else {
-        html.classList.remove('dark');
-        localStorage.setItem('theme_mode', 'light');
-        themeIcon.className = "fa-solid fa-moon text-zinc-700";
-        logoImg.src = "/app/logo/eepy_alt_icon_light.svg";
-      }
-
-      setFormat(currentFormat);
-      setViewMode(viewMode);
-    }
-
-    // Health Check
-    async function checkServerHealth() {
-      try {
-        const res = await fetch('/health');
-        if (res.ok) {
-          document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300';
-          document.getElementById('status-text').innerText = 'Online';
-        } else {
-          throw new Error();
-        }
-      } catch {
-        document.getElementById('server-status').className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-100 dark:bg-red-950/60 border border-red-200 dark:border-red-900 text-xs font-semibold text-red-700 dark:text-red-400';
-        document.getElementById('status-text').innerText = 'Offline';
-      }
-    }
-
     // Stats Fetcher
     async function fetchStats() {
       try {
@@ -701,8 +626,8 @@
       const formatTabs = document.getElementById('format-tabs-container');
       const catalogSec = document.getElementById('catalog-results-section');
 
-      const activeBtnClass = "px-3.5 py-1 rounded-full font-semibold bg-black text-white dark:bg-white dark:text-black transition-all";
-      const inactiveBtnClass = "px-3.5 py-1 rounded-full font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+      const activeBtnClass = "px-3.5 py-1 rounded-full font-semibold bg-white text-black transition-all";
+      const inactiveBtnClass = "px-3.5 py-1 rounded-full font-semibold text-zinc-400 hover:text-white transition-all";
 
       if (source === 'catalog') {
         dbBtn.className = inactiveBtnClass;
@@ -883,9 +808,9 @@
           : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(rawSongUrl)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
-          <div class="bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-400 dark:hover:border-zinc-600 transition-all duration-200 shadow-sm">
+          <div class="bg-zinc-900/80 border border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-zinc-600 transition-all duration-200 shadow-sm">
             <div>
-              <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-950">
+              <div class="relative aspect-square overflow-hidden bg-zinc-950">
                 <img 
                   src="${artworkUrl}" 
                   alt="${escapeHtml(track.title)}" 
@@ -893,38 +818,38 @@
                   onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'"
                 />
                 <div class="absolute top-3 left-3">
-                  <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-black/80 dark:bg-black/70 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
+                  <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-black/80 border border-zinc-700 text-zinc-200 uppercase backdrop-blur-sm">${track.format || 'ALAC'}</span>
                 </div>
               </div>
 
-              <div class="p-4 space-y-1.5">
-                <h3 class="font-bold text-sm leading-tight line-clamp-1 text-zinc-950 dark:text-white" title="${escapeHtml(track.title)}">
+              <div class="p-3 sm:p-4 space-y-1.5">
+                <h3 class="font-bold text-sm leading-tight line-clamp-1 text-white" title="${escapeHtml(track.title)}">
                   ${escapeHtml(track.title)}
                 </h3>
-                <p class="text-xs font-medium text-zinc-600 dark:text-zinc-400 line-clamp-1">
-                  <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-black dark:hover:text-white">${escapeHtml(track.artist)}</button>
+                <p class="text-xs font-medium text-zinc-400 line-clamp-1">
+                  <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-white">${escapeHtml(track.artist)}</button>
                 </p>
-                <p class="text-xs text-zinc-500 dark:text-zinc-500 line-clamp-1">
+                <p class="text-xs text-zinc-500 line-clamp-1">
                   <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-zinc-400">${escapeHtml(track.album)}</button>
                 </p>
               </div>
             </div>
 
-            <div class="px-4 pb-4 pt-2 border-t border-zinc-200 dark:border-zinc-800/60 flex items-center justify-between gap-2">
-              <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="text-xs font-bold text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-1">
-                <i class="fa-solid fa-align-left"></i> Lyrics
-              </button>
-
-              <div class="flex items-center gap-1.5">
+            <div class="px-3 sm:px-4 pb-3 sm:pb-4 pt-2 border-t border-zinc-800/60 flex items-center justify-between gap-1 overflow-hidden">
+              <div class="flex items-center gap-1 min-w-0">
+                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="text-xs font-bold text-zinc-400 hover:text-white flex items-center gap-1 p-1 rounded-md hover:bg-zinc-800 transition-colors">
+                  <i class="fa-solid fa-align-left"></i> <span class="hidden xs:inline">Lyrics</span>
+                </button>
                 <button 
                   onclick="copyTrackUrl('${escapeHtml(rawSongUrl)}')"
-                  class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                  class="p-1 text-zinc-400 hover:text-white transition-colors" 
                   title="Copy Track Link"
                 >
                   <i class="fa-solid fa-link"></i>
                 </button>
-                ${actionBtn}
               </div>
+
+              ${actionBtn}
             </div>
           </div>
         `;
@@ -943,34 +868,34 @@
           : `<button id="${btnId}" onclick="handleDynamicBotRequest('${btnId}', '${escapeHtml(rawSongUrl)}')" class="btn-pill-request" title="Request via Telegram Bot"><i class="fa-brands fa-telegram"></i> Request Bot</button>`;
 
         return `
-          <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-            <td class="font-medium text-xs text-zinc-400 dark:text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
+          <tr class="hover:bg-zinc-800/30 transition-colors">
+            <td class="font-medium text-xs text-zinc-500 py-3 px-4">${(currentPage - 1) * currentLimit + idx + 1}</td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-3">
-                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
+                <img src="${artworkUrl}" class="w-10 h-10 rounded-lg object-cover bg-zinc-950 border border-zinc-800" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=60'" />
                 <div>
-                  <div class="font-bold text-sm text-zinc-950 dark:text-white">${escapeHtml(track.title)}</div>
-                  <div class="text-xs text-zinc-500 dark:text-zinc-400">
-                    <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-black dark:hover:text-white">${escapeHtml(track.artist)}</button>
+                  <div class="font-bold text-sm text-white">${escapeHtml(track.title)}</div>
+                  <div class="text-xs text-zinc-400">
+                    <button onclick="filterByArtist('${escapeHtml(track.artist)}')" class="hover:underline hover:text-white">${escapeHtml(track.artist)}</button>
                   </div>
                 </div>
               </div>
             </td>
-            <td class="text-xs text-zinc-600 dark:text-zinc-400 py-3 px-4">
-              <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-zinc-950 dark:hover:text-white">${escapeHtml(track.album)}</button>
+            <td class="text-xs text-zinc-400 py-3 px-4">
+              <button onclick="filterByAlbum('${escapeHtml(track.album)}')" class="hover:underline hover:text-white">${escapeHtml(track.album)}</button>
             </td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase">${track.format || 'ALAC'}</span>
+              <span class="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-800 border border-zinc-700 text-zinc-200 uppercase">${track.format || 'ALAC'}</span>
             </td>
-            <td class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
+            <td class="text-xs font-semibold text-zinc-400 py-3 px-4">${formatBytes(track.size)}</td>
             <td class="text-right py-3 px-4">
               <div class="flex items-center justify-end gap-2">
-                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-black dark:hover:text-white flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800">
+                <button onclick="openLyricsModal('${track.song_id}', '${escapeHtml(track.title)}', '${escapeHtml(track.artist)}', '${escapeHtml(track.artwork)}', '${track.stream_url || ''}')" class="px-3 py-1 text-xs font-bold text-zinc-300 hover:text-white flex items-center gap-1 rounded-full bg-zinc-800">
                   <i class="fa-solid fa-align-left"></i> Lyrics
                 </button>
                 <button 
                   onclick="copyTrackUrl('${escapeHtml(rawSongUrl)}')"
-                  class="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors" 
+                  class="p-1.5 text-zinc-400 hover:text-white transition-colors" 
                   title="Copy Track Link"
                 >
                   <i class="fa-solid fa-link"></i>
@@ -1092,8 +1017,8 @@
 
       for (let p = startPage; p <= endPage; p++) {
         const btn = document.createElement('button');
-        const activeClass = isDarkMode ? 'bg-white text-black font-bold' : 'bg-black text-white font-bold';
-        btn.className = `px-3 py-1 rounded-full text-xs font-semibold ${p === page ? activeClass : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`;
+        const activeClass = 'bg-white text-black font-bold shadow-sm';
+        btn.className = `px-3 py-1 rounded-full text-xs font-semibold ${p === page ? activeClass : 'text-zinc-400 hover:text-white'}`;
         btn.innerText = p;
         btn.onclick = () => goToPage(p);
         pageButtonsContainer.appendChild(btn);
@@ -1106,11 +1031,11 @@
       currentPage = 1;
       
       document.querySelectorAll('[id^="tab-"]').forEach(el => {
-        el.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white";
+        el.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all text-zinc-400 hover:text-white flex-shrink-0";
       });
       const activeTab = document.getElementById(`tab-${fmt}`);
       if (activeTab) {
-        activeTab.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-black text-white dark:bg-white dark:text-black shadow-sm";
+        activeTab.className = "px-4 py-1.5 rounded-full text-xs font-semibold transition-all bg-white text-black font-bold shadow-sm flex-shrink-0";
       }
 
       fetchTracks();
@@ -1165,8 +1090,8 @@
       const gridContainer = document.getElementById('tracks-grid');
       const tableWrapper = document.getElementById('tracks-table-wrapper');
 
-      const activeBtnClass = "px-3 py-1 rounded-full text-xs font-semibold bg-black text-white dark:bg-white dark:text-black transition-all shadow-sm";
-      const inactiveBtnClass = "px-3 py-1 rounded-full text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all";
+      const activeBtnClass = "px-3 py-1 rounded-full text-xs font-semibold bg-white text-black font-bold transition-all shadow-sm";
+      const inactiveBtnClass = "px-3 py-1 rounded-full text-xs font-semibold text-zinc-400 hover:text-white transition-all";
 
       if (mode === 'table') {
         gridBtn.className = inactiveBtnClass;
