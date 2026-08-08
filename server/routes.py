@@ -262,6 +262,13 @@ async def list_tracks(request: web.Request):
             for t in tracks_list:
                 seq_idx += 1
                 is_avail = (t.message_id is not None) or (t.file_id is not None and t.file_id != "")
+                updated_ts = 0
+                if hasattr(t, "updated_at") and t.updated_at:
+                    try:
+                        updated_ts = t.updated_at.timestamp()
+                    except Exception:
+                        pass
+
                 items.append({
                     "song_id": t.song_id,
                     "title": t.title or "Unknown Track",
@@ -279,6 +286,7 @@ async def list_tracks(request: web.Request):
                     "download_url": f"/download/{format_type}/{t.song_id}",
                     "info_url": f"/info/{format_type}/{t.song_id}",
                     "_seq_idx": seq_idx,
+                    "_updated_ts": updated_ts,
                 })
 
     # If searching, calculate relevance rank (Artist hits first, then Title hits, then Album hits)
@@ -313,8 +321,9 @@ async def list_tracks(request: web.Request):
         def get_latest_key(x):
             avail_score = 0 if x.get("is_available") else 1
             msg_id = x.get("message_id") or 0
+            updated_ts = x.get("_updated_ts") or 0
             seq_idx = x.get("_seq_idx") or 0
-            return (avail_score, -msg_id, -seq_idx)
+            return (avail_score, -updated_ts, -msg_id, -seq_idx)
 
         items.sort(key=get_latest_key)
         total_count = len(items)

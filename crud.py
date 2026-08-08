@@ -7,6 +7,7 @@ import database
 import gamdlUrl
 import schema
 from database import Tracks, AACTracks, AtmosTracks, User, async_session
+from datetime import datetime, timezone
 
 
 def get_track_model(format_type: str = "alac"):
@@ -21,39 +22,46 @@ def get_track_model(format_type: str = "alac"):
     return Tracks
 
 
-async def save_track_to_bot_db(track_lists: List[schema.TrackInputSchema], format_type: str = "alac"):
+async def save_albums(session: async_session, track_list: List[schema.TrackInputSchema]):
     """
-    Takes a list of track schema objects and handles the async database save/merge operations.
-    Args:
-        track_lists: List of TrackInputSchema objects.
-        format_type: Quality format ('alac', 'aac', or 'atmos').
+    Saves albums to the database from a list of tracks.
+    """
+    for track_data in track_list:
+        if track_data.album_id:
+            album_obj = database.Albums(
+                album_id=track_data.album_id,
+                album=track_data.album,
+                artist=track_data.artist,
+                artwork=track_data.artwork,
+            )
+            await session.merge(album_obj)
+
+
+async def save_tracks(session: async_session, track_list: List[schema.TrackInputSchema], format_type: str = "alac"):
+    """
+    Saves or updates tracks in the database.
     """
     model_cls = get_track_model(format_type)
-    async with async_session() as session:
-        async with session.begin():
-            for track_data in track_lists:
-                album_obj = database.Albums(
-                    album_id=track_data.album_id,
-                    album=track_data.album,
-                    artist=track_data.artist,
-                    artwork=track_data.artwork,
-                )
-                await session.merge(album_obj)
-
-                track_obj = model_cls(
-                    artist=track_data.artist,
-                    album=track_data.album,
-                    album_id=track_data.album_id,
-                    song_id=track_data.song_id,
-                    file_id=None,
-                    file_unique_id=None,
-                    title=track_data.title,
-                    url=track_data.url,
-                    isrc=track_data.isrc,
-                    storefront=track_data.storefront,
-                    artwork=track_data.artwork,
-                )
-                await session.merge(track_obj)
+    now_ts = datetime.now(timezone.utc)
+    for track_data in track_list:
+        track_obj = model_cls(
+            artist=track_data.artist,
+            album=track_data.album,
+            album_id=track_data.album_id,
+            song_id=track_data.song_id,
+            file_id=track_data.file_id,
+            file_unique_id=track_data.file_unique_id,
+            title=track_data.title,
+            url=track_data.url,
+            size=track_data.size,
+            storefront=track_data.storefront,
+            isrc=track_data.isrc,
+            artwork=track_data.artwork,
+            chat_id=track_data.chat_id,
+            message_id=track_data.message_id,
+            updated_at=now_ts,
+        )
+        await session.merge(track_obj)
 
 
 async def save_single_track(session: async_session, track_data: schema.TrackInputSchema, format_type: str = "alac"):
@@ -89,6 +97,7 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
         artwork=track_data.artwork,
         chat_id=track_data.chat_id,
         message_id=track_data.message_id,
+        updated_at=datetime.now(timezone.utc),
     )
     await session.merge(track_obj)
 

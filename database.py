@@ -1,9 +1,9 @@
 import asyncio
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, text
+from sqlalchemy import BigInteger, DateTime, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -42,6 +42,7 @@ class Tracks(SQLModel, table=True):
     artwork: Optional[str] = None
     chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
     message_id: Optional[int] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
 
 
 class AACTracks(SQLModel, table=True):
@@ -63,6 +64,7 @@ class AACTracks(SQLModel, table=True):
     artwork: Optional[str] = None
     chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
     message_id: Optional[int] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
 
 
 class AtmosTracks(SQLModel, table=True):
@@ -84,6 +86,7 @@ class AtmosTracks(SQLModel, table=True):
     artwork: Optional[str] = None
     chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
     message_id: Optional[int] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
 
 
 class User(SQLModel, table=True):
@@ -118,10 +121,13 @@ async def init_db():
         await conn.run_sync(SQLModel.metadata.create_all)
         await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
         await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
