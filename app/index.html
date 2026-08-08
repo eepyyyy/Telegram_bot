@@ -519,7 +519,7 @@
           <button onclick="copyCurrentLyrics()" class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full flex items-center gap-1.5">
             <i class="fa-solid fa-copy"></i> Copy
           </button>
-          <button onclick="downloadLrcFile()" class="px-3 py-1.5 bg-white text-black hover:bg-zinc-200 font-bold rounded-full flex items-center gap-1.5">
+          <button id="lyrics-save-btn" onclick="downloadLyricsFile()" class="px-3 py-1.5 bg-white text-black hover:bg-zinc-200 font-bold rounded-full flex items-center gap-1.5 transition-all">
             <i class="fa-solid fa-download"></i> Save .lrc
           </button>
         </div>
@@ -1396,6 +1396,14 @@
         }
       });
 
+      const saveBtn = document.getElementById('lyrics-save-btn');
+      if (saveBtn) {
+        let label = '.lrc';
+        if (fmt === 'ttml') label = '.ttml';
+        else if (fmt === 'plain') label = '.txt';
+        saveBtn.innerHTML = `<i class="fa-solid fa-download"></i> Save ${label}`;
+      }
+
       renderLyricsDisplay();
     }
 
@@ -1462,18 +1470,42 @@
       });
     }
 
-    function downloadLrcFile() {
-      if (!currentLyricsData || !currentLyricsData.formats || !currentLyricsData.formats.lrc) {
-        showToast("No LRC lyrics available to export", "error");
+    function downloadLyricsFile() {
+      if (!currentLyricsData || !currentLyricsData.formats) {
+        showToast("No lyrics data available to export", "error");
         return;
       }
-      const title = currentLyricsData.title || "lyrics";
-      const blob = new Blob([currentLyricsData.formats.lrc], { type: 'text/plain' });
+      const title = (currentLyricsData.title || "lyrics").replace(/[\\/:*?"<>|]/g, "_");
+      const fmt = currentLyricsFormat;
+      let content = "";
+      let ext = "lrc";
+      let mime = "text/plain";
+
+      if (fmt === "ttml") {
+        content = currentLyricsData.formats.ttml || "";
+        ext = "ttml";
+        mime = "application/xml";
+      } else if (fmt === "plain") {
+        content = currentLyricsData.formats.plain || "";
+        ext = "txt";
+        mime = "text/plain";
+      } else {
+        content = currentLyricsData.formats.lrc || "";
+        ext = "lrc";
+        mime = "text/plain";
+      }
+
+      if (!content) {
+        showToast(`No ${ext.toUpperCase()} lyrics content available to export`, "error");
+        return;
+      }
+
+      const blob = new Blob([content], { type: mime });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `${title}.lrc`;
+      link.download = `${title}.${ext}`;
       link.click();
-      showToast(`Exported ${title}.lrc`, "success");
+      showToast(`Exported ${title}.${ext}`, "success");
     }
 
     // Helper functions
