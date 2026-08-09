@@ -50,15 +50,41 @@ def get_artwork_url(artwork_dict: Optional[dict]) -> Optional[str]:
     return url.replace("{w}", "1000").replace("{h}", "1000")
 
 
+def normalize_apple_music_url(url: str, default_storefront: str = "us") -> str:
+    """
+    Ensures an Apple Music URL contains a valid storefront region tag (e.g. /us/ or /in/).
+    If missing (e.g. https://music.apple.com/song/1117420388), inserts default storefront.
+    """
+    if not url:
+        return url
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return url
+    
+    path_parts = [p for p in parsed.path.split("/") if p]
+    if not path_parts:
+        return url
+
+    if path_parts[0].lower() in ("song", "album", "artist", "playlist"):
+        new_path = f"/{default_storefront}/" + "/".join(path_parts)
+        url_without_query = f"{parsed.scheme}://{parsed.netloc}{new_path}"
+        if parsed.query:
+            return f"{url_without_query}?{parsed.query}"
+        return url_without_query
+
+    return url
+
+
 def album_url_to_song_url(url: str) -> str:
     """
     Converts an Apple Music album URL with a song parameter to a direct song URL.
     """
+    url = normalize_apple_music_url(url)
     parsed = urlparse(url)
-    parts = parsed.path.strip("/").split("/")
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
 
-    storefront = parts[0]
-    slug = parts[2]
+    storefront = parts[0] if len(parts) > 0 and len(parts[0]) == 2 else "us"
+    slug = parts[2] if len(parts) > 2 else "song"
 
     query = parse_qs(parsed.query)
     song_id = query.get("i", [parts[-1]])[0]
@@ -70,8 +96,9 @@ def extract_song_id_from_url(url: str) -> str:
     """
     Extracts the song ID from an Apple Music URL.
     """
+    url = normalize_apple_music_url(url)
     parsed = urlparse(url)
-    parts = parsed.path.strip("/").split("/")
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
     query = parse_qs(parsed.query)
 
     return query.get("i", [parts[-1]])[0]
@@ -81,8 +108,9 @@ def extract_album_id_from_url(url: str) -> str:
     """
     Extracts the album ID from an Apple Music URL.
     """
+    url = normalize_apple_music_url(url)
     parsed = urlparse(url)
-    parts = parsed.path.strip("/").split("/")
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
     return parts[-1]
 
 
@@ -90,6 +118,7 @@ async def get_track_schema(url: str) -> List[TrackInputSchema]:
     """
     Fetches metadata for a single track and returns it as a list containing one TrackInputSchema.
     """
+    url = normalize_apple_music_url(url)
     api = await get_api()
     song_id = extract_song_id_from_url(url)
 
@@ -120,6 +149,7 @@ async def get_album_urls(url: str):
     """
     Fetches metadata for all tracks in an album.
     """
+    url = normalize_apple_music_url(url)
     api = await get_api()
 
     info = AppleMusicInterface.get_url_info(url)
@@ -136,6 +166,7 @@ async def get_artist_uls(url: str) -> tuple[list[dict], list[dict], list[dict], 
     Returns:
         List[Dict]:
     """
+    url = normalize_apple_music_url(url)
     api = await get_api()
 
     info = AppleMusicInterface.get_url_info(url)
@@ -173,6 +204,7 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     """
     Fetches metadata for all tracks in a playlist.
     """
+    url = normalize_apple_music_url(url)
     api = await get_api()
 
     info = AppleMusicInterface.get_url_info(url)
@@ -225,6 +257,7 @@ async def get_any_url(url: str):
     """
     Determines the URL type (song, album, or playlist) and fetches the corresponding metadata.
     """
+    url = normalize_apple_music_url(url)
     info = AppleMusicInterface.get_url_info(url)
 
     if info.type == "album":

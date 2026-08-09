@@ -804,6 +804,17 @@
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    function formatAppleMusicUrl(rawUrl, storefront, songId) {
+      const sf = storefront || 'us';
+      if (rawUrl && /^https?:\/\/music\.apple\.com\/[a-z]{2}\//i.test(rawUrl)) {
+        return rawUrl;
+      }
+      if (rawUrl && rawUrl.includes('music.apple.com/')) {
+        return rawUrl.replace('music.apple.com/', `music.apple.com/${sf}/`);
+      }
+      return `https://music.apple.com/${sf}/song/${songId || ''}`;
+    }
+
     // Render Dynamic Pill Buttons with Copy Link on every row
     function renderTracks(items) {
       const gridContainer = document.getElementById('tracks-grid');
@@ -1238,7 +1249,7 @@
         tbody.innerHTML = (data.tracks || []).map((tr, idx) => {
           const isAvail = tr.is_available;
           const btnId = `btn-alb-${idx}`;
-          const rawSongUrl = tr.url || `https://music.apple.com/song/${tr.song_id}`;
+          const rawSongUrl = formatAppleMusicUrl(tr.url, data.storefront, tr.song_id);
 
           const actionBtn = isAvail && tr.download_url
             ? `<button id="${btnId}" onclick="handleDynamicDownload('${btnId}', '${tr.download_url}')" class="btn-pill-download"><i class="fa-solid fa-download"></i> Download</button>`

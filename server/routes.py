@@ -353,6 +353,10 @@ async def search_apple_catalog(request: web.Request):
     try:
         api = await gamdlHelpUrl.get_api()
         
+        artists = []
+        albums = []
+        songs = []
+
         # Check if input is direct Apple Music URL
         if q.startswith("http://") or q.startswith("https://"):
             meta = await gamdlHelpUrl.get_url_metadata(q)
@@ -369,9 +373,8 @@ async def search_apple_catalog(request: web.Request):
                     "songs": []
                 })
             elif m_type in ("album", "playlist"):
-                songs_list = []
                 for tr in meta.get("tracks", []):
-                    songs_list.append({
+                    songs.append({
                         "song_id": tr.get("song_id"),
                         "title": tr.get("title"),
                         "artist": tr.get("artist"),
@@ -383,113 +386,131 @@ async def search_apple_catalog(request: web.Request):
                         "download_url": None,
                         "bot_request_cmd": f"/download {tr.get('url', '')}"
                     })
-                return web.json_response({
-                    "artists": [],
-                    "albums": [{
-                        "id": meta.get("album_id") or meta.get("playlist_id"),
-                        "title": meta.get("title"),
-                        "artist": meta.get("artist") or meta.get("curator"),
-                        "url": meta.get("url"),
-                        "artwork": meta.get("artwork")
-                    }],
-                    "songs": songs_list
-                })
-
-        # Standard term search via Apple Music API
-        raw_res = await api.get_search_results(q, limit=10)
-        results = raw_res.get("results", {}) if isinstance(raw_res, dict) else {}
-        
-        artists = []
-        if "artists" in results:
-            for item in results["artists"].get("data", []):
-                attrs = item.get("attributes", {})
-                artists.append({
-                    "id": item.get("id"),
-                    "name": attrs.get("name", "Unknown Artist"),
-                    "url": attrs.get("url", ""),
-                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
-                })
-                
-        albums = []
-        if "albums" in results:
-            for item in results["albums"].get("data", []):
-                attrs = item.get("attributes", {})
-                albums.append({
-                    "id": item.get("id"),
-                    "title": attrs.get("name", "Unknown Album"),
-                    "artist": attrs.get("artistName", "Unknown Artist"),
-                    "release_date": attrs.get("releaseDate", "N/A"),
-                    "track_count": attrs.get("trackCount"),
-                    "url": attrs.get("url", ""),
-                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
-                })
-
-        songs = []
-        song_ids_to_check = []
-        isrcs_to_check = []
-
-        if "songs" in results:
-            for item in results["songs"].get("data", []):
-                attrs = item.get("attributes", {})
-                sid = item.get("id")
-                isrc = attrs.get("isrc")
-                if sid:
-                    song_ids_to_check.append(str(sid))
-                if isrc:
-                    isrcs_to_check.append(str(isrc))
-
+                albums = [{
+                    "id": meta.get("album_id") or meta.get("playlist_id"),
+                    "title": meta.get("title"),
+                    "artist": meta.get("artist") or meta.get("curator"),
+                    "url": meta.get("url"),
+                    "artwork": meta.get("artwork")
+                }]
+            elif m_type == "song":
                 songs.append({
-                    "song_id": sid,
-                    "title": attrs.get("name", "Unknown Song"),
-                    "artist": attrs.get("artistName", "Unknown Artist"),
-                    "album": attrs.get("albumName", "Unknown Album"),
-                    "isrc": isrc,
-                    "url": attrs.get("url", ""),
-                    "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                    "song_id": meta.get("song_id"),
+                    "title": meta.get("title"),
+                    "artist": meta.get("artist"),
+                    "album": meta.get("album"),
+                    "isrc": meta.get("isrc"),
+                    "url": meta.get("url"),
+                    "artwork": meta.get("artwork"),
                     "is_available": False,
                     "download_url": None,
-                    "stream_url": None,
-                    "bot_request_cmd": f"/download {attrs.get('url', '')}"
+                    "bot_request_cmd": f"/download {meta.get('url', '')}"
                 })
+        else:
+            # Standard term search via Apple Music API
+            raw_res = await api.get_search_results(q, limit=10)
+            results = raw_res.get("results", {}) if isinstance(raw_res, dict) else {}
+            
+            if "artists" in results:
+                for item in results["artists"].get("data", []):
+                    attrs = item.get("attributes", {})
+                    artists.append({
+                        "id": item.get("id"),
+                        "name": attrs.get("name", "Unknown Artist"),
+                        "url": attrs.get("url", ""),
+                        "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                    })
+                    
+            if "albums" in results:
+                for item in results["albums"].get("data", []):
+                    attrs = item.get("attributes", {})
+                    albums.append({
+                        "id": item.get("id"),
+                        "title": attrs.get("name", "Unknown Album"),
+                        "artist": attrs.get("artistName", "Unknown Artist"),
+                        "release_date": attrs.get("releaseDate", "N/A"),
+                        "track_count": attrs.get("trackCount"),
+                        "url": attrs.get("url", ""),
+                        "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                    })
 
-        # Cross-reference database for download availability
-        if song_ids_to_check or isrcs_to_check:
+            if "songs" in results:
+                for item in results["songs"].get("data", []):
+                    attrs = item.get("attributes", {})
+                    sid = item.get("id")
+                    isrc = attrs.get("isrc")
+                    songs.append({
+                        "song_id": sid,
+                        "title": attrs.get("name", "Unknown Song"),
+                        "artist": attrs.get("artistName", "Unknown Artist"),
+                        "album": attrs.get("albumName", "Unknown Album"),
+                        "isrc": isrc,
+                        "url": attrs.get("url", ""),
+                        "artwork": gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300),
+                        "is_available": False,
+                        "download_url": None,
+                        "stream_url": None,
+                        "bot_request_cmd": f"/download {attrs.get('url', '')}"
+                    })
+
+        # Cross-reference database for download availability across all track formats
+        song_ids_to_check = [str(s["song_id"]) for s in songs if s.get("song_id")]
+        isrcs_to_check = [str(s["isrc"]) for s in songs if s.get("isrc") and str(s["isrc"]).upper() != "N/A"]
+        titles_to_check = [str(s["title"]).strip() for s in songs if s.get("title")]
+
+        if song_ids_to_check or isrcs_to_check or titles_to_check:
             db_map = {}
+            title_artist_map = {}
             async with async_session() as session:
                 for model_cls, format_type in [(Tracks, "alac"), (AACTracks, "aac"), (AtmosTracks, "atmos")]:
                     stmt = select(model_cls).where(
                         or_(
                             col(model_cls.song_id).in_(song_ids_to_check),
-                            col(model_cls.isrc).in_(isrcs_to_check)
+                            col(model_cls.isrc).in_(isrcs_to_check),
+                            col(model_cls.title).in_(titles_to_check)
                         )
                     )
                     res = await session.exec(stmt)
                     found_tracks = res.all()
                     for ft in found_tracks:
-                        key = ft.song_id or ft.isrc
-                        if key:
-                            db_map[key] = {
-                                "format": format_type,
-                                "song_id": ft.song_id,
-                                "message_id": ft.message_id,
-                                "is_available": ft.message_id is not None
-                            }
+                        info = {
+                            "format": format_type,
+                            "song_id": ft.song_id,
+                            "message_id": ft.message_id,
+                            "file_id": ft.file_id,
+                            "size": ft.size,
+                            "is_available": (ft.message_id is not None) or (ft.file_id is not None and ft.file_id != "")
+                        }
+                        if ft.song_id:
+                            db_map[str(ft.song_id)] = info
+                        if ft.isrc:
+                            db_map[str(ft.isrc)] = info
+                        if ft.title and ft.artist:
+                            norm_key = f"{ft.title.strip().lower()}|{ft.artist.strip().lower()}"
+                            title_artist_map[norm_key] = info
 
             for s in songs:
-                key1 = str(s["song_id"])
-                key2 = str(s["isrc"])
+                key1 = str(s.get("song_id") or "")
+                key2 = str(s.get("isrc") or "")
+                norm_key = f"{str(s.get('title') or '').strip().lower()}|{str(s.get('artist') or '').strip().lower()}"
+
+                matched = None
                 if key1 in db_map:
-                    s["is_available"] = db_map[key1]["is_available"]
-                    fmt = db_map[key1]["format"]
-                    sid = db_map[key1]["song_id"]
-                    s["download_url"] = f"/download/{fmt}/{sid}"
-                    s["stream_url"] = f"/stream/{fmt}/{sid}"
+                    matched = db_map[key1]
                 elif key2 in db_map:
-                    s["is_available"] = db_map[key2]["is_available"]
-                    fmt = db_map[key2]["format"]
-                    sid = db_map[key2]["song_id"]
+                    matched = db_map[key2]
+                elif norm_key in title_artist_map:
+                    matched = title_artist_map[norm_key]
+
+                if matched:
+                    s["is_available"] = matched["is_available"]
+                    fmt = matched["format"]
+                    sid = matched["song_id"]
                     s["download_url"] = f"/download/{fmt}/{sid}"
                     s["stream_url"] = f"/stream/{fmt}/{sid}"
+                    if matched.get("size"):
+                        s["size"] = matched["size"]
+                    s["format"] = fmt
 
         return web.json_response({
             "artists": artists,
@@ -679,54 +700,69 @@ async def get_album_detail(request: web.Request):
 
         tracks = meta.get("tracks", [])
         song_ids_to_check = [str(t["song_id"]) for t in tracks if t.get("song_id")]
-        isrcs_to_check = [str(t["isrc"]) for t in tracks if t.get("isrc")]
+        isrcs_to_check = [str(t["isrc"]) for t in tracks if t.get("isrc") and str(t["isrc"]).upper() != "N/A"]
+        titles_to_check = [str(t["title"]).strip() for t in tracks if t.get("title")]
 
-        # Cross-reference with database
+        # Cross-reference with database across all track formats
         db_map = {}
-        if song_ids_to_check or isrcs_to_check:
+        title_artist_map = {}
+        if song_ids_to_check or isrcs_to_check or titles_to_check:
             async with async_session() as session:
                 for model_cls, format_type in [(Tracks, "alac"), (AACTracks, "aac"), (AtmosTracks, "atmos")]:
                     stmt = select(model_cls).where(
                         or_(
                             col(model_cls.song_id).in_(song_ids_to_check),
-                            col(model_cls.isrc).in_(isrcs_to_check)
+                            col(model_cls.isrc).in_(isrcs_to_check),
+                            col(model_cls.title).in_(titles_to_check)
                         )
                     )
                     res = await session.exec(stmt)
                     found_tracks = res.all()
                     for ft in found_tracks:
-                        key = ft.song_id or ft.isrc
-                        if key:
-                            db_map[key] = {
-                                "format": format_type,
-                                "song_id": ft.song_id,
-                                "message_id": ft.message_id,
-                                "is_available": ft.message_id is not None
-                            }
+                        info = {
+                            "format": format_type,
+                            "song_id": ft.song_id,
+                            "message_id": ft.message_id,
+                            "file_id": ft.file_id,
+                            "size": ft.size,
+                            "is_available": (ft.message_id is not None) or (ft.file_id is not None and ft.file_id != "")
+                        }
+                        if ft.song_id:
+                            db_map[str(ft.song_id)] = info
+                        if ft.isrc:
+                            db_map[str(ft.isrc)] = info
+                        if ft.title and ft.artist:
+                            norm_key = f"{ft.title.strip().lower()}|{ft.artist.strip().lower()}"
+                            title_artist_map[norm_key] = info
 
         available_count = 0
         for tr in tracks:
-            key1 = str(tr.get("song_id"))
-            key2 = str(tr.get("isrc"))
+            key1 = str(tr.get("song_id") or "")
+            key2 = str(tr.get("isrc") or "")
+            norm_key = f"{str(tr.get('title') or '').strip().lower()}|{str(tr.get('artist') or '').strip().lower()}"
+
             tr["is_available"] = False
             tr["download_url"] = None
             tr["stream_url"] = None
             tr["bot_request_cmd"] = f"/download {tr.get('url', '')}"
 
+            matched = None
             if key1 in db_map:
-                tr["is_available"] = db_map[key1]["is_available"]
-                fmt = db_map[key1]["format"]
-                sid = db_map[key1]["song_id"]
-                tr["download_url"] = f"/download/{fmt}/{sid}"
-                tr["stream_url"] = f"/stream/{fmt}/{sid}"
-                if tr["is_available"]:
-                    available_count += 1
+                matched = db_map[key1]
             elif key2 in db_map:
-                tr["is_available"] = db_map[key2]["is_available"]
-                fmt = db_map[key2]["format"]
-                sid = db_map[key2]["song_id"]
+                matched = db_map[key2]
+            elif norm_key in title_artist_map:
+                matched = title_artist_map[norm_key]
+
+            if matched:
+                tr["is_available"] = matched["is_available"]
+                fmt = matched["format"]
+                sid = matched["song_id"]
                 tr["download_url"] = f"/download/{fmt}/{sid}"
                 tr["stream_url"] = f"/stream/{fmt}/{sid}"
+                if matched.get("size"):
+                    tr["size"] = matched["size"]
+                tr["format"] = fmt
                 if tr["is_available"]:
                     available_count += 1
 
@@ -881,7 +917,15 @@ async def download_track(request: web.Request):
     message_id = track.message_id
 
     if not message_id:
-        song_url = track.url or f"https://music.apple.com/song/{song_id}"
+        sf = getattr(track, "storefront", None) or "us"
+        raw_url = track.url or ""
+        if raw_url and "music.apple.com/" in raw_url and not re.search(r"music\.apple\.com/[a-z]{2}/", raw_url):
+            song_url = raw_url.replace("music.apple.com/", f"music.apple.com/{sf}/")
+        elif not raw_url:
+            song_url = f"https://music.apple.com/{sf}/song/{song_id}"
+        else:
+            song_url = raw_url
+
         b64 = base64.urlsafe_b64encode(song_url.encode('utf-8')).decode('utf-8').rstrip('=')
         deeplink = f"https://t.me/applemusicdw_bot?start=dl_{b64}"
         logger.info(f"Track {song_id} not cached. Redirecting browser download request to Telegram Bot deep-link: {deeplink}")
