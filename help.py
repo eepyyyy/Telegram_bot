@@ -23,7 +23,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 def get_help_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🌐 Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
-        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/jGfqYaJkg3")],
+        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/KBy2UMfjx8")],
         [InlineKeyboardButton(text="🔎 Apple Music Storefront Search", url="https://am-l.eepy.in/")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

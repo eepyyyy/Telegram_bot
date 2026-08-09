@@ -149,7 +149,7 @@
           </div>
         </div>
 
-        <!-- Controls: Search Mode, Back Button -->
+        <!-- Controls: Search Mode, Back Button, Discord Link -->
         <div class="flex items-center gap-2 sm:gap-3">
           <!-- Back to Home Button -->
           <button id="back-home-btn" onclick="navigateTo('#home')" class="hidden flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full border border-zinc-800 bg-zinc-900 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 transition-all">
@@ -165,6 +165,18 @@
               <i class="fa-brands fa-apple mr-1"></i> Apple Music API
             </button>
           </div>
+
+          <!-- Discord Community Link -->
+          <a 
+            href="https://discord.gg/KBy2UMfjx8" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            title="Join Discord Community"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#5865F2]/15 border border-[#5865F2]/40 text-[#5865F2] hover:bg-[#5865F2] hover:text-white text-xs font-bold transition-all shadow-sm group"
+          >
+            <i class="fa-brands fa-discord text-sm group-hover:scale-110 transition-transform"></i>
+            <span class="hidden sm:inline">Discord</span>
+          </a>
         </div>
 
       </div>
@@ -450,6 +462,21 @@
       </div>
 
     </main>
+
+    <!-- Footer -->
+    <footer class="mt-8 border-t border-zinc-800/80 bg-[#09090b] py-6 px-4">
+      <div class="container mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400">
+        <div class="flex items-center gap-2">
+          <img src="/app/logo/eepy_alt_icon_dark.svg" alt="eepy logo" class="w-5 h-5 opacity-70" />
+          <span>&copy; eepy amdl — Apple Music Cloud Vault</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="https://discord.gg/KBy2UMfjx8" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1.5 text-zinc-300 hover:text-[#5865F2] font-semibold transition-colors">
+            <i class="fa-brands fa-discord text-base text-[#5865F2]"></i> Join Discord Community
+          </a>
+        </div>
+      </div>
+    </footer>
   </div>
 
   <!-- ================= LYRICS & STREAM ECOSYSTEM MODAL ================= -->
