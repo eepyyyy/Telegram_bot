@@ -276,19 +276,22 @@ async def process_mv_download(task: dict) -> None:
                         utils.extract_track_metadata, file_path
                     )
 
-                    # Deliver video file via Telegram
+                    # Deliver video file via Telegram (upload to channel and deliver to user)
                     try:
-                        video_file = FSInputFile(file_path)
                         caption = f"🎬 <b>{track_title}</b>\n👤 {artist}"
-                        sent_msg = await msg.answer_video(
-                            video=video_file,
+                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_video(
+                            bot=msg.bot,
+                            user_chat_id=msg.chat.id,
+                            file_path=file_path,
                             caption=caption,
-                            parse_mode="HTML",
-                            duration=duration or 0,
+                            thumbnail=thumbnail,
+                            duration=duration
                         )
                     except Exception as e:
                         print(f"Failed to upload video to Telegram: {e}")
                         sent_msg = None
+                        saved_chat_id = msg.chat.id
+                        saved_message_id = None
 
                     if sent_msg:
                         user.download_count += 1
@@ -308,8 +311,8 @@ async def process_mv_download(task: dict) -> None:
                             title=track_title,
                             size=file_sz_val,
                             isrc=isrc,
-                            chat_id=msg.chat.id,
-                            message_id=sent_msg.message_id
+                            chat_id=saved_chat_id,
+                            message_id=saved_message_id
                         )
 
                         matched = False

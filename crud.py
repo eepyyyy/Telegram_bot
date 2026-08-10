@@ -74,15 +74,16 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
     Args:
         session: The active database session.
         track_data: The track data schema to save.
-        format_type: Quality format ('alac', 'aac', or 'atmos').
+        format_type: Quality format ('alac', 'aac', 'atmos', or 'mv').
     """
-    album_obj = database.Albums(
-        album_id=track_data.album_id,
-        album=track_data.album,
-        artist=track_data.artist,
-        artwork=track_data.artwork,
-    )
-    await session.merge(album_obj)
+    if track_data.album_id:
+        album_obj = database.Albums(
+            album_id=track_data.album_id,
+            album=track_data.album,
+            artist=track_data.artist,
+            artwork=track_data.artwork,
+        )
+        await session.merge(album_obj)
     
     model_cls = get_track_model(format_type)
     track_obj = model_cls(
@@ -107,38 +108,50 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
 
 async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_type: str = "alac") -> Tuple[List[str], List[str]]:
     """
-    Checks the database for existing tracks by ISRC to avoid re-downloading.
+    Checks the database for existing tracks by ISRC or song_id to avoid re-downloading.
     Args:
         track_lists: List of tracks to check.
-        format_type: Quality format ('alac', 'aac', or 'atmos').
+        format_type: Quality format ('alac', 'aac', 'atmos', or 'mv').
     Returns:
         A tuple containing:
             - List of file_ids for tracks already in the database.
             - List of URLs for tracks that need to be downloaded.
     """
     isrcs = [track.isrc for track in track_lists if track.isrc]
+    song_ids = [track.song_id for track in track_lists if track.song_id]
     model_cls = get_track_model(format_type)
 
     async with async_session() as session:
-        if not isrcs:
+        conds = []
+        if isrcs:
+            conds.append(model_cls.isrc.in_(isrcs))
+        if song_ids:
+            conds.append(model_cls.song_id.in_(song_ids))
+
+        if not conds:
             return [], [str(track.url) for track in track_lists if track.url]
 
-        statement = select(model_cls).where(model_cls.isrc.in_(isrcs))
+        from sqlmodel import or_
+        statement = select(model_cls).where(or_(*conds))
         result = await session.exec(statement)
         db_tracks = result.all()
 
-    cache_dict = {
-        track.isrc: track.file_id
-        for track in db_tracks
-        if track.file_id is not None
-    }
+    cache_dict = {}
+    for track in db_tracks:
+        if track.file_id is not None:
+            if track.isrc:
+                cache_dict[track.isrc] = track.file_id
+            if track.song_id:
+                cache_dict[track.song_id] = track.file_id
     
     file_ids_to_send: List[str] = []
     urls_to_download: List[str] = []
 
     for track in track_lists:
-        if track.isrc in cache_dict:
+        if track.isrc and track.isrc in cache_dict:
             file_ids_to_send.append(cache_dict[track.isrc])
+        elif track.song_id and track.song_id in cache_dict:
+            file_ids_to_send.append(cache_dict[track.song_id])
         elif track.url:
             urls_to_download.append(str(track.url))
             
