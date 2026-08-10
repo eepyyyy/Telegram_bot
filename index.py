@@ -273,7 +273,36 @@ async def process_download(task: dict) -> None:
         total_tracks = len(songs)
         completed_count = 0
 
+        # Check if Lossless (ALAC) is available in Apple Music metadata
+        has_lossless = any(
+            any(t in (s.audio_traits or []) for t in ("lossless", "hi-res-lossless"))
+            for s in songs
+        )
+        if not has_lossless and songs:
+            has_atmos = any(
+                any(t in (s.audio_traits or []) for t in ("atmos", "spatial"))
+                for s in songs
+            )
+            if has_atmos:
+                suggestion = (
+                    "⚠️ <b>Lossless (ALAC) is not available</b> for this item on Apple Music.\n\n"
+                    "Available formats:\n"
+                    "• Use <code>/aac &lt;link&gt;</code> for AAC 256kbps\n"
+                    "• Use <code>/atmos &lt;link&gt;</code> for Dolby Atmos"
+                )
+            else:
+                suggestion = (
+                    "⚠️ <b>Lossless (ALAC) is not available</b> for this item on Apple Music.\n\n"
+                    "👉 Please use <code>/aac &lt;link&gt;</code> to download in AAC 256kbps format."
+                )
+            try:
+                await status_msg.edit_text(suggestion, parse_mode="HTML")
+            except Exception:
+                pass
+            return
+
         # 2. Check database for existing file_ids
+
         file_ids, tracks_to_download = await crud.check_db_for_urls(songs)
 
         async with async_session() as session:
@@ -388,6 +417,21 @@ async def process_download(task: dict) -> None:
             line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
             if line:
                 print(f"[gamdl] {line}")
+                if "Requested format is not available" in line:
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await status_msg.edit_text(
+                            "⚠️ <b>Requested format (Lossless ALAC) is not available</b> for this track/album.\n\n"
+                            "👉 Please use <code>/aac &lt;link&gt;</code> to download in AAC 256kbps format.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                    return
 
             # Check for finalized .m4a files in output directory (ignoring temp/encrypted files)
             downloaded_files = await asyncio.to_thread(

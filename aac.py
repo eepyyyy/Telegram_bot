@@ -167,6 +167,20 @@ async def process_aac_download(task: dict) -> None:
             line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
             if line:
                 print(f"[gamdl AAC] {line}")
+                if "Requested format is not available" in line:
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await status_msg.edit_text(
+                            "⚠️ <b>AAC format is not available</b> for this track/album.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                    return
 
             # Check for new finalized files
             downloaded_files = await asyncio.to_thread(

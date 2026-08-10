@@ -84,6 +84,22 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
+    # Check if Dolby Atmos is supported for this track/album
+    has_atmos = any(
+        any(t in (s.audio_traits or []) for t in ("atmos", "spatial"))
+        for s in songs
+    )
+    if not has_atmos:
+        try:
+            await status_msg.edit_text(
+                "⚠️ <b>Dolby Atmos is not available</b> for this track/album on Apple Music.\n\n"
+                "👉 Send the link directly for Lossless ALAC or use <code>/aac &lt;link&gt;</code> for AAC 256kbps.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
     # Check database for existing Atmos cached tracks
     file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="atmos")
 
@@ -167,6 +183,21 @@ async def process_atmos_download(task: dict) -> None:
             line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
             if line:
                 print(f"[gamdl Atmos] {line}")
+                if "Requested format is not available" in line:
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await status_msg.edit_text(
+                            "⚠️ <b>Dolby Atmos format is not available</b> for this track/album.\n\n"
+                            "👉 Send the link directly for Lossless ALAC or use <code>/aac &lt;link&gt;</code> for AAC 256kbps.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                    return
 
             # Check for new finalized files
             downloaded_files = await asyncio.to_thread(
