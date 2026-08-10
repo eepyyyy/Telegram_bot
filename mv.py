@@ -25,21 +25,42 @@ mv = Router()
 async def mv_download(msg: types.Message, command: CommandObject) -> None:
     """
     Command handler for downloading Apple Music Music Videos.
-    Usage: /mv <Apple Music Video URL>
+    Usage:
+      /mv <Apple Music Video URL>
+      /mv h265 <Apple Music Video URL>
+      /mv h264 <Apple Music Video URL>
     """
-    url = (command.args or "").strip()
+    raw_args = (command.args or "").strip()
+    parts = raw_args.split(maxsplit=1)
+
+    codec = None
+    url = ""
+
+    if len(parts) == 2 and parts[0].lower() in ("h265", "hevc", "h264"):
+        codec = parts[0].lower()
+        if codec == "hevc":
+            codec = "h265"
+        url = parts[1].strip()
+    elif len(parts) >= 1:
+        url = parts[0].strip()
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
-            await msg.answer("<b>Usage:</b> /mv &lt;Apple Music Video URL&gt;", parse_mode="HTML")
+            await msg.answer(
+                "<b>Usage:</b>\n"
+                "• <code>/mv &lt;Apple Music Video URL&gt;</code> (Auto best format)\n"
+                "• <code>/mv h265 &lt;Apple Music Video URL&gt;</code> (Force H.265/HEVC)\n"
+                "• <code>/mv h264 &lt;Apple Music Video URL&gt;</code> (Force H.264)",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
         return
 
-    await process_mv_enqueue(msg, url)
+    await process_mv_enqueue(msg, url, codec=codec)
 
 
-async def process_mv_enqueue(msg: types.Message, url: str) -> None:
+async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = None) -> None:
     """
     Validates limits, checks cache, and queues Music Video download tasks.
     """
@@ -125,7 +146,8 @@ async def process_mv_enqueue(msg: types.Message, url: str) -> None:
     position = mv_queue.qsize()
 
     try:
-        await status_msg.edit_text(f"🎬 Queued Music Video at position #{position + 1}. Download starting...")
+        codec_str = f" ({codec.upper()})" if codec else ""
+        await status_msg.edit_text(f"🎬 Queued Music Video{codec_str} at position #{position + 1}. Download starting...")
     except Exception:
         pass
 
@@ -135,13 +157,14 @@ async def process_mv_enqueue(msg: types.Message, url: str) -> None:
             "songs": songs,
             "msg": msg,
             "user_id": user_id_local,
-            "status_msg": status_msg
+            "status_msg": status_msg,
+            "codec": codec
         })
 
 
-async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None) -> tuple[int, bool]:
+async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None = None) -> tuple[int, bool]:
     """
-    Executes gamdl for a specific video codec ('h265', 'h264', or None for default).
+    Executes gamdl for Music Video. If codec is None, leaves command empty for native gamdl codec selection.
     Returns (return_code, format_unavailable).
     """
     cmd = [
@@ -170,7 +193,7 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
 
         line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
         if line:
-            print(f"[gamdl MV {codec or 'default'}] {line}")
+            print(f"[gamdl MV] {line}")
             if "Requested format is not available" in line:
                 format_unavailable = True
 
@@ -180,171 +203,142 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
 
 async def process_mv_download(task: dict) -> None:
     """
-    Executes gamdl for Music Videos trying H.265 first, falling back to H.264 then default if unavailable.
+    Executes gamdl for Music Videos using native gamdl format selection (or requested codec).
     """
     track_url = task["url"]
     songs = task["songs"]
     msg: Message = task["msg"]
     user_id_local = task["user_id"]
     status_msg = task["status_msg"]
+    requested_codec = task.get("codec")
 
     unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     temp_dir = f"{output_dir}_temp"
 
-    # Inspect video_traits directly from Apple Music API metadata first
-    video_traits = (songs[0].video_traits or []) if songs and hasattr(songs[0], "video_traits") else []
-    has_h265 = any(t.lower() in ("h265", "hevc", "hdr", "4k") for t in video_traits)
-
-    if has_h265:
-        codecs_to_try = ["h265", "h264", None]
-    else:
-        codecs_to_try = ["h264", "h265", None]
-
-    download_success = False
-
-
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
-        for codec in codecs_to_try:
-            codec_name = codec.upper() if codec else "DEFAULT"
-            try:
-                await status_msg.edit_text(f"🎬 Downloading Music Video (Trying {codec_name} codec)...")
-            except Exception:
-                pass
+        try:
+            await status_msg.edit_text("🎬 Downloading Music Video...")
+        except Exception:
+            pass
 
-            return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, codec)
+        return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, requested_codec)
 
-            # Check for downloaded video files
-            downloaded_files = []
-            for ext in ("*.m4v", "*.mp4", "*.mkv"):
-                found = await asyncio.to_thread(
-                    glob.glob, os.path.join(output_dir, "**", ext), recursive=True
-                )
-                downloaded_files.extend(found)
+        # Check for downloaded video files
+        downloaded_files = []
+        for ext in ("*.m4v", "*.mp4", "*.mkv"):
+            found = await asyncio.to_thread(
+                glob.glob, os.path.join(output_dir, "**", ext), recursive=True
+            )
+            downloaded_files.extend(found)
 
-            valid_files = [
-                f for f in downloaded_files
-                if not ("gamdl_temp" in f.replace("\\", "/") or "_temp" in f.replace("\\", "/") or f.endswith(".tmp"))
-            ]
+        valid_files = [
+            f for f in downloaded_files
+            if not ("gamdl_temp" in f.replace("\\", "/") or "_temp" in f.replace("\\", "/") or f.endswith(".tmp"))
+        ]
 
-            if valid_files and not format_unavailable:
-                download_success = True
+        if valid_files and not format_unavailable:
+            for file_path in valid_files:
+                # Check limit before uploading
+                async with async_session() as session:
+                    result = await session.exec(select(User).where(User.user_id == user_id_local))
+                    user = result.one()
 
-                # Process valid video files and upload to Telegram
-                for file_path in valid_files:
-                    # Check limit before uploading
-                    async with async_session() as session:
-                        result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.one()
+                    current_date = datetime.now(timezone.utc).date()
+                    if not user.is_premium and user.last_download != current_date:
+                        user.downloaded_today = 0
+                        user.last_download = current_date
+                        session.add(user)
+                        await session.commit()
 
-                        current_date = datetime.now(timezone.utc).date()
-                        if not user.is_premium and user.last_download != current_date:
-                            user.downloaded_today = 0
-                            user.last_download = current_date
+                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                        try:
+                            await msg.answer("Quota exhausted! Halting further downloads.")
+                        except Exception:
+                            pass
+                        return
+
+                    # Extract video metadata
+                    track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
+                        utils.extract_track_metadata, file_path
+                    )
+
+                    # Deliver video file via Telegram
+                    try:
+                        video_file = FSInputFile(file_path)
+                        caption = f"🎬 <b>{track_title}</b>\n👤 {artist}"
+                        sent_msg = await msg.answer_video(
+                            video=video_file,
+                            caption=caption,
+                            parse_mode="HTML",
+                            duration=duration or 0,
+                        )
+                    except Exception as e:
+                        print(f"Failed to upload video to Telegram: {e}")
+                        sent_msg = None
+
+                    if sent_msg:
+                        user.download_count += 1
+                        if not user.is_premium:
+                            user.downloaded_today += 1
                             session.add(user)
                             await session.commit()
 
-                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            try:
-                                await msg.answer("Quota exhausted! Halting further downloads.")
-                            except Exception:
-                                pass
-                            return
+                        media_obj = sent_msg.video or sent_msg.document
+                        file_id_val = media_obj.file_id if media_obj else None
+                        file_uniq_val = media_obj.file_unique_id if media_obj else None
+                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
 
-                        # Extract video metadata
-                        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
-                            utils.extract_track_metadata, file_path
+                        tbot = schema.TrackInputSchema(
+                            file_id=file_id_val,
+                            file_unique_id=file_uniq_val,
+                            title=track_title,
+                            size=file_sz_val,
+                            isrc=isrc,
+                            chat_id=msg.chat.id,
+                            message_id=sent_msg.message_id
                         )
 
-                        # Deliver video file via Telegram
-                        try:
-                            video_file = FSInputFile(file_path)
-                            caption = f"🎬 <b>{track_title}</b>\n👤 {artist}\n📹 Codec: <code>{codec_name}</code>"
-                            sent_msg = await msg.answer_video(
-                                video=video_file,
-                                caption=caption,
-                                parse_mode="HTML",
-                                duration=duration or 0,
-                            )
-                        except Exception as e:
-                            print(f"Failed to upload video to Telegram: {e}")
-                            sent_msg = None
+                        matched = False
+                        if isrc:
+                            for original_track in songs:
+                                if original_track.isrc == isrc:
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
+                                    await session.commit()
+                                    matched = True
+                                    break
 
-                        if sent_msg:
-                            user.download_count += 1
-                            if not user.is_premium:
-                                user.downloaded_today += 1
-                                session.add(user)
-                                await session.commit()
+                        if not matched and songs:
+                            track_input = schema.TrackInputSchema(**songs[0].model_dump())
+                            track_input.file_id = tbot.file_id
+                            track_input.file_unique_id = tbot.file_unique_id
+                            track_input.size = tbot.size
+                            track_input.chat_id = tbot.chat_id
+                            track_input.message_id = tbot.message_id
+                            await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
+                            await session.commit()
 
-                            media_obj = sent_msg.video or sent_msg.document
-                            file_id_val = media_obj.file_id if media_obj else None
-                            file_uniq_val = media_obj.file_unique_id if media_obj else None
-                            file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
-
-                            tbot = schema.TrackInputSchema(
-                                file_id=file_id_val,
-                                file_unique_id=file_uniq_val,
-                                title=track_title,
-                                size=file_sz_val,
-                                isrc=isrc,
-                                chat_id=msg.chat.id,
-                                message_id=sent_msg.message_id
-                            )
-
-                            matched = False
-                            if isrc:
-                                for original_track in songs:
-                                    if original_track.isrc == isrc:
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
-                                        await session.commit()
-                                        matched = True
-                                        break
-
-                            if not matched and songs:
-                                track_input = schema.TrackInputSchema(**songs[0].model_dump())
-                                track_input.file_id = tbot.file_id
-                                track_input.file_unique_id = tbot.file_unique_id
-                                track_input.size = tbot.size
-                                track_input.chat_id = tbot.chat_id
-                                track_input.message_id = tbot.message_id
-                                await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
-                                await session.commit()
-
-                        try:
-                            await asyncio.to_thread(os.remove, file_path)
-                        except Exception as e:
-                            print(f"Failed to remove video file {file_path}: {e}")
-
-                break  # Stop retry loop since video was successfully downloaded and sent
-
-            # Format was unavailable or no file found, cleanup before trying next codec
-            for d_clean in (output_dir, temp_dir):
-                if await asyncio.to_thread(os.path.exists, d_clean):
                     try:
-                        await asyncio.to_thread(shutil.rmtree, d_clean)
-                    except Exception:
-                        pass
-            await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
-            await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
+                        await asyncio.to_thread(os.remove, file_path)
+                    except Exception as e:
+                        print(f"Failed to remove video file {file_path}: {e}")
 
-        if download_success:
             try:
                 await status_msg.edit_text("✅ Music Video download and delivery completed!\n\n🌐 Streaming Link: https://stream.eepy.in/")
             except Exception:
                 pass
         else:
             try:
-                await status_msg.edit_text("⚠️ <b>Music Video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
+                await status_msg.edit_text("⚠️ <b>Requested video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
             except Exception:
                 pass
 
