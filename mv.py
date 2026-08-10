@@ -24,7 +24,7 @@ mv = Router()
 @mv.message(Command("mv"))
 async def mv_download(msg: types.Message, command: CommandObject) -> None:
     """
-    Command handler for downloading Apple Music Music Videos in H.265/H.264 format.
+    Command handler for downloading Apple Music Music Videos.
     Usage: /mv <Apple Music Video URL>
     """
     url = (command.args or "").strip()
@@ -125,7 +125,7 @@ async def process_mv_enqueue(msg: types.Message, url: str) -> None:
     position = mv_queue.qsize()
 
     try:
-        await status_msg.edit_text(f"🎬 Queued Music Video (H.265/H.264) at position #{position + 1}. Download starting...")
+        await status_msg.edit_text(f"🎬 Queued Music Video at position #{position + 1}. Download starting...")
     except Exception:
         pass
 
@@ -139,9 +139,48 @@ async def process_mv_enqueue(msg: types.Message, url: str) -> None:
         })
 
 
+async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None) -> tuple[int, bool]:
+    """
+    Executes gamdl for a specific video codec ('h265', 'h264', or None for default).
+    Returns (return_code, format_unavailable).
+    """
+    cmd = [
+        "gamdl",
+        "-n",
+        "--output-path", output_dir,
+        "--temp-path", temp_dir,
+    ]
+    if codec:
+        cmd.extend(["--music-video-codec-priority", codec])
+    cmd.append(track_url)
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    format_unavailable = False
+
+    while True:
+        line_bytes = await process.stdout.readline()
+        if not line_bytes:
+            break
+
+        line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
+        if line:
+            print(f"[gamdl MV {codec or 'default'}] {line}")
+            if "Requested format is not available" in line:
+                format_unavailable = True
+
+    return_code = await process.wait()
+    return return_code, format_unavailable
+
+
 async def process_mv_download(task: dict) -> None:
     """
-    Executes gamdl for Music Videos with H.265 (HEVC) priority, extracts video metadata, and uploads to Telegram.
+    Executes gamdl for Music Videos trying H.265 first, falling back to H.264 then default if unavailable.
     """
     track_url = task["url"]
     songs = task["songs"]
@@ -151,52 +190,25 @@ async def process_mv_download(task: dict) -> None:
 
     unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
-    process = None
-
     temp_dir = f"{output_dir}_temp"
+
+    codecs_to_try = ["h265", "h264", None]
+    download_success = False
+
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
-        # Start gamdl subprocess prioritizing H.265 (HEVC) then H.264 fallback
-        process = await asyncio.create_subprocess_exec(
-            "gamdl",
-            "-n",
-            "--output-path", output_dir,
-            "--temp-path", temp_dir,
-            "--music-video-codec-priority", "h265,h264",
-            track_url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        for codec in codecs_to_try:
+            codec_name = codec.upper() if codec else "DEFAULT"
+            try:
+                await status_msg.edit_text(f"🎬 Downloading Music Video (Trying {codec_name} codec)...")
+            except Exception:
+                pass
 
-        ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        uploaded_files = set()
+            return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, codec)
 
-        while True:
-            line_bytes = await process.stdout.readline()
-            if not line_bytes:
-                break
-
-            line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
-            if line:
-                print(f"[gamdl MV] {line}")
-                if "Requested format is not available" in line:
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        await status_msg.edit_text(
-                            "⚠️ <b>Requested video format is not available</b> for this item.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
-                    return
-
-            # Check for new finalized video files (.m4v, .mp4, .mkv)
+            # Check for downloaded video files
             downloaded_files = []
             for ext in ("*.m4v", "*.mp4", "*.mkv"):
                 found = await asyncio.to_thread(
@@ -204,15 +216,16 @@ async def process_mv_download(task: dict) -> None:
                 )
                 downloaded_files.extend(found)
 
-            for file_path in downloaded_files:
-                norm_p = file_path.replace("\\", "/")
-                filename = os.path.basename(norm_p)
-                if "gamdl_temp" in norm_p or "_temp" in norm_p or filename.endswith(".tmp"):
-                    continue
+            valid_files = [
+                f for f in downloaded_files
+                if not ("gamdl_temp" in f.replace("\\", "/") or "_temp" in f.replace("\\", "/") or f.endswith(".tmp"))
+            ]
 
-                if file_path not in uploaded_files:
-                    uploaded_files.add(file_path)
+            if valid_files and not format_unavailable:
+                download_success = True
 
+                # Process valid video files and upload to Telegram
+                for file_path in valid_files:
                     # Check limit before uploading
                     async with async_session() as session:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
@@ -227,13 +240,8 @@ async def process_mv_download(task: dict) -> None:
 
                         if not user.is_premium and user.downloaded_today >= user.daily_limit:
                             try:
-                                await msg.answer("Quota exhausted! Stopping further downloads.")
+                                await msg.answer("Quota exhausted! Halting further downloads.")
                             except Exception:
-                                pass
-                            try:
-                                process.terminate()
-                                await process.wait()
-                            except ProcessLookupError:
                                 pass
                             return
 
@@ -245,7 +253,7 @@ async def process_mv_download(task: dict) -> None:
                         # Deliver video file via Telegram
                         try:
                             video_file = FSInputFile(file_path)
-                            caption = f"🎬 <b>{track_title}</b>\n👤 {artist}"
+                            caption = f"🎬 <b>{track_title}</b>\n👤 {artist}\n📹 Codec: <code>{codec_name}</code>"
                             sent_msg = await msg.answer_video(
                                 video=video_file,
                                 caption=caption,
@@ -308,17 +316,26 @@ async def process_mv_download(task: dict) -> None:
                         except Exception as e:
                             print(f"Failed to remove video file {file_path}: {e}")
 
-            await asyncio.sleep(1)
+                break  # Stop retry loop since video was successfully downloaded and sent
 
-        return_code = await process.wait()
-        if return_code == 0:
+            # Format was unavailable or no file found, cleanup before trying next codec
+            for d_clean in (output_dir, temp_dir):
+                if await asyncio.to_thread(os.path.exists, d_clean):
+                    try:
+                        await asyncio.to_thread(shutil.rmtree, d_clean)
+                    except Exception:
+                        pass
+            await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
+            await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
+
+        if download_success:
             try:
                 await status_msg.edit_text("✅ Music Video download and delivery completed!\n\n🌐 Streaming Link: https://stream.eepy.in/")
             except Exception:
                 pass
         else:
             try:
-                await status_msg.edit_text("⚠ Music Video download finished with errors.")
+                await status_msg.edit_text("⚠️ <b>Music Video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
             except Exception:
                 pass
 
@@ -329,13 +346,6 @@ async def process_mv_download(task: dict) -> None:
         except Exception:
             pass
     finally:
-        if process and process.returncode is None:
-            try:
-                process.terminate()
-                await process.wait()
-            except ProcessLookupError:
-                pass
-
         for d_clean in (output_dir, temp_dir):
             if await asyncio.to_thread(os.path.exists, d_clean):
                 try:
