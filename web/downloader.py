@@ -34,7 +34,7 @@ def get_codec_args(format_type: str) -> List[str]:
     elif fmt == "atmos":
         return ["--song-codec-priority", "atmos"]
     elif fmt in ("mv", "video"):
-        return ["--post-download-mode", "mv-mux"]
+        return ["--music-video-resolution", "2160p", "--music-video-codec-priority", "h265,h264"]
     else:  # alac (default)
         return []
 

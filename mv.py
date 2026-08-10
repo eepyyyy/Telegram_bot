@@ -21,46 +21,79 @@ from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_bus
 mv = Router()
 
 
+def parse_mv_args(raw_args: str) -> tuple[str | None, str | None, str]:
+    """
+    Parses optional codec and resolution from /mv command arguments.
+    Returns (resolution, codec, url).
+    """
+    tokens = raw_args.strip().split()
+    if not tokens:
+        return None, None, ""
+
+    url = ""
+    options = []
+    for token in tokens:
+        if re.fullmatch(r"https?://\S+", token):
+            url = token
+        else:
+            options.append(token.lower())
+
+    resolution = None
+    codec = None
+
+    for opt in options:
+        if opt in ("4k", "2160p", "2160"):
+            resolution = "2160p"
+        elif opt in ("1440p", "1440"):
+            resolution = "1440p"
+        elif opt in ("1080p", "1080"):
+            resolution = "1080p"
+        elif opt in ("720p", "720"):
+            resolution = "720p"
+        elif opt in ("480p", "480"):
+            resolution = "480p"
+        elif opt in ("h265", "hevc"):
+            codec = "h265"
+        elif opt in ("h264", "avc"):
+            codec = "h264"
+
+    return resolution, codec, url
+
+
 @mv.message(Command("mv"))
 async def mv_download(msg: types.Message, command: CommandObject) -> None:
     """
     Command handler for downloading Apple Music Music Videos.
     Usage:
       /mv <Apple Music Video URL>
-      /mv h265 <Apple Music Video URL>
-      /mv h264 <Apple Music Video URL>
+      /mv 4k <URL> or /mv 2160p <URL>
+      /mv 1080p <URL>
+      /mv h265 <URL>
+      /mv 4k h265 <URL>
     """
     raw_args = (command.args or "").strip()
-    parts = raw_args.split(maxsplit=1)
-
-    codec = None
-    url = ""
-
-    if len(parts) == 2 and parts[0].lower() in ("h265", "hevc", "h264"):
-        codec = parts[0].lower()
-        if codec == "hevc":
-            codec = "h265"
-        url = parts[1].strip()
-    elif len(parts) >= 1:
-        url = parts[0].strip()
+    resolution, codec, url = parse_mv_args(raw_args)
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
             await msg.answer(
-                "<b>Usage:</b>\n"
-                "• <code>/mv &lt;Apple Music Video URL&gt;</code> (Auto best format)\n"
-                "• <code>/mv h265 &lt;Apple Music Video URL&gt;</code> (Force H.265/HEVC)\n"
-                "• <code>/mv h264 &lt;Apple Music Video URL&gt;</code> (Force H.264)",
+                "🎬 <b>Music Video Download Usage:</b>\n\n"
+                "• <code>/mv &lt;Apple Music Video URL&gt;</code> (Auto best 4K H.265/HEVC)\n"
+                "• <code>/mv 4k &lt;URL&gt;</code> or <code>/mv 2160p &lt;URL&gt;</code> (Force 4K)\n"
+                "• <code>/mv 1080p &lt;URL&gt;</code> (Force 1080p)\n"
+                "• <code>/mv h265 &lt;URL&gt;</code> (Force H.265 / HEVC)\n"
+                "• <code>/mv h264 &lt;URL&gt;</code> (Force H.264 / AVC)\n"
+                "• <code>/mv 4k h265 &lt;URL&gt;</code> (Force 4K H.265)",
                 parse_mode="HTML"
             )
         except Exception:
             pass
         return
 
-    await process_mv_enqueue(msg, url, codec=codec)
+    await process_mv_enqueue(msg, url, codec=codec, resolution=resolution)
 
 
-async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = None) -> None:
+async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = None, resolution: str | None = None) -> None:
     """
     Validates limits, checks cache, and queues Music Video download tasks.
     """
@@ -146,8 +179,9 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     position = mv_queue.qsize()
 
     try:
-        codec_str = f" ({codec.upper()})" if codec else ""
-        await status_msg.edit_text(f"🎬 Queued Music Video{codec_str} at position #{position + 1}. Download starting...")
+        res_str = f" {resolution.upper()}" if resolution else " 4K"
+        codec_str = f" ({codec.upper()})" if codec else " (H.265)"
+        await status_msg.edit_text(f"🎬 Queued Music Video{res_str}{codec_str} at position #{position + 1}. Download starting...")
     except Exception:
         pass
 
@@ -158,13 +192,14 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
             "msg": msg,
             "user_id": user_id_local,
             "status_msg": status_msg,
-            "codec": codec
+            "codec": codec,
+            "resolution": resolution,
         })
 
 
-async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None = None) -> tuple[int, bool]:
+async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None = None, resolution: str | None = None) -> tuple[int, bool]:
     """
-    Executes gamdl for Music Video. If codec is None, leaves command empty for native gamdl codec selection.
+    Executes gamdl for Music Video. Defaults to 2160p (4K) resolution and h265,h264 codec priority.
     Returns (return_code, format_unavailable).
     """
     cmd = [
@@ -172,9 +207,13 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
         "-n",
         "--output-path", output_dir,
         "--temp-path", temp_dir,
+        "--music-video-resolution", resolution or "2160p",
     ]
     if codec:
         cmd.extend(["--music-video-codec-priority", codec])
+    else:
+        cmd.extend(["--music-video-codec-priority", "h265,h264"])
+
     cmd.append(track_url)
 
     process = await asyncio.create_subprocess_exec(
@@ -221,6 +260,7 @@ async def process_mv_download(task: dict) -> None:
     user_id_local = task["user_id"]
     status_msg = task["status_msg"]
     requested_codec = task.get("codec")
+    requested_resolution = task.get("resolution")
 
     unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
@@ -235,7 +275,7 @@ async def process_mv_download(task: dict) -> None:
         except Exception:
             pass
 
-        return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, requested_codec)
+        return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, requested_codec, requested_resolution)
 
         # Check for downloaded video files
         downloaded_files = []
