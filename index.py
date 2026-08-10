@@ -30,10 +30,38 @@ from database import User, get_session_maker
 from gamdlUrl import get_any_url
 from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks, is_user_busy
 
+import aiohttp
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 load_dotenv()
+
+
+async def wait_for_local_server(local_server_url: str) -> None:
+    """
+    Waits for the local Telegram Bot API server to respond, using exponential backoff to prevent high CPU spin on startup/idle.
+    """
+    health_url = f"{local_server_url.rstrip('/')}/"
+    delay = 2
+    max_delay = 30
+    attempts = 0
+    logging.info(f"Checking health of local Telegram API server at {local_server_url}...")
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            attempts += 1
+            try:
+                async with session.get(health_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    logging.info(f"Local Telegram API server is reachable (HTTP {resp.status})!")
+                    return
+            except Exception as e:
+                logging.warning(
+                    f"Local Telegram API server at {local_server_url} is unreachable (attempt {attempts}): {e}. "
+                    f"Retrying in {delay}s to avoid CPU spin..."
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, max_delay)
+
 
 TOKEN_API = os.getenv("TOKEN_API")
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://tbot.eepy.in")
@@ -587,30 +615,46 @@ async def worker() -> None:
 
 async def on_startup(bot: Bot) -> None:
     """
-    Startup handler: initializes database, background workers, and sets the webhook.
+    Startup handler: initializes database, background workers, and sets the webhook with health checks.
     """
+    local_server_url = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8081")
+    await wait_for_local_server(local_server_url)
+
     await database.init_db()
 
-    # Start 3 concurrent workers
-    for _ in range(3):
+    # Start configurable concurrent workers (default: 2 general, 3 AAC, 3 Atmos to avoid high idle CPU)
+    worker_count = int(os.getenv("WORKER_CONCURRENCY", "2"))
+    aac_worker_count = int(os.getenv("AAC_WORKER_CONCURRENCY", "3"))
+    atmos_worker_count = int(os.getenv("ATMOS_WORKER_CONCURRENCY", "3"))
+
+    for _ in range(worker_count):
         asyncio.create_task(worker())
 
-    # Start 10 concurrent AAC workers
-    for _ in range(10):
+    for _ in range(aac_worker_count):
         asyncio.create_task(aac_worker())
 
-    # Start 10 concurrent Atmos workers
-    for _ in range(10):
+    for _ in range(atmos_worker_count):
         asyncio.create_task(atmos_worker())
 
-    # Set webhook on local Telegram API server
-    logging.info(f"Setting webhook to: {WEBHOOK_URL}")
-    await bot.set_webhook(
-        url=WEBHOOK_URL,
-        secret_token=WEBHOOK_SECRET,
-        drop_pending_updates=True,
-    )
-    logging.info("Webhook successfully configured.")
+    # Set webhook on local Telegram API server with backoff retries
+    webhook_set = False
+    delay = 2
+    max_delay = 30
+    while not webhook_set:
+        try:
+            logging.info(f"Setting webhook to: {WEBHOOK_URL}")
+            await bot.set_webhook(
+                url=WEBHOOK_URL,
+                secret_token=WEBHOOK_SECRET,
+                drop_pending_updates=True,
+            )
+            webhook_set = True
+            logging.info("Webhook successfully configured.")
+        except Exception as e:
+            logging.error(f"Failed to set webhook: {e}. Retrying in {delay}s...")
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)
+
 
     # Register bot commands menu
     try:

@@ -110,7 +110,16 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is missing. Add it to your .env file.")
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+echo_sql = os.getenv("SQL_ECHO", "false").lower() in ("true", "1")
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=echo_sql,
+    pool_pre_ping=True,
+    pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "10")),
+    pool_recycle=1800,
+)
+
 
 
 async def init_db():

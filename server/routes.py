@@ -1,6 +1,9 @@
+import base64
 import logging
 import os
+import re
 import sys
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from aiohttp import web
