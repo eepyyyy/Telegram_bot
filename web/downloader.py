@@ -153,14 +153,9 @@ async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, A
             )
 
             async with database.async_session() as session:
-                if format_type == "aac":
-                    await crud.create_aac_track(session, track_schema)
-                elif format_type == "atmos":
-                    await crud.create_atmos_track(session, track_schema)
-                elif format_type in ("mv", "video"):
-                    await crud.create_mv_track(session, track_schema)
-                else:
-                    await crud.create_track(session, track_schema)
+                await crud.save_single_track(session, track_schema, format_type=target_subfolder)
+                await session.commit()
+
 
             results.append({
                 "song_id": song_id,
