@@ -105,6 +105,9 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
             pass
         return
 
+    # Mark user busy immediately to prevent race conditions during metadata fetch
+    mv_in_queue.add(user_id_local)
+
     # Check database daily limit before enqueuing
     async with async_session() as session:
         statement = select(User).where(User.user_id == user_id_local)
@@ -126,6 +129,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
                 await session.commit()
 
         if not user.is_premium and user.downloaded_today >= user.daily_limit:
+            mv_in_queue.discard(user_id_local)
             try:
                 await msg.answer("❌ Daily download limit reached.")
             except Exception:
@@ -136,6 +140,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     try:
         songs = await get_any_url(url)
     except Exception as e:
+        mv_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
         except Exception:
@@ -143,6 +148,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         return
 
     if not songs:
+        mv_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("❌ No music video content found.")
         except Exception:
@@ -167,6 +173,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
                     await session.commit()
 
     if not tracks_to_download:
+        mv_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("✅ Music Video delivered from cache!\n\n🌐 Streaming Link: https://stream.eepy.in/")
         except Exception:
@@ -174,7 +181,6 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         return
 
     # Queue the missing video tracks
-    mv_in_queue.add(user_id_local)
     mv_pending_jobs[user_id_local] = len(tracks_to_download)
     position = mv_queue.qsize()
 

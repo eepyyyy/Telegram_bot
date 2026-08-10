@@ -39,6 +39,9 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
+    # Mark user busy immediately
+    aac_in_queue.add(user_id_local)
+
     # Check database daily limit before enqueuing
     async with async_session() as session:
         statement = select(User).where(User.user_id == user_id_local)
@@ -60,6 +63,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
                 await session.commit()
 
         if not user.is_premium and user.downloaded_today >= user.daily_limit:
+            aac_in_queue.discard(user_id_local)
             try:
                 await msg.answer("❌ Daily download limit reached.")
             except Exception:
@@ -71,6 +75,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
     try:
         songs = await get_any_url(url)
     except Exception as e:
+        aac_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
         except Exception:
@@ -78,6 +83,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     if not songs:
+        aac_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("❌ No tracks found.")
         except Exception:
@@ -102,6 +108,7 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
                     await session.commit()
 
     if not tracks_to_download:
+        aac_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("✅ All AAC tracks delivered from cache!")
         except Exception:
@@ -109,7 +116,6 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     # Queue the missing tracks
-    aac_in_queue.add(user_id_local)
     aac_pending_jobs[user_id_local] = len(tracks_to_download)
     position = aac_queue.qsize()
     

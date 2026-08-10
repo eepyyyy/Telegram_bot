@@ -686,11 +686,11 @@ async def on_startup(bot: Bot) -> None:
 
     await database.init_db()
 
-    # Start configurable concurrent workers
-    worker_count = int(os.getenv("WORKER_CONCURRENCY", "2"))
-    aac_worker_count = int(os.getenv("AAC_WORKER_CONCURRENCY", "3"))
-    atmos_worker_count = int(os.getenv("ATMOS_WORKER_CONCURRENCY", "3"))
-    mv_worker_count = int(os.getenv("MV_WORKER_CONCURRENCY", "3"))
+    # Start configurable concurrent workers (default 1 concurrent)
+    worker_count = int(os.getenv("WORKER_CONCURRENCY", "3"))
+    aac_worker_count = int(os.getenv("AAC_WORKER_CONCURRENCY", "4"))
+    atmos_worker_count = int(os.getenv("ATMOS_WORKER_CONCURRENCY", "4"))
+    mv_worker_count = int(os.getenv("MV_WORKER_CONCURRENCY", "1"))
 
     for _ in range(worker_count):
         asyncio.create_task(worker())

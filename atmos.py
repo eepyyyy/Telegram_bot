@@ -39,6 +39,9 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
+    # Mark user busy immediately
+    atmos_in_queue.add(user_id_local)
+
     # Check database daily limit before enqueuing
     async with async_session() as session:
         statement = select(User).where(User.user_id == user_id_local)
@@ -60,6 +63,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
                 await session.commit()
 
         if not user.is_premium and user.downloaded_today >= user.daily_limit:
+            atmos_in_queue.discard(user_id_local)
             try:
                 await msg.answer("❌ Daily download limit reached.")
             except Exception:
@@ -71,6 +75,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
     try:
         songs = await get_any_url(url)
     except Exception as e:
+        atmos_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
         except Exception:
@@ -78,6 +83,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     if not songs:
+        atmos_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("❌ No tracks found.")
         except Exception:
@@ -90,6 +96,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         for s in songs
     )
     if not has_atmos:
+        atmos_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text(
                 "⚠️ <b>Dolby Atmos is not available</b> for this track/album on Apple Music.\n\n"
@@ -118,6 +125,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
                     await session.commit()
 
     if not tracks_to_download:
+        atmos_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("✅ All Dolby Atmos tracks delivered from cache!")
         except Exception:
@@ -125,7 +133,6 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     # Queue the missing tracks
-    atmos_in_queue.add(user_id_local)
     atmos_pending_jobs[user_id_local] = len(tracks_to_download)
     position = atmos_queue.qsize()
     
