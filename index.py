@@ -402,6 +402,7 @@ async def process_download(task: dict) -> None:
             *tracks_to_download,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=10 * 1024 * 1024,
         )
         if unique_task_id in active_tasks:
             active_tasks[unique_task_id]["process"] = process
@@ -418,7 +419,16 @@ async def process_download(task: dict) -> None:
                     pass
                 return
 
-            line_bytes = await process.stdout.readline()
+            try:
+                line_bytes = await process.stdout.readline()
+            except (ValueError, asyncio.LimitOverrunError):
+                try:
+                    line_bytes = await process.stdout.read(8192)
+                except Exception:
+                    line_bytes = b""
+            except Exception:
+                line_bytes = b""
+
             if not line_bytes:
                 break
             

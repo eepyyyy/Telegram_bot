@@ -170,13 +170,23 @@ async def process_atmos_download(task: dict) -> None:
             track_url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=10 * 1024 * 1024,
         )
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         uploaded_files = set()
 
         while True:
-            line_bytes = await process.stdout.readline()
+            try:
+                line_bytes = await process.stdout.readline()
+            except (ValueError, asyncio.LimitOverrunError):
+                try:
+                    line_bytes = await process.stdout.read(8192)
+                except Exception:
+                    line_bytes = b""
+            except Exception:
+                line_bytes = b""
+
             if not line_bytes:
                 break
 
