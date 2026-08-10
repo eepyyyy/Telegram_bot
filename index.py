@@ -190,6 +190,8 @@ async def cmd_start(msg: types.Message) -> None:
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
+        f"<b>Note:</b> Music Video downloads (<code>/mv &lt;url&gt;</code>) H.265 / H.264 HD Video.\n\n"
+
         f"<b>How to Use</b>\n"
         f"Send any track, album, or artist link directly to this chat.\n\n"
         f"<b>Shortcuts & Commands</b>\n"
@@ -395,25 +397,15 @@ async def process_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, task_output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, task_temp_dir, exist_ok=True)
         
-        gamdl_cmd = [
+        process = await asyncio.create_subprocess_exec(
             "gamdl",
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
-        ]
-        if os.getenv("USE_WRAPPER", "false").lower() in ("true", "1"):
-            gamdl_cmd.append("--use-wrapper")
-            wrapper_url = os.getenv("WRAPPER_URL")
-            if wrapper_url:
-                gamdl_cmd.extend(["--wrapper-url", wrapper_url])
-        gamdl_cmd.extend(tracks_to_download)
-
-        process = await asyncio.create_subprocess_exec(
-            *gamdl_cmd,
+            *tracks_to_download,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
         )
-
         if unique_task_id in active_tasks:
             active_tasks[unique_task_id]["process"] = process
 

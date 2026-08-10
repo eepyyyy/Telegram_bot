@@ -45,7 +45,9 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             "• <code>/help &lt;Apple Music URL&gt;</code> - Get detailed metadata, artwork, audio format support (ALAC/AAC/Atmos), and copyable track/album URLs.\n"
             "• <code>/aac &lt;Apple Music URL&gt;</code> - Download AAC 256kbps audio format.\n"
             "• <code>/atmos &lt;Apple Music URL&gt;</code> - Download Spatial Audio / Dolby Atmos.\n"
+            "• <code>/mv &lt;Apple Music URL&gt;</code> - Download Music Video in H.265 / H.264 HD video format.\n"
             "• <code>/artist &lt;Artist URL&gt;</code> - Browse and select artist albums/singles.\n\n"
+
             "<b>Metadata Examples:</b>\n"
             "• <b>Song:</b> <code>/help https://music.apple.com/us/album/song-name/123456789?i=987654321</code>\n"
             "• <b>Album:</b> <code>/help https://music.apple.com/us/album/album-name/123456789</code>\n"
