@@ -19,9 +19,16 @@ atmos_in_queue: set[int] = set()
 atmos_pending_jobs: dict[int, int] = {}
 atmos_locks: dict[int, asyncio.Lock] = {}
 
+mv_queue: asyncio.Queue = asyncio.Queue()
+
+mv_in_queue: set[int] = set()
+mv_pending_jobs: dict[int, int] = {}
+mv_locks: dict[int, asyncio.Lock] = {}
+
 
 def is_user_busy(user_id: int) -> bool:
     """
-    Checks if a user has an active download task in any queue (ALAC, AAC, or Dolby Atmos).
+    Checks if a user has an active download task in any queue (ALAC, AAC, Dolby Atmos, or Music Video).
     """
-    return user_id in user_in_queue or user_id in aac_in_queue or user_id in atmos_in_queue
+    return user_id in user_in_queue or user_id in aac_in_queue or user_id in atmos_in_queue or user_id in mv_in_queue
+

@@ -291,12 +291,62 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
     return lists_of_tracks
 
 
+async def get_music_video_schema(url: str) -> List[TrackInputSchema]:
+    """
+    Fetches metadata for a single Music Video and returns it as a list containing one TrackInputSchema.
+    """
+    url = normalize_apple_music_url(url)
+    api = await get_api()
+    info = AppleMusicInterface.get_url_info(url)
+    mv_id = info.id
+
+    try:
+        mv = await api.get_music_video(mv_id)
+        data = mv["data"][0]
+        attrs = data["attributes"]
+        href_parts = data.get("href", "").split("/")
+        storefront = href_parts[3] if len(href_parts) > 3 else "us"
+
+        return [
+            TrackInputSchema(
+                album_id=None,
+                song_id=data["id"],
+                title=attrs.get("name", "Music Video"),
+                artist=attrs.get("artistName", ""),
+                album=attrs.get("albumName", ""),
+                url=attrs.get("url", url),
+                storefront=storefront,
+                isrc=attrs.get("isrc"),
+                artwork=get_artwork_url(attrs.get("artwork")),
+                audio_traits=attrs.get("audioTraits", [])
+            )
+        ]
+    except Exception:
+        return [
+            TrackInputSchema(
+                album_id=None,
+                song_id=mv_id,
+                title="Music Video",
+                artist="Artist",
+                album="",
+                url=url,
+                storefront="us",
+                isrc=None,
+                artwork=None,
+                audio_traits=[]
+            )
+        ]
+
+
 async def get_any_url(url: str) -> List[TrackInputSchema]:
     """
-    Determines the URL type (song, album, or playlist) and fetches the corresponding metadata.
+    Determines the URL type (song, album, playlist, or music-video) and fetches the corresponding metadata.
     """
     url = normalize_apple_music_url(url)
     info = AppleMusicInterface.get_url_info(url)
+
+    if getattr(info, "type", "") in ("music-video", "video") or "music-video" in url:
+        return await get_music_video_schema(url)
 
     if info.type == "album":
         if info.sub_id:
@@ -310,6 +360,7 @@ async def get_any_url(url: str) -> List[TrackInputSchema]:
         return await get_track_schema(url)
 
     raise ValueError(f"Unsupported URL type: {info.type}")
+
 
 
 async def _main_test():

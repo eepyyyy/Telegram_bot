@@ -89,6 +89,28 @@ class AtmosTracks(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
 
 
+class MVTracks(SQLModel, table=True):
+    """
+    SQLModel for the 'mv_tracks' table to store Music Video cached files.
+    """
+    __tablename__ = "mv_tracks"
+    file_id: Optional[str] = None
+    file_unique_id: Optional[str] = None
+    song_id: Optional[str] = Field(primary_key=True)
+    title: Optional[str] = None
+    album: Optional[str] = None
+    artist: Optional[str] = None
+    url: Optional[str] = None
+    album_id: Optional[str] = Field(default=None)
+    size: Optional[int] = Field(sa_type=BigInteger)
+    storefront: Optional[str] = None
+    isrc: Optional[str] = None
+    artwork: Optional[str] = None
+    chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
+    message_id: Optional[int] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+
+
 class User(SQLModel, table=True):
     """
     SQLModel for the 'user' table to handle download limits and premium status.
@@ -137,10 +159,15 @@ async def init_db():
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
+        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
+
 
 
 

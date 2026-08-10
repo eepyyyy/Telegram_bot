@@ -6,7 +6,7 @@ from sqlmodel import select
 import database
 import gamdlUrl
 import schema
-from database import Tracks, AACTracks, AtmosTracks, User, async_session
+from database import Tracks, AACTracks, AtmosTracks, MVTracks, User, async_session
 from datetime import datetime, timezone
 
 
@@ -19,7 +19,10 @@ def get_track_model(format_type: str = "alac"):
         return AACTracks
     elif fmt == "atmos":
         return AtmosTracks
+    elif fmt in ("mv", "video"):
+        return MVTracks
     return Tracks
+
 
 
 async def save_albums(session: async_session, track_list: List[schema.TrackInputSchema]):

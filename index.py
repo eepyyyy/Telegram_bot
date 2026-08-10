@@ -15,7 +15,9 @@ from aiogram.client.telegram import TelegramAPIServer
 
 from aac import aac, aac_worker
 from atmos import atmos, atmos_worker
+from mv import mv, mv_worker, process_mv_enqueue
 from artist import test_router
+
 from help import help_router
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
@@ -218,7 +220,13 @@ async def download_handle(msg: types.Message) -> None:
         await msg.answer("Please send exactly one Apple Music link.")
         return
 
+    url = links[0]
+    if "music-video" in url:
+        await process_mv_enqueue(msg, url)
+        return
+
     user_id_local = msg.from_user.id
+
     if is_user_busy(user_id_local):
         await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
         return
@@ -666,10 +674,11 @@ async def on_startup(bot: Bot) -> None:
 
     await database.init_db()
 
-    # Start configurable concurrent workers (default: 2 general, 3 AAC, 3 Atmos to avoid high idle CPU)
+    # Start configurable concurrent workers
     worker_count = int(os.getenv("WORKER_CONCURRENCY", "2"))
     aac_worker_count = int(os.getenv("AAC_WORKER_CONCURRENCY", "3"))
     atmos_worker_count = int(os.getenv("ATMOS_WORKER_CONCURRENCY", "3"))
+    mv_worker_count = int(os.getenv("MV_WORKER_CONCURRENCY", "3"))
 
     for _ in range(worker_count):
         asyncio.create_task(worker())
@@ -679,6 +688,9 @@ async def on_startup(bot: Bot) -> None:
 
     for _ in range(atmos_worker_count):
         asyncio.create_task(atmos_worker())
+
+    for _ in range(mv_worker_count):
+        asyncio.create_task(mv_worker())
 
     # Set webhook on local Telegram API server with backoff retries
     webhook_set = False
@@ -707,6 +719,7 @@ async def on_startup(bot: Bot) -> None:
             types.BotCommand(command="artist", description="Download artist top tracks or catalog"),
             types.BotCommand(command="aac", description="Download track/album in AAC 256kbps"),
             types.BotCommand(command="atmos", description="Download track/album in Dolby Atmos"),
+            types.BotCommand(command="mv", description="Download Music Video in H.265/H.264"),
             types.BotCommand(command="help", description="View help and usage instructions"),
         ])
         logging.info("Bot commands successfully registered.")
@@ -744,7 +757,9 @@ def main() -> None:
     dp.include_router(test_router)
     dp.include_router(aac)
     dp.include_router(atmos)
+    dp.include_router(mv)
     dp.include_router(help_router)
+
 
     # Register lifecycle hooks
     dp.startup.register(on_startup)
