@@ -190,10 +190,17 @@ async def process_mv_download(task: dict) -> None:
 
     unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
-    temp_dir = f"{output_dir}_temp"
+    # Inspect video_traits directly from Apple Music API metadata first
+    video_traits = (songs[0].video_traits or []) if songs and hasattr(songs[0], "video_traits") else []
+    has_h265 = any(t.lower() in ("h265", "hevc", "hdr", "4k") for t in video_traits)
 
-    codecs_to_try = ["h265", "h264", None]
+    if has_h265:
+        codecs_to_try = ["h265", "h264", None]
+    else:
+        codecs_to_try = ["h264", "h265", None]
+
     download_success = False
+
 
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)

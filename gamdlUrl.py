@@ -318,7 +318,8 @@ async def get_music_video_schema(url: str) -> List[TrackInputSchema]:
                 storefront=storefront,
                 isrc=attrs.get("isrc"),
                 artwork=get_artwork_url(attrs.get("artwork")),
-                audio_traits=attrs.get("audioTraits", [])
+                audio_traits=attrs.get("audioTraits", []),
+                video_traits=attrs.get("videoTraits", [])
             )
         ]
     except Exception:

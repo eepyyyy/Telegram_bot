@@ -33,4 +33,6 @@ class TrackInputSchema(BaseModel):
     artwork: Optional[str] = None
     chat_id: Optional[int] = None
     message_id: Optional[int] = None
-    audio_traits: Optional[list[str]] = Field(default_factory=list)
+    audio_traits: Optional[list[str]] = Field(default_factory=list)
+    video_traits: Optional[list[str]] = Field(default_factory=list)
+
