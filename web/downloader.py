@@ -124,13 +124,14 @@ async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, A
             shutil.move(file_path, dest_path)
 
             # Parse metadata using mutagen (utils.py)
-            metadata = utils.get_track_metadata(str(dest_path))
+            title, artist, _thumb, _duration, isrc = utils.extract_track_metadata(str(dest_path))
             file_size = os.path.getsize(dest_path)
 
-            title = metadata.get("title") or Path(fname).stem
-            artist = metadata.get("artist") or "Unknown Artist"
-            album = metadata.get("album") or "Unknown Album"
-            isrc = metadata.get("isrc") or ""
+            title = title or Path(fname).stem
+            artist = artist or "Unknown Artist"
+            album = "Unknown Album"
+            isrc = isrc or ""
+
 
             # Standardize song_id from URL or filename
             song_id_match = re.search(r"i=(\d+)|/song/(?:[^/]+/)?(\d+)", url)
