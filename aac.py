@@ -144,18 +144,27 @@ async def process_aac_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
-        # Start downloading
-        process = await asyncio.create_subprocess_exec(
+        gamdl_cmd = [
             "gamdl",
             "-n",
             "--output-path", output_dir,
             "--temp-path", temp_dir,
             "--song-codec-priority", "aac-web",
-            track_url,
+        ]
+        if os.getenv("USE_WRAPPER", "false").lower() in ("true", "1"):
+            gamdl_cmd.append("--use-wrapper")
+            wrapper_url = os.getenv("WRAPPER_URL")
+            if wrapper_url:
+                gamdl_cmd.extend(["--wrapper-url", wrapper_url])
+        gamdl_cmd.append(track_url)
+
+        process = await asyncio.create_subprocess_exec(
+            *gamdl_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
         )
+
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         uploaded_files = set()

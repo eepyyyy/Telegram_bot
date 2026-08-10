@@ -395,15 +395,25 @@ async def process_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, task_output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, task_temp_dir, exist_ok=True)
         
-        process = await asyncio.create_subprocess_exec(
+        gamdl_cmd = [
             "gamdl",
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
-            *tracks_to_download,
+        ]
+        if os.getenv("USE_WRAPPER", "false").lower() in ("true", "1"):
+            gamdl_cmd.append("--use-wrapper")
+            wrapper_url = os.getenv("WRAPPER_URL")
+            if wrapper_url:
+                gamdl_cmd.extend(["--wrapper-url", wrapper_url])
+        gamdl_cmd.extend(tracks_to_download)
+
+        process = await asyncio.create_subprocess_exec(
+            *gamdl_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
         )
+
         if unique_task_id in active_tasks:
             active_tasks[unique_task_id]["process"] = process
 

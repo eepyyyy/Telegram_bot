@@ -173,9 +173,15 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
         "--output-path", output_dir,
         "--temp-path", temp_dir,
     ]
+    if os.getenv("USE_WRAPPER", "false").lower() in ("true", "1"):
+        cmd.append("--use-wrapper")
+        wrapper_url = os.getenv("WRAPPER_URL")
+        if wrapper_url:
+            cmd.extend(["--wrapper-url", wrapper_url])
     if codec:
         cmd.extend(["--music-video-codec-priority", codec])
     cmd.append(track_url)
+
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
