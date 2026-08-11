@@ -216,33 +216,49 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
             pass
         return
 
-    # Check database for existing MV cached tracks
-    file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="mv")
+    song_obj = songs[0]
+    song_id = song_obj.song_id if hasattr(song_obj, "song_id") else None
+    title_str = song_obj.title if hasattr(song_obj, "title") and song_obj.title else "Music Video"
+    artist_str = song_obj.artist if hasattr(song_obj, "artist") and song_obj.artist else ""
 
-    for file_id in file_ids:
-        try:
-            sent_msg = await msg.answer_video(video=file_id)
-        except Exception:
-            sent_msg = None
-        if sent_msg:
-            async with async_session() as session:
-                result = await session.exec(select(User).where(User.user_id == user_id_local))
-                user = result.first()
-                if user:
-                    user.download_count += 1
-                    session.add(user)
-                    await session.commit()
-
-    if not tracks_to_download:
+    # If no resolution specified, prompt user with interactive resolution selection keyboard
+    if resolution is None and song_id:
         mv_in_queue.discard(user_id_local)
+        async with async_session() as session:
+            cached_mvs = await crud.get_mv_tracks_by_song_id(session, song_id)
+            res_map = {m.resolution: m for m in cached_mvs if m.resolution and m.file_id}
+            file_ids, _ = await crud.check_db_for_urls(songs, format_type="mv")
+            if file_ids and not res_map:
+                res_map["1080p"] = cached_mvs[0] if cached_mvs else True
+
+        kb = build_mv_resolution_keyboard(song_id, res_map)
         try:
-            await status_msg.edit_text("✅ Music Video delivered from cache!\n\n🌐 Streaming Link: https://stream.eepy.in/")
+            await status_msg.edit_text(
+                f"🎬 <b>{title_str}</b>\n👤 {artist_str}\n\nSelect your preferred resolution:",
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
         except Exception:
             pass
         return
 
-    # Queue the missing video tracks
-    mv_pending_jobs[user_id_local] = len(tracks_to_download)
+    # Specific resolution requested (explicitly or via callback)
+    async with async_session() as session:
+        cached_mvs = await crud.get_mv_tracks_by_song_id(session, song_id) if song_id else []
+        res_map = {m.resolution: m for m in cached_mvs if m.resolution and m.file_id}
+        target = res_map.get(resolution) if resolution else None
+
+    if target and target.file_id:
+        mv_in_queue.discard(user_id_local)
+        try:
+            await msg.answer_video(video=target.file_id, caption=f"🎬 <b>{target.title or title_str}</b> ({resolution.upper()})", parse_mode="HTML")
+            await status_msg.delete()
+        except Exception:
+            pass
+        return
+
+    # Queue the missing video track for requested resolution
+    mv_pending_jobs[user_id_local] = len(songs)
     position = mv_queue.qsize()
 
     try:
@@ -252,7 +268,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     except Exception:
         pass
 
-    for track_url in tracks_to_download:
+    for track_url in [s.url for s in songs if s.url]:
         await mv_queue.put({
             "url": track_url,
             "songs": songs,
@@ -262,6 +278,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
             "codec": codec,
             "resolution": resolution,
         })
+
 
 
 async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str, codec: str | None = None, resolution: str | None = None) -> tuple[int, bool]:
