@@ -137,6 +137,7 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
     """
     isrcs = [track.isrc for track in track_lists if track.isrc]
     song_ids = [track.song_id for track in track_lists if track.song_id]
+    urls = [str(track.url) for track in track_lists if track.url]
     model_cls = get_track_model(format_type)
 
     async with async_session() as session:
@@ -145,6 +146,8 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
             conds.append(model_cls.isrc.in_(isrcs))
         if song_ids:
             conds.append(model_cls.song_id.in_(song_ids))
+        if urls:
+            conds.append(model_cls.url.in_(urls))
 
         if not conds:
             return [], [str(track.url) for track in track_lists if track.url]
@@ -161,7 +164,9 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
                 cache_dict[track.isrc] = track.file_id
             if track.song_id:
                 cache_dict[track.song_id] = track.file_id
-    
+            if getattr(track, "url", None):
+                cache_dict[str(track.url)] = track.file_id
+
     file_ids_to_send: List[str] = []
     urls_to_download: List[str] = []
 
@@ -170,8 +175,11 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
             file_ids_to_send.append(cache_dict[track.isrc])
         elif track.song_id and track.song_id in cache_dict:
             file_ids_to_send.append(cache_dict[track.song_id])
+        elif track.url and str(track.url) in cache_dict:
+            file_ids_to_send.append(cache_dict[str(track.url)])
         elif track.url:
             urls_to_download.append(str(track.url))
+
             
     return file_ids_to_send, urls_to_download
 
