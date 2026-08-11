@@ -46,14 +46,19 @@ def get_target_subfolder(format_type: str) -> str:
     return "alac"
 
 
-async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, Any]:
+async def download_track_web(
+    url: str,
+    format_type: str = "alac",
+    resolution: Optional[str] = None,
+    codec: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Downloads an Apple Music track or album using gamdl directly to the local storage directory (./downloads).
     Indexes downloaded files into PostgreSQL database using shared CRUD functions.
     """
     format_type = format_type.lower()
     target_subfolder = get_target_subfolder(format_type)
-    lock_key = f"{format_type}:{url}"
+    lock_key = f"{format_type}:{resolution}:{codec}:{url}"
     lock = await get_download_lock(lock_key)
 
     async with lock:
@@ -67,6 +72,14 @@ async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, A
         cookies_file = config.BASE_DIR / "cookies.txt"
         cookies_arg = ["--cookies-path", str(cookies_file)] if cookies_file.exists() else []
 
+        extra_args = []
+        if target_subfolder == "mv":
+            extra_args.extend(["--music-video-resolution", resolution or "2160p"])
+            if codec:
+                extra_args.extend(["--music-video-codec-priority", codec])
+            else:
+                extra_args.extend(["--music-video-codec-priority", "h265,h264"])
+
         cmd = [
             "gamdl",
             "-n",
@@ -74,8 +87,10 @@ async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, A
             "--output-path", str(output_dir),
             "--temp-path", str(temp_dir),
             *get_codec_args(format_type),
+            *extra_args,
             url
         ]
+
 
         logger.info(f"[Web Downloader] Executing: {' '.join(cmd)}")
 
@@ -185,8 +200,11 @@ async def download_track_web(url: str, format_type: str = "alac") -> Dict[str, A
                 message_id=None,
                 file_id="",
                 artwork="",
-                size=file_size
+                size=file_size,
+                resolution=resolution,
+                codec=codec
             )
+
 
             async with database.async_session() as session:
                 await crud.save_single_track(session, track_schema, format_type=target_subfolder)

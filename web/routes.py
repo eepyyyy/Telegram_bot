@@ -128,12 +128,15 @@ async def web_download_request(request: web.Request):
 
     url = body.get("url", "").strip()
     format_type = body.get("format_type", "alac").strip().lower()
+    resolution = body.get("resolution")
+    codec = body.get("codec")
 
     if not url:
         return web.json_response({"error": "Apple Music URL is required"}, status=400)
 
-    logger.info(f"[Web Request] Download requested for URL: {url} (Format: {format_type})")
-    result = await download_track_web(url=url, format_type=format_type)
+    logger.info(f"[Web Request] Download requested for URL: {url} (Format: {format_type}, Res: {resolution}, Codec: {codec})")
+    result = await download_track_web(url=url, format_type=format_type, resolution=resolution, codec=codec)
+
 
     if not result.get("success"):
         return web.json_response(result, status=500)

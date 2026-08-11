@@ -5,20 +5,81 @@ import re
 import shutil
 from datetime import datetime, timezone
 
-from aiogram import Router, types
+from aiogram import Router, types, F
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlmodel import select
 
 import utils
 import schema
 import crud
 import database
-from database import User, async_session
+from database import User, async_session, MVTracks
 from gamdlUrl import get_any_url
 from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_busy
 
 mv = Router()
+
+
+def build_mv_resolution_keyboard(song_id: str, cached_res_map: dict) -> InlineKeyboardMarkup:
+    """
+    Builds an interactive resolution selection inline keyboard for Telegram users.
+    Shows which resolutions are already cached vs available for download.
+    """
+    resolutions = [
+        ("2160p", "🎬 4K Ultra HD (2160p)"),
+        ("1080p", "📺 1080p Full HD"),
+        ("720p", "📱 720p HD"),
+        ("480p", "💾 480p SD")
+    ]
+    keyboard = []
+    for res_code, res_label in resolutions:
+        if res_code in cached_res_map:
+            text = f"✅ {res_label} (Instant)"
+        else:
+            text = f"⬇️ Download {res_label}"
+        cb_data = f"dl_mv:{song_id}:{res_code}:h265"
+        keyboard.append([InlineKeyboardButton(text=text, callback_data=cb_data)])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+@mv.callback_query(F.data.startswith("dl_mv:"))
+async def handle_mv_resolution_callback(call: types.CallbackQuery) -> None:
+    """
+    Handles inline keyboard quality button clicks for Music Videos.
+    """
+    parts = call.data.split(":")
+    if len(parts) < 4:
+        await call.answer("Invalid callback data", show_alert=True)
+        return
+
+    song_id = parts[1]
+    resolution = parts[2]
+    codec = parts[3]
+    user_id = call.from_user.id
+
+    if is_user_busy(user_id):
+        await call.answer("⏳ You already have an active download in progress.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cached_mvs = await crud.get_mv_tracks_by_song_id(session, song_id)
+        res_map = {m.resolution: m for m in cached_mvs if m.resolution and m.file_id}
+        target = res_map.get(resolution)
+
+        if target and target.file_id:
+            await call.answer("🚀 Delivering cached video...")
+            try:
+                await call.message.answer_video(video=target.file_id, caption=f"🎬 <b>{target.title}</b> ({resolution.upper()})", parse_mode="HTML")
+            except Exception as e:
+                await call.answer(f"Failed to deliver: {e}", show_alert=True)
+            return
+
+        # Resolution not cached - trigger download
+        target_url = cached_mvs[0].url if cached_mvs and cached_mvs[0].url else f"https://music.apple.com/us/music-video/{song_id}"
+        await call.answer(f"⏳ Downloading Music Video in {resolution.upper()}...")
+        await process_mv_enqueue(call.message, target_url, codec=codec, resolution=resolution)
+
 
 
 def parse_mv_args(raw_args: str) -> tuple[str | None, str | None, str]:
@@ -391,14 +452,20 @@ async def process_mv_download(task: dict) -> None:
                         file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
 
                         tbot = schema.TrackInputSchema(
+                            song_id=songs[0].song_id if songs else None,
                             file_id=file_id_val,
                             file_unique_id=file_uniq_val,
                             title=track_title,
+                            artist=artist,
                             size=file_sz_val,
                             isrc=isrc,
                             chat_id=saved_chat_id,
-                            message_id=saved_message_id
+                            message_id=saved_message_id,
+                            resolution=requested_resolution or "2160p",
+                            codec=requested_codec or "h265"
                         )
+                        await crud.save_single_track(session, tbot, format_type="mv")
+                        await session.commit()
 
                         matched = False
                         if isrc:

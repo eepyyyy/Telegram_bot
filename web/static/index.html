@@ -365,14 +365,15 @@ toastNotice.classList.remove('show');
 }
 
 // Toast Direct Web Download Action
-async function triggerWebDownload(link, formatType = 'alac') {
-showToast('Starting web download (' + formatType.toUpperCase() + ')...');
+async function triggerWebDownload(link, formatType = 'alac', resolution = '2160p', codec = 'h265') {
+showToast('Starting web download (' + formatType.toUpperCase() + (resolution ? ' ' + resolution.toUpperCase() : '') + ')...');
 try {
 const resp = await fetch('/api/web/download', {
 method: 'POST',
 headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({ url: link, format_type: formatType })
+body: JSON.stringify({ url: link, format_type: formatType, resolution: resolution, codec: codec })
 });
+
 const data = await resp.json();
 if (resp.ok && data.success && data.tracks && data.tracks.length) {
 showToast('Download complete! Initiating file save...');

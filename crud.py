@@ -86,6 +86,13 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
         await session.merge(album_obj)
     
     model_cls = get_track_model(format_type)
+    extra_kwargs = {}
+    if issubclass(model_cls, MVTracks):
+        if track_data.resolution:
+            extra_kwargs["resolution"] = track_data.resolution
+        if track_data.codec:
+            extra_kwargs["codec"] = track_data.codec
+
     track_obj = model_cls(
         artist=track_data.artist,
         album=track_data.album,
@@ -102,8 +109,19 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
         chat_id=track_data.chat_id,
         message_id=track_data.message_id,
         updated_at=datetime.now(timezone.utc),
+        **extra_kwargs
     )
     await session.merge(track_obj)
+
+
+async def get_mv_tracks_by_song_id(session: async_session, song_id: str) -> List[MVTracks]:
+    """
+    Returns all cached resolution entries for a Music Video song_id.
+    """
+    statement = select(MVTracks).where(MVTracks.song_id == song_id)
+    result = await session.exec(statement)
+    return result.all()
+
 
 
 async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_type: str = "alac") -> Tuple[List[str], List[str]]:

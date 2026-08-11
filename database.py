@@ -108,7 +108,10 @@ class MVTracks(SQLModel, table=True):
     artwork: Optional[str] = None
     chat_id: Optional[int] = Field(default=None, sa_type=BigInteger)
     message_id: Optional[int] = Field(default=None)
+    resolution: Optional[str] = Field(default=None)
+    codec: Optional[str] = Field(default=None)
     updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+
 
 
 class User(SQLModel, table=True):
@@ -161,7 +164,10 @@ async def init_db():
         await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
+        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;"))
+        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;"))
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
+
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
