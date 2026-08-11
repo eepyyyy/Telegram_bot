@@ -285,7 +285,7 @@ async def process_mv_download(task: dict) -> None:
 
         # Check for downloaded video files
         downloaded_files = []
-        for ext in ("*.m4v", "*.mp4", "*.mkv"):
+        for ext in ("*.m4v", "*.mp4", "*.mkv", "*.webm"):
             found = await asyncio.to_thread(
                 glob.glob, os.path.join(output_dir, "**", ext), recursive=True
             )
@@ -296,7 +296,46 @@ async def process_mv_download(task: dict) -> None:
             if not ("gamdl_temp" in f.replace("\\", "/") or "_temp" in f.replace("\\", "/") or f.endswith(".tmp"))
         ]
 
-        if valid_files and not format_unavailable:
+        # Automatic fallback to yt-dlp if gamdl fails or format is unavailable
+        if not valid_files or format_unavailable:
+            print(f"[mv] gamdl format unavailable or no files produced for {track_url}. Initiating yt-dlp fallback...")
+            try:
+                await status_msg.edit_text("🎬 gamdl format unavailable. Trying yt-dlp fallback...")
+            except Exception:
+                pass
+
+            ytdlp_cmd = [
+                "yt-dlp",
+                "--no-warning",
+                "--output", os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s"),
+                track_url
+            ]
+            try:
+                yt_proc = await asyncio.create_subprocess_exec(
+                    *ytdlp_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                await yt_proc.communicate()
+                print(f"[mv] yt-dlp fallback finished with exit code {yt_proc.returncode}")
+            except Exception as e:
+                print(f"[mv] yt-dlp fallback error: {e}")
+
+            # Re-scan for downloaded video files after yt-dlp
+            downloaded_files = []
+            for ext in ("*.m4v", "*.mp4", "*.mkv", "*.webm"):
+                found = await asyncio.to_thread(
+                    glob.glob, os.path.join(output_dir, "**", ext), recursive=True
+                )
+                downloaded_files.extend(found)
+
+            valid_files = [
+                f for f in downloaded_files
+                if not ("gamdl_temp" in f.replace("\\", "/") or "_temp" in f.replace("\\", "/") or f.endswith(".tmp"))
+            ]
+
+        if valid_files:
+
             for file_path in valid_files:
                 # Check limit before uploading
                 async with async_session() as session:
