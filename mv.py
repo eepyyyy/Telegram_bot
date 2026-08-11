@@ -298,9 +298,9 @@ async def process_mv_download(task: dict) -> None:
 
         # Automatic fallback to yt-dlp if gamdl fails or format is unavailable
         if not valid_files or format_unavailable:
-            print(f"[mv] gamdl format unavailable or no files produced for {track_url}. Initiating yt-dlp fallback...")
+            print(f"[mv] Music Video format unavailable or no files produced for {track_url}. Initiating yt-dlp fallback...")
             try:
-                await status_msg.edit_text("🎬 gamdl format unavailable. Trying yt-dlp fallback...")
+                await status_msg.edit_text("🎬 Music Video format unavailable. Trying yt-dlp fallback...")
             except Exception:
                 pass
 
