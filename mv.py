@@ -226,10 +226,16 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         mv_in_queue.discard(user_id_local)
         async with async_session() as session:
             cached_mvs = await crud.get_mv_tracks_by_song_id(session, song_id)
-            res_map = {m.resolution: m for m in cached_mvs if m.resolution and m.file_id}
+            res_map = {}
+            for m in cached_mvs:
+                if m.file_id:
+                    res_key = m.resolution or "2160p"
+                    res_map[res_key] = m
+
             file_ids, _ = await crud.check_db_for_urls(songs, format_type="mv")
             if file_ids and not res_map:
-                res_map["1080p"] = cached_mvs[0] if cached_mvs else True
+                res_map["2160p"] = cached_mvs[0] if cached_mvs else True
+
 
         kb = build_mv_resolution_keyboard(song_id, res_map)
         try:
@@ -468,6 +474,18 @@ async def process_mv_download(task: dict) -> None:
                         file_uniq_val = media_obj.file_unique_id if media_obj else None
                         file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
 
+                        vid_height = getattr(sent_msg.video, "height", 0) if sent_msg.video else 0
+                        if vid_height >= 1440:
+                            actual_res = "2160p"
+                        elif vid_height >= 900:
+                            actual_res = "1080p"
+                        elif vid_height >= 600:
+                            actual_res = "720p"
+                        elif vid_height > 0:
+                            actual_res = "480p"
+                        else:
+                            actual_res = requested_resolution or "2160p"
+
                         tbot = schema.TrackInputSchema(
                             song_id=songs[0].song_id if songs else None,
                             file_id=file_id_val,
@@ -478,9 +496,10 @@ async def process_mv_download(task: dict) -> None:
                             isrc=isrc,
                             chat_id=saved_chat_id,
                             message_id=saved_message_id,
-                            resolution=requested_resolution or "2160p",
+                            resolution=actual_res,
                             codec=requested_codec or "h265"
                         )
+
                         await crud.save_single_track(session, tbot, format_type="mv")
                         await session.commit()
 
