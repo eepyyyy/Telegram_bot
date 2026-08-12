@@ -20,6 +20,9 @@ from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_bus
 
 mv = Router()
 
+# Temporary maintenance flag (Set to True to enable, False to disable /mv command and link downloads)
+MV_ENABLED = False
+
 
 def parse_mv_args(raw_args: str) -> tuple[str | None, str | None, str]:
     """
@@ -71,9 +74,6 @@ async def mv_download(msg: types.Message, command: CommandObject) -> None:
       /mv h265 <URL>
       /mv 4k h265 <URL>
     """
-    # Temporary maintenance flag (Set to True to enable, False to disable /mv command)
-    MV_ENABLED = False
-
     if not MV_ENABLED:
         try:
             await msg.answer("⚠️ Music Video downloads are temporarily out of service. Please try again later.")
@@ -107,6 +107,13 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     """
     Validates limits, checks cache, and queues Music Video download tasks.
     """
+    if not MV_ENABLED:
+        try:
+            await msg.answer("⚠️ Music Video downloads are temporarily out of service. Please try again later.")
+        except Exception:
+            pass
+        return
+
     user_id_local = msg.from_user.id
     if is_user_busy(user_id_local):
         try:
