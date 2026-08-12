@@ -71,6 +71,16 @@ async def mv_download(msg: types.Message, command: CommandObject) -> None:
       /mv h265 <URL>
       /mv 4k h265 <URL>
     """
+    # Temporary maintenance flag (Set to True to enable, False to disable /mv command)
+    MV_ENABLED = False
+
+    if not MV_ENABLED:
+        try:
+            await msg.answer("⚠️ Music Video downloads are temporarily out of service. Please try again later.")
+        except Exception:
+            pass
+        return
+
     raw_args = (command.args or "").strip()
     resolution, codec, url = parse_mv_args(raw_args)
 
