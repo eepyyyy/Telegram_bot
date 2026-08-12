@@ -76,7 +76,13 @@ async def mv_download(msg: types.Message, command: CommandObject) -> None:
     """
     if not MV_ENABLED:
         try:
-            await msg.answer("⚠️ Music Video downloads are temporarily out of service. Please try again later.")
+            discord_markup = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/KBy2UMfjx8")]
+            ])
+            await msg.answer(
+                "⚠️ Music Video downloads are temporarily out of service. Please join our Discord community for support and updates.",
+                reply_markup=discord_markup
+            )
         except Exception:
             pass
         return
@@ -109,7 +115,13 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     """
     if not MV_ENABLED:
         try:
-            await msg.answer("⚠️ Music Video downloads are temporarily out of service. Please try again later.")
+            discord_markup = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/KBy2UMfjx8")]
+            ])
+            await msg.answer(
+                "⚠️ Music Video downloads are temporarily out of service. Please join our Discord community for support and updates.",
+                reply_markup=discord_markup
+            )
         except Exception:
             pass
         return
