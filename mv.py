@@ -3,6 +3,9 @@ import glob
 import os
 import re
 import shutil
+import json
+import html
+import requests
 from datetime import datetime, timezone
 
 from aiogram import Router, types, F
@@ -21,7 +24,100 @@ from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_bus
 mv = Router()
 
 # Temporary maintenance flag (Set to True to enable, False to disable /mv command and link downloads)
-MV_ENABLED = False
+MV_ENABLED = True
+
+GOFILE_TOKEN = os.getenv("GOFILE_TOKEN", "CR0Kk4oUyhz1I83ygKZWFIjZkxhZ8F9j")
+
+
+def human_size(num_bytes: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.2f} {unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.2f} TB"
+
+
+async def upload_to_gofile(file_path: str) -> dict:
+    """Upload a file to gofile.io using the account token (via requests in a thread, to avoid
+    an aiohttp streaming quirk against gofile's upload servers)."""
+    headers = {"Authorization": f"Bearer {GOFILE_TOKEN}"} if GOFILE_TOKEN else {}
+    loop = asyncio.get_running_loop()
+
+    def _do_upload():
+        with open(file_path, "rb") as f:
+            files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
+            return requests.post(
+                "https://upload.gofile.io/uploadfile",
+                files=files,
+                headers=headers,
+                timeout=600,
+            )
+
+    resp = await loop.run_in_executor(None, _do_upload)
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError(
+            f"gofile returned non-JSON response (HTTP {resp.status_code}): {resp.text[:500]}"
+        )
+
+    if resp.status_code != 200 or data.get("status") != "ok":
+        raise RuntimeError(f"gofile upload failed (HTTP {resp.status_code}): {data}")
+
+    file_info = data["data"]
+    return {
+        "name": file_info.get("name", os.path.basename(file_path)),
+        "size": file_info.get("size", os.path.getsize(file_path)),
+        "mimeType": file_info.get("mimetype", "unknown"),
+        "link": file_info.get("downloadPage"),
+    }
+
+
+async def get_video_metadata(file_path: str) -> dict:
+    """Probe a video file for resolution, duration, fps, and codec info via ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "quiet",
+        "-print_format", "json",
+        "-show_format", "-show_streams",
+        file_path,
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await process.communicate()
+
+    try:
+        probe = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {}
+
+    video_stream = next(
+        (s for s in probe.get("streams", []) if s.get("codec_type") == "video"), {}
+    )
+    duration_sec = float(probe.get("format", {}).get("duration", 0))
+    minutes, seconds = divmod(int(duration_sec), 60)
+
+    fps = None
+    rate = video_stream.get("r_frame_rate", "")
+    if "/" in rate:
+        num, _, denom = rate.partition("/")
+        try:
+            denom_val = float(denom)
+            fps = float(num) / denom_val if denom_val else None
+        except ValueError:
+            fps = None
+
+    return {
+        "width": video_stream.get("width"),
+        "height": video_stream.get("height"),
+        "codec": video_stream.get("codec_name", "unknown"),
+        "fps": fps,
+        "duration": f"{minutes}:{seconds:02d}",
+    }
+
 
 
 def parse_mv_args(raw_args: str) -> tuple[str | None, str | None, str]:
@@ -188,10 +284,39 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="mv")
 
     for file_id in file_ids:
-        try:
-            sent_msg = await msg.answer_video(video=file_id)
-        except Exception:
-            sent_msg = None
+        sent_msg = None
+        if file_id.startswith("http://") or file_id.startswith("https://"):
+            async with async_session() as session:
+                statement = select(MVTracks).where(MVTracks.file_id == file_id)
+                result = await session.exec(statement)
+                cached_mv = result.first()
+                if cached_mv:
+                    res_val = cached_mv.resolution or "unknown"
+                    codec_val = cached_mv.codec or "unknown"
+                    size_str = human_size(cached_mv.size) if cached_mv.size else "unknown"
+                    caption = (
+                        f"🎬 <b>Music Video Delivered from Cache!</b>\n\n"
+                        f"<b>Name:</b> <code>{html.escape(cached_mv.title or 'Unknown')} - {html.escape(cached_mv.artist or 'Unknown')}</code>\n"
+                        f"<b>Size:</b> {size_str}\n"
+                        f"<b>Resolution:</b> {res_val}\n"
+                        f"<b>Codec:</b> {html.escape(codec_val)}\n"
+                        f"<b>Link:</b> {file_id}"
+                    )
+                    try:
+                        sent_msg = await msg.answer(caption, link_preview_options=types.LinkPreviewOptions(is_disabled=True))
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        sent_msg = await msg.answer(f"🎬 <b>Music Video Link:</b> {file_id}", link_preview_options=types.LinkPreviewOptions(is_disabled=True))
+                    except Exception:
+                        pass
+        else:
+            try:
+                sent_msg = await msg.answer_video(video=file_id)
+            except Exception:
+                sent_msg = None
+
         if sent_msg:
             async with async_session() as session:
                 result = await session.exec(select(User).where(User.user_id == user_id_local))
@@ -392,36 +517,52 @@ async def process_mv_download(task: dict) -> None:
                         utils.extract_track_metadata, file_path
                     )
 
-                    # Deliver video file via Telegram (upload to channel and deliver to user)
                     try:
-                        caption = f"🎬 <b>{track_title}</b>\n👤 {artist}"
-                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_video(
-                            bot=msg.bot,
-                            user_chat_id=msg.chat.id,
-                            file_path=file_path,
-                            caption=caption,
-                            thumbnail=thumbnail,
-                            duration=duration
+                        await status_msg.edit_text(f"🚀 <b>Uploading to gofile.io</b>\n{html.escape(human_size(os.path.getsize(file_path)))}")
+                    except Exception:
+                        pass
+
+                    try:
+                        gofile_data, meta = await asyncio.gather(
+                            upload_to_gofile(file_path),
+                            get_video_metadata(file_path),
                         )
                     except Exception as e:
-                        print(f"Failed to upload video to Telegram: {e}")
-                        sent_msg = None
-                        saved_chat_id = msg.chat.id
-                        saved_message_id = None
+                        print(f"Failed to upload or get metadata: {e}")
+                        gofile_data = None
+                        meta = {}
 
-                    if sent_msg:
+                    if gofile_data:
+                        resolution = f"{meta['width']}x{meta['height']}" if meta.get("width") else "unknown"
+                        fps_str = f" @ {meta['fps']:.0f}fps" if meta.get("fps") else ""
+                        name_str = f"{track_title} - {artist}" if track_title else gofile_data['name']
+
+                        msg_text = (
+                            f"🎬 <b>Music Video Downloaded</b>\n\n"
+                            f"<b>Name:</b> <code>{html.escape(name_str)}</code>\n"
+                            f"<b>Size:</b> {human_size(gofile_data['size'])}\n"
+                            f"<b>Resolution:</b> {resolution}{fps_str}\n"
+                            f"<b>Duration:</b> {meta.get('duration', 'unknown')}\n"
+                            f"<b>Codec:</b> {html.escape(meta.get('codec', 'unknown'))}\n"
+                            f"<b>Type:</b> <code>{html.escape(gofile_data['mimeType'])}</code>\n"
+                            f"<b>Link:</b> {gofile_data['link']}"
+                        )
+
+                        sent_msg = await msg.answer(
+                            msg_text,
+                            link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+                        )
+                    else:
+                        sent_msg = None
+
+                    if sent_msg and gofile_data:
                         user.download_count += 1
                         if not user.is_premium:
                             user.downloaded_today += 1
                             session.add(user)
                             await session.commit()
 
-                        media_obj = sent_msg.video or sent_msg.document
-                        file_id_val = media_obj.file_id if media_obj else None
-                        file_uniq_val = media_obj.file_unique_id if media_obj else None
-                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
-
-                        vid_height = getattr(sent_msg.video, "height", 0) if sent_msg.video else 0
+                        vid_height = meta.get("height", 0) or 0
                         if vid_height >= 1440:
                             actual_res = "2160p"
                         elif vid_height >= 900:
@@ -435,16 +576,16 @@ async def process_mv_download(task: dict) -> None:
 
                         tbot = schema.TrackInputSchema(
                             song_id=songs[0].song_id if songs else None,
-                            file_id=file_id_val,
-                            file_unique_id=file_uniq_val,
-                            title=track_title,
+                            file_id=gofile_data['link'],
+                            file_unique_id=gofile_data['link'],
+                            title=track_title or gofile_data['name'],
                             artist=artist,
-                            size=file_sz_val,
+                            size=gofile_data['size'],
                             isrc=isrc,
-                            chat_id=saved_chat_id,
-                            message_id=saved_message_id,
+                            chat_id=msg.chat.id,
+                            message_id=sent_msg.message_id,
                             resolution=actual_res,
-                            codec=requested_codec or "h265"
+                            codec=requested_codec or meta.get('codec') or "h265"
                         )
 
                         await crud.save_single_track(session, tbot, format_type="mv")
