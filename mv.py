@@ -280,56 +280,12 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
             pass
         return
 
-    # Check database for existing MV cached tracks
-    file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="mv")
-
-    for file_id in file_ids:
-        sent_msg = None
-        if file_id.startswith("http://") or file_id.startswith("https://"):
-            async with async_session() as session:
-                statement = select(MVTracks).where(MVTracks.file_id == file_id)
-                result = await session.exec(statement)
-                cached_mv = result.first()
-                if cached_mv:
-                    res_val = cached_mv.resolution or "unknown"
-                    codec_val = cached_mv.codec or "unknown"
-                    size_str = human_size(cached_mv.size) if cached_mv.size else "unknown"
-                    caption = (
-                        f"🎬 <b>Music Video Delivered from Cache!</b>\n\n"
-                        f"<b>Name:</b> <code>{html.escape(cached_mv.title or 'Unknown')} - {html.escape(cached_mv.artist or 'Unknown')}</code>\n"
-                        f"<b>Size:</b> {size_str}\n"
-                        f"<b>Resolution:</b> {res_val}\n"
-                        f"<b>Codec:</b> {html.escape(codec_val)}\n"
-                        f"<b>Link:</b> {file_id}"
-                    )
-                    try:
-                        sent_msg = await msg.answer(caption, link_preview_options=types.LinkPreviewOptions(is_disabled=True))
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        sent_msg = await msg.answer(f"🎬 <b>Music Video Link:</b> {file_id}", link_preview_options=types.LinkPreviewOptions(is_disabled=True))
-                    except Exception:
-                        pass
-        else:
-            try:
-                sent_msg = await msg.answer_video(video=file_id)
-            except Exception:
-                sent_msg = None
-
-        if sent_msg:
-            async with async_session() as session:
-                result = await session.exec(select(User).where(User.user_id == user_id_local))
-                user = result.first()
-                if user:
-                    user.download_count += 1
-                    session.add(user)
-                    await session.commit()
+    tracks_to_download = [str(song.url) for song in songs if song.url]
 
     if not tracks_to_download:
         mv_in_queue.discard(user_id_local)
         try:
-            await status_msg.edit_text("✅ Music Video delivered from cache!\n\n🌐 Streaming Link: https://stream.eepy.in/")
+            await status_msg.edit_text("❌ No music video content found.")
         except Exception:
             pass
         return
@@ -560,60 +516,6 @@ async def process_mv_download(task: dict) -> None:
                         if not user.is_premium:
                             user.downloaded_today += 1
                             session.add(user)
-                            await session.commit()
-
-                        vid_height = meta.get("height", 0) or 0
-                        if vid_height >= 1440:
-                            actual_res = "2160p"
-                        elif vid_height >= 900:
-                            actual_res = "1080p"
-                        elif vid_height >= 600:
-                            actual_res = "720p"
-                        elif vid_height > 0:
-                            actual_res = "480p"
-                        else:
-                            actual_res = requested_resolution or "2160p"
-
-                        tbot = schema.TrackInputSchema(
-                            song_id=songs[0].song_id if songs else None,
-                            file_id=gofile_data['link'],
-                            file_unique_id=gofile_data['link'],
-                            title=track_title or gofile_data['name'],
-                            artist=artist,
-                            size=gofile_data['size'],
-                            isrc=isrc,
-                            chat_id=msg.chat.id,
-                            message_id=sent_msg.message_id,
-                            resolution=actual_res,
-                            codec=requested_codec or meta.get('codec') or "h265"
-                        )
-
-                        await crud.save_single_track(session, tbot, format_type="mv")
-                        await session.commit()
-
-                        matched = False
-                        if isrc:
-                            for original_track in songs:
-                                if original_track.isrc == isrc:
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    track_input.chat_id = tbot.chat_id
-                                    track_input.message_id = tbot.message_id
-                                    await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
-                                    await session.commit()
-                                    matched = True
-                                    break
-
-                        if not matched and songs:
-                            track_input = schema.TrackInputSchema(**songs[0].model_dump())
-                            track_input.file_id = tbot.file_id
-                            track_input.file_unique_id = tbot.file_unique_id
-                            track_input.size = tbot.size
-                            track_input.chat_id = tbot.chat_id
-                            track_input.message_id = tbot.message_id
-                            await crud.save_single_track(session=session, track_data=track_input, format_type="mv")
                             await session.commit()
 
                     try:
