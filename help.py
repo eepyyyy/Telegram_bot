@@ -46,7 +46,8 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             "• <code>/aac &lt;Apple Music URL&gt;</code> - Download AAC 256kbps audio format.\n"
             "• <code>/atmos &lt;Apple Music URL&gt;</code> - Download Spatial Audio / Dolby Atmos.\n"
             "• <code>/mv &lt;Apple Music URL&gt;</code> - Download Music Video in H.265 / H.264 HD video format.\n"
-            "• <code>/artist &lt;Artist URL&gt;</code> - Browse and select artist albums/singles.\n\n"
+            "• <code>/artist &lt;Artist URL&gt;</code> - Browse and select artist albums/singles.\n"
+            "• <code>/info</code> - View your download statistics, format breakdown, and remaining limits.\n\n"
 
             "<b>Metadata Examples:</b>\n"
             "• <b>Song:</b> <code>/help https://music.apple.com/us/album/song-name/123456789?i=987654321</code>\n"
@@ -265,3 +266,86 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
                 await msg.answer(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             except Exception:
                 pass
+
+
+def human_size(num_bytes: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.2f} {unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.2f} TB"
+
+
+@help_router.message(Command("info"))
+async def info_command(msg: types.Message) -> None:
+    """
+    Handles the /info command to display user statistics, downloads, and format breakdown.
+    """
+    from database import User, async_session
+    from sqlmodel import select
+    import crud
+
+    user_id = msg.from_user.id
+    
+    async with async_session() as session:
+        # Get or create user
+        statement = select(User).where(User.user_id == user_id)
+        result = await session.exec(statement)
+        user = result.first()
+        
+        if not user:
+            user = User(user_id=user_id)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        stats = await crud.get_user_download_stats(session, user_id)
+        alac_12h_count = await crud.get_alac_download_count_12h(session, user_id)
+
+    status_badge = "🌟 <b>Premium User</b>" if user.is_premium else "👤 <b>Standard User</b>"
+    
+    # Calculate limits text
+    if user.is_premium:
+        daily_limit_text = "Unlimited"
+        alac_limit_text = "Unlimited"
+    else:
+        daily_limit_text = f"<code>{user.downloaded_today} / {user.daily_limit}</code> tracks/day"
+        alac_limit_text = f"<code>{alac_12h_count} / 100</code> tracks/12h"
+
+    total_delivered = stats["cached_count"] + stats["uncached_count"]
+    
+    # Alerts or suggestions based on limit
+    limit_warning = ""
+    if not user.is_premium and alac_12h_count >= 100:
+        limit_warning = " ⚠️ (Limit reached)"
+
+    info_text = (
+        f"📊 <b>YOUR DOWNLOAD DASHBOARD & INFO</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Account Details:</b>\n"
+        f"• <b>User ID:</b> <code>{user_id}</code>\n"
+        f"• <b>Status:</b> {status_badge}\n"
+        f"• <b>Daily Limit:</b> {daily_limit_text}\n\n"
+        
+        f"⚡ <b>ALAC Lossless Limit:</b>\n"
+        f"• <b>Downloads (Last 12h):</b> {alac_limit_text}{limit_warning}\n\n"
+        
+        f"📈 <b>Download Statistics:</b>\n"
+        f"• <b>Total Tracks Delivered:</b> <code>{total_delivered}</code>\n"
+        f"  ├ 📥 <i>Downloaded:</i> <code>{stats['uncached_count']}</code>\n"
+        f"  └ ⚡ <i>From Cache:</i> <code>{stats['cached_count']}</code>\n"
+        f"• <b>Total Data Transferred:</b> <code>{human_size(stats['total_size'])}</code>\n"
+        f"• <b>Total Cache Saved:</b> <code>{human_size(stats['total_delivered_size'] - stats['total_size'])}</code>\n\n"
+        
+        f"🎵 <b>Format Breakdown:</b>\n"
+        f"• <b>ALAC (Lossless):</b> <code>{stats['alac_count']}</code>\n"
+        f"• <b>AAC (High Quality):</b> <code>{stats['aac_count']}</code>\n"
+        f"• <b>Dolby Atmos (Spatial):</b> <code>{stats['atmos_count']}</code>\n"
+        f"• <b>Music Videos:</b> <code>{stats['mv_count']}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    try:
+        await msg.answer(info_text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        print(f"Failed to send /info command response: {e}")

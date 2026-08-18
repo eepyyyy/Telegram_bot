@@ -123,6 +123,23 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
                     user.download_count += 1
                     session.add(user)
                     await session.commit()
+                    
+                    # Log cached delivery
+                    try:
+                        db_track = (await session.exec(select(database.AtmosTracks).where(database.AtmosTracks.file_id == file_id))).first()
+                        song_id_val = db_track.song_id if db_track else None
+                        size_val = db_track.size if db_track else 0
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=song_id_val,
+                            format_type="atmos",
+                            size=size_val,
+                            is_cached=True
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log cached Atmos download: {le}")
 
     if not tracks_to_download:
         atmos_in_queue.discard(user_id_local)
@@ -302,6 +319,21 @@ async def process_atmos_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
                                         await session.commit()
+                                        
+                                        # Log download history
+                                        try:
+                                            await crud.log_download(
+                                                session=session,
+                                                user_id=user_id_local,
+                                                song_id=track_input.song_id,
+                                                format_type="atmos",
+                                                size=tbot.size,
+                                                is_cached=False
+                                            )
+                                            await session.commit()
+                                        except Exception as le:
+                                            print(f"Failed to log Atmos download history: {le}")
+                                            
                                         matched = True
                                         break
 
@@ -316,6 +348,21 @@ async def process_atmos_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
                                         await session.commit()
+                                        
+                                        # Log download history
+                                        try:
+                                            await crud.log_download(
+                                                session=session,
+                                                user_id=user_id_local,
+                                                song_id=track_input.song_id,
+                                                format_type="atmos",
+                                                size=tbot.size,
+                                                is_cached=False
+                                            )
+                                            await session.commit()
+                                        except Exception as le:
+                                            print(f"Failed to log Atmos download history: {le}")
+                                            
                                         break
 
                         try:

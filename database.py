@@ -127,6 +127,20 @@ class User(SQLModel, table=True):
     download_count: Optional[int] = Field(default=0)
 
 
+class DownloadHistory(SQLModel, table=True):
+    """
+    SQLModel for the 'download_history' table to track user downloads.
+    """
+    __tablename__ = "download_history"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(sa_type=BigInteger, index=True)
+    song_id: Optional[str] = None
+    format_type: str = Field(index=True)  # alac, aac, atmos, mv
+    is_cached: bool = Field(default=False)
+    size: Optional[int] = Field(default=0, sa_type=BigInteger)
+    downloaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True))
+
+
 load_dotenv()
 
 # Require the database URL to be configured outside source control.

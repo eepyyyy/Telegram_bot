@@ -186,7 +186,9 @@ async def cmd_start(msg: types.Message) -> None:
         f"<b>Features</b>\n"
         f"• <b>Audio Quality:</b> ALAC Lossless up to 24-bit / 192kHz\n"
         f"• <b>Artist Support:</b> Send an artist link to fetch top tracks or catalogs\n"
-        f"• <b>Daily Limit:</b> 50 downloads per day (cached files do not count)\n\n"
+        f"• <b>Limits (cached files do not count):</b>\n"
+        f"  ├ ALAC Lossless: 100 downloads per 12 hours\n"
+        f"  └ Other formats: 50 downloads per day\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
@@ -355,6 +357,23 @@ async def process_download(task: dict) -> None:
                     session.add(user)
                     await session.commit()
 
+                    # Log cached delivery
+                    try:
+                        db_track = (await session.exec(select(database.Tracks).where(database.Tracks.file_id == file_id))).first()
+                        song_id_val = db_track.song_id if db_track else None
+                        size_val = db_track.size if db_track else 0
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=song_id_val,
+                            format_type="alac",
+                            size=size_val,
+                            is_cached=True
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log cached download history: {le}")
+
                     # Real-Time Progress Bar Update
                     progress_text = (
                         f"🚀 {hbold('DELIVERING FROM CACHE')}\n"
@@ -367,12 +386,14 @@ async def process_download(task: dict) -> None:
                     except Exception:
                         pass
 
-            if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                try:
-                    await status_msg.edit_text("Daily download limit reached.")
-                except Exception:
-                    pass
-                return
+            if not user.is_premium:
+                alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
+                if alac_count >= 100:
+                    try:
+                        await status_msg.edit_text("❌ ALAC download limit reached (100 tracks per 12 hours).")
+                    except Exception:
+                        pass
+                    return
 
             if not tracks_to_download:
                 try:
@@ -479,24 +500,19 @@ async def process_download(task: dict) -> None:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
                         user = result.one()
                         
-                        current_date = datetime.now(timezone.utc).date()
-                        if not user.is_premium and user.last_download != current_date:
-                            user.downloaded_today = 0
-                            user.last_download = current_date
-                            session.add(user)
-                            await session.commit()
-
-                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            try:
-                                await msg.answer("❌ Quota exhausted! Stopping further downloads.")
-                            except Exception:
-                                pass
-                            try:
-                                process.terminate()
-                                await process.wait()
-                            except ProcessLookupError:
-                                pass
-                            return
+                        if not user.is_premium:
+                            alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
+                            if alac_count >= 100:
+                                try:
+                                    await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Stopping further downloads.")
+                                except Exception:
+                                    pass
+                                try:
+                                    process.terminate()
+                                    await process.wait()
+                                except ProcessLookupError:
+                                    pass
+                                return
 
                         # Extract metadata and upload
                         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
@@ -517,10 +533,9 @@ async def process_download(task: dict) -> None:
                         if sent_msg:
                             completed_count += 1
                             user.download_count += 1
-                            if not user.is_premium:
-                                user.downloaded_today += 1
-                                session.add(user)
-                                await session.commit()
+                            # For ALAC downloads we do not increment user.downloaded_today or check daily limits
+                            session.add(user)
+                            await session.commit()
 
                             # Real-Time Progress Bar Update
                             progress_text = (
@@ -562,6 +577,21 @@ async def process_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
+                                        
+                                        # Log download history
+                                        try:
+                                            await crud.log_download(
+                                                session=session,
+                                                user_id=user_id_local,
+                                                song_id=track_input.song_id,
+                                                format_type="alac",
+                                                size=tbot.size,
+                                                is_cached=False
+                                            )
+                                            await session.commit()
+                                        except Exception as le:
+                                            print(f"Failed to log download history: {le}")
+                                            
                                         matched = True
                                         break
 
@@ -577,6 +607,21 @@ async def process_download(task: dict) -> None:
                                         track_input.message_id = tbot.message_id
                                         await crud.save_single_track(session=session, track_data=track_input)
                                         await session.commit()
+                                        
+                                        # Log download history
+                                        try:
+                                            await crud.log_download(
+                                                session=session,
+                                                user_id=user_id_local,
+                                                song_id=track_input.song_id,
+                                                format_type="alac",
+                                                size=tbot.size,
+                                                is_cached=False
+                                            )
+                                            await session.commit()
+                                        except Exception as le:
+                                            print(f"Failed to log download history: {le}")
+                                            
                                         break
 
                         
@@ -648,21 +693,15 @@ async def worker() -> None:
                 async with async_session() as session:
                     result = await session.exec(select(User).where(User.user_id == user_id))
                     user = result.first()
-                    current_date = datetime.now(timezone.utc).date()
                     if user:
-                        if user.last_download != current_date:
-                            user.downloaded_today = 0
-                            user.last_download = current_date
-                            session.add(user)
-                            await session.commit()
-                            await session.refresh(user)
-                        
-                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            try:
-                                await msg.answer("❌ Daily download limit reached. Skipping queued item.")
-                            except Exception:
-                                pass
-                            continue
+                        if not user.is_premium:
+                            alac_count = await crud.get_alac_download_count_12h(session, user_id)
+                            if alac_count >= 100:
+                                try:
+                                    await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Skipping queued item.")
+                                except Exception:
+                                    pass
+                                continue
 
                 await process_download(task)
             except Exception as e:

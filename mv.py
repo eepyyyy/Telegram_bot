@@ -515,8 +515,36 @@ async def process_mv_download(task: dict) -> None:
                         user.download_count += 1
                         if not user.is_premium:
                             user.downloaded_today += 1
-                            session.add(user)
+                        session.add(user)
+                        await session.commit()
+
+                        # Log download history
+                        try:
+                            matched_song_id = None
+                            if isrc:
+                                for s in songs:
+                                    if s.isrc == isrc:
+                                        matched_song_id = s.song_id
+                                        break
+                            if not matched_song_id:
+                                for s in songs:
+                                    if utils.convert_text(s.title) == utils.convert_text(track_title):
+                                        matched_song_id = s.song_id
+                                        break
+                            if not matched_song_id and songs:
+                                matched_song_id = songs[0].song_id
+
+                            await crud.log_download(
+                                session=session,
+                                user_id=user_id_local,
+                                song_id=matched_song_id,
+                                format_type="mv",
+                                size=gofile_data.get('size', 0),
+                                is_cached=False
+                            )
                             await session.commit()
+                        except Exception as le:
+                            print(f"Failed to log Music Video download: {le}")
 
                     try:
                         await asyncio.to_thread(os.remove, file_path)

@@ -184,6 +184,95 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
     return file_ids_to_send, urls_to_download
 
 
+async def log_download(
+    session: async_session,
+    user_id: int,
+    song_id: Optional[str],
+    format_type: str,
+    size: Optional[int],
+    is_cached: bool
+) -> None:
+    """
+    Logs a download transaction in download_history.
+    """
+    from database import DownloadHistory
+    log_entry = DownloadHistory(
+        user_id=user_id,
+        song_id=song_id,
+        format_type=format_type.lower(),
+        is_cached=is_cached,
+        size=size or 0,
+        downloaded_at=datetime.now(timezone.utc)
+    )
+    session.add(log_entry)
+
+
+async def get_alac_download_count_12h(session: async_session, user_id: int) -> int:
+    """
+    Counts non-cached ALAC downloads in the last 12 hours for the user.
+    """
+    from sqlmodel import func
+    from database import DownloadHistory
+    from datetime import timedelta
+    
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
+    statement = select(func.count()).select_from(DownloadHistory).where(
+        DownloadHistory.user_id == user_id,
+        DownloadHistory.format_type == "alac",
+        DownloadHistory.is_cached == False,
+        DownloadHistory.downloaded_at >= cutoff
+    )
+    result = await session.exec(statement)
+    return result.one() or 0
+
+
+async def get_user_download_stats(session: async_session, user_id: int) -> dict:
+    """
+    Retrieves aggregated download stats for a user.
+    """
+    from sqlmodel import func
+    from database import DownloadHistory
+    
+    # 1. Total sizes
+    stmt_size = select(func.sum(DownloadHistory.size)).where(
+        DownloadHistory.user_id == user_id,
+        DownloadHistory.is_cached == False
+    )
+    res_size = await session.exec(stmt_size)
+    total_size = res_size.one() or 0
+    
+    stmt_del_size = select(func.sum(DownloadHistory.size)).where(
+        DownloadHistory.user_id == user_id
+    )
+    res_del_size = await session.exec(stmt_del_size)
+    total_delivered_size = res_del_size.one() or 0
+    
+    # 2. Counts by format_type
+    stmt_formats = select(DownloadHistory.format_type, func.count(DownloadHistory.id)).where(
+        DownloadHistory.user_id == user_id
+    ).group_by(DownloadHistory.format_type)
+    res_formats = await session.exec(stmt_formats)
+    formats_counts = {fmt: cnt for fmt, cnt in res_formats.all()}
+    
+    # 3. Cached vs Non-cached counts
+    stmt_cache = select(DownloadHistory.is_cached, func.count(DownloadHistory.id)).where(
+        DownloadHistory.user_id == user_id
+    ).group_by(DownloadHistory.is_cached)
+    res_cache = await session.exec(stmt_cache)
+    cache_counts = {is_cached: cnt for is_cached, cnt in res_cache.all()}
+    
+    return {
+        "total_size": total_size,
+        "total_delivered_size": total_delivered_size,
+        "alac_count": formats_counts.get("alac", 0),
+        "aac_count": formats_counts.get("aac", 0),
+        "atmos_count": formats_counts.get("atmos", 0),
+        "mv_count": formats_counts.get("mv", 0),
+        "cached_count": cache_counts.get(True, 0),
+        "uncached_count": cache_counts.get(False, 0)
+    }
+
+
 async def main():
     await database.init_db()
     test = await gamdlUrl.get_any_url("https://music.apple.com/in/playlist/%E5%A4%A2%E5%88%83/pl.u-38oWZ6esZbL0EGY")
