@@ -125,19 +125,19 @@ def parse_available_formats(audio_traits: Optional[List[str]]) -> Dict[str, Any]
     has_atmos = any(t in traits for t in ["spatial", "atmos", "dolby-atmos", "dolby-audio"])
 
     formats_list = []
-    formats_list.append("• <b>AAC (256kbps):</b> ✅ Available (<code>/aac &lt;url&gt;</code>)")
+    formats_list.append("• <b>AAC (256kbps):</b> Available (<code>/aac &lt;url&gt;</code>)")
 
     if has_hi_res:
-        formats_list.append("• <b>ALAC (Hi-Res Lossless 24-bit/192kHz):</b> ✅ Available (send link directly)")
+        formats_list.append("• <b>ALAC (Hi-Res Lossless 24-bit/192kHz):</b> Available (send link directly)")
     elif has_alac:
-        formats_list.append("• <b>ALAC (Lossless 24-bit/48kHz):</b> ✅ Available (send link directly)")
+        formats_list.append("• <b>ALAC (Lossless 24-bit/48kHz):</b> Available (send link directly)")
     else:
-        formats_list.append("• <b>ALAC (Lossless):</b> ❌ Not Available")
+        formats_list.append("• <b>ALAC (Lossless):</b> Not Available")
 
     if has_atmos:
-        formats_list.append("• <b>Dolby Atmos (Spatial Audio):</b> ✅ Available (<code>/atmos &lt;url&gt;</code>)")
+        formats_list.append("• <b>Dolby Atmos (Spatial Audio):</b> Available (<code>/atmos &lt;url&gt;</code>)")
     else:
-        formats_list.append("• <b>Dolby Atmos (Spatial Audio):</b> ❌ Not Available")
+        formats_list.append("• <b>Dolby Atmos (Spatial Audio):</b> Not Available")
 
     return {
         "has_aac": has_aac,

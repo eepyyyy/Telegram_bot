@@ -143,9 +143,9 @@ def decode_deeplink_url(start_param: str) -> str:
 
 def get_start_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="🌐 Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
-        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/KBy2UMfjx8")],
-        [InlineKeyboardButton(text="🔎 Apple Music Storefront Search", url="https://am-l.eepy.in/")]
+        [InlineKeyboardButton(text="Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
+        [InlineKeyboardButton(text="Join Discord Community", url="https://discord.gg/KBy2UMfjx8")],
+        [InlineKeyboardButton(text="Apple Music Storefront Search", url="https://am-l.eepy.in/")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -188,7 +188,8 @@ async def cmd_start(msg: types.Message) -> None:
         f"• <b>Artist Support:</b> Send an artist link to fetch top tracks or catalogs\n"
         f"• <b>Limits (cached files do not count):</b>\n"
         f"  ├ ALAC Lossless: 100 downloads per 12 hours\n"
-        f"  └ Other formats: 50 downloads per day\n\n"
+        f"  ├ Music Videos: 50 downloads per day\n"
+        f"  └ AAC & Dolby Atmos: Unlimited\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
@@ -200,6 +201,7 @@ async def cmd_start(msg: types.Message) -> None:
         f"• Inline search: @applemusicdw_bot\n"
         f"• Web Vault Streaming: https://stream.eepy.in/\n"
         f"• Storefront Search: https://am-l.eepy.in/\n"
+        f"• View stats and limits: /info\n"
         f"• View all commands: /help"
     )
 
@@ -771,6 +773,7 @@ async def on_startup(bot: Bot) -> None:
             types.BotCommand(command="aac", description="Download track/album in AAC 256kbps"),
             types.BotCommand(command="atmos", description="Download track/album in Dolby Atmos"),
             types.BotCommand(command="mv", description="Download Music Video in H.265/H.264"),
+            types.BotCommand(command="info", description="View download statistics and limits"),
             types.BotCommand(command="help", description="View help and usage instructions"),
         ])
         logging.info("Bot commands successfully registered.")

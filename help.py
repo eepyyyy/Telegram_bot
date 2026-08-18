@@ -22,9 +22,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_help_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="🌐 Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
-        [InlineKeyboardButton(text="💬 Join Discord Community", url="https://discord.gg/KBy2UMfjx8")],
-        [InlineKeyboardButton(text="🔎 Apple Music Storefront Search", url="https://am-l.eepy.in/")]
+        [InlineKeyboardButton(text="Web Vault (stream.eepy.in)", url="https://stream.eepy.in/")],
+        [InlineKeyboardButton(text="Join Discord Community", url="https://discord.gg/KBy2UMfjx8")],
+        [InlineKeyboardButton(text="Apple Music Storefront Search", url="https://am-l.eepy.in/")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -40,7 +40,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
 
     if not url:
         help_text = (
-            "<b>ℹ️ Apple Music Downloader - Help & Info</b>\n\n"
+            "<b>Apple Music Downloader - Help & Info</b>\n\n"
             "<b>Commands & Usage:</b>\n"
             "• <code>/help &lt;Apple Music URL&gt;</code> - Get detailed metadata, artwork, audio format support (ALAC/AAC/Atmos), and copyable track/album URLs.\n"
             "• <code>/aac &lt;Apple Music URL&gt;</code> - Download AAC 256kbps audio format.\n"
@@ -82,7 +82,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
     m_type = meta.get("type")
 
     if m_type == "song":
-        explicit_tag = " 🔞" if meta.get("is_explicit") else ""
+        explicit_tag = " (Explicit)" if meta.get("is_explicit") else ""
         genres = ", ".join(meta.get("genres", [])) if meta.get("genres") else "N/A"
         track_no = meta.get("track_number")
         disc_no = meta.get("disc_number")
@@ -96,7 +96,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         song_url = meta.get('url', '')
 
         text = (
-            f"🎵 <b>TRACK DETAILS & METADATA</b>\n"
+            f"<b>TRACK DETAILS & METADATA</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Title:</b> {escape_html(meta.get('title'))}{explicit_tag}\n"
             f"• <b>Artist:</b> {escape_html(meta.get('artist'))}\n"
@@ -112,13 +112,13 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
             f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎧 <b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
+            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 <b>Track URL (tap to copy):</b>\n<code>{escape_html(song_url)}</code>"
+            f"<b>Track URL (tap to copy):</b>\n<code>{escape_html(song_url)}</code>"
         )
 
     elif m_type == "album":
-        explicit_tag = " 🔞" if meta.get("is_explicit") else ""
+        explicit_tag = " (Explicit)" if meta.get("is_explicit") else ""
         genres = ", ".join(meta.get("genres", [])) if meta.get("genres") else "N/A"
 
         formats_info = meta.get("formats_info", {})
@@ -128,9 +128,9 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         tracks = meta.get("tracks", [])
         max_display = 25
         for i, t in enumerate(tracks[:max_display], 1):
-            t_explicit = " 🔞" if t.get("is_explicit") else ""
+            t_explicit = " (Explicit)" if t.get("is_explicit") else ""
             t_url = t.get('url', '')
-            url_code_block = f"\n   🔗 <code>{escape_html(t_url)}</code>" if t_url else ""
+            url_code_block = f"\n   <code>{escape_html(t_url)}</code>" if t_url else ""
             tracks_lines.append(
                 f"{i}. <b>{escape_html(t.get('title'))}</b>{t_explicit} ({t.get('duration')}) - <code>{t.get('isrc')}</code>"
                 f"{url_code_block}"
@@ -143,7 +143,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         album_url = meta.get('url', '')
 
         text = (
-            f"💿 <b>ALBUM DETAILS & METADATA</b>\n"
+            f"<b>ALBUM DETAILS & METADATA</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Album Title:</b> {escape_html(meta.get('title'))}{explicit_tag}\n"
             f"• <b>Artist:</b> {escape_html(meta.get('artist'))}\n"
@@ -156,11 +156,11 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
             f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎧 <b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
+            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 <b>Album URL (tap to copy):</b>\n<code>{escape_html(album_url)}</code>\n"
+            f"<b>Album URL (tap to copy):</b>\n<code>{escape_html(album_url)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📜 <b>TRACKLIST:</b>\n\n{tracklist_str}"
+            f"<b>TRACKLIST:</b>\n\n{tracklist_str}"
         )
 
     elif m_type == "artist":
@@ -179,7 +179,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
                 item_name = escape_html(item.get("name"))
                 rel_date = escape_html(item.get("release_date", "N/A"))
                 item_url = item.get("url", "")
-                url_code = f"\n   🔗 <code>{escape_html(item_url)}</code>" if item_url else ""
+                url_code = f"\n   <code>{escape_html(item_url)}</code>" if item_url else ""
                 lines.append(f"{i}. <b>{item_name}</b> ({rel_date}){url_code}")
 
             if len(items) > max_display:
@@ -191,13 +191,13 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         all_cats_str = "\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n".join(cat_sections) if cat_sections else "No albums listed."
 
         text = (
-            f"👤 <b>ARTIST DETAILS & CATALOG</b>\n"
+            f"<b>ARTIST DETAILS & CATALOG</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Artist Name:</b> {escape_html(meta.get('name'))}\n"
             f"• <b>Genre:</b> {escape_html(genres)}\n"
             f"• <b>Artist ID:</b> <code>{escape_html(meta.get('artist_id'))}</code>\n"
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"🔗 <b>Artist URL (tap to copy):</b>\n<code>{escape_html(artist_url)}</code>\n"
+            f"<b>Artist URL (tap to copy):</b>\n<code>{escape_html(artist_url)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{all_cats_str}"
         )
@@ -208,7 +208,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         max_display = 25
         for i, t in enumerate(tracks[:max_display], 1):
             t_url = t.get('url', '')
-            url_code = f"\n   🔗 <code>{escape_html(t_url)}</code>" if t_url else ""
+            url_code = f"\n   <code>{escape_html(t_url)}</code>" if t_url else ""
             tracks_lines.append(f"{i}. <b>{escape_html(t.get('title'))}</b> - {escape_html(t.get('artist'))} ({t.get('duration')}){url_code}")
 
         if len(tracks) > max_display:
@@ -219,20 +219,20 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         playlist_url = meta.get('url', '')
 
         text = (
-            f"📋 <b>PLAYLIST DETAILS & METADATA</b>\n"
+            f"<b>PLAYLIST DETAILS & METADATA</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Playlist Name:</b> {escape_html(meta.get('title'))}\n"
             f"• <b>Curator:</b> {escape_html(meta.get('curator'))}\n"
             f"• <b>Total Tracks:</b> {meta.get('track_count')}{desc}\n"
             f"• <b>Playlist ID:</b> <code>{escape_html(meta.get('playlist_id'))}</code>\n"
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"🔗 <b>Playlist URL (tap to copy):</b>\n<code>{escape_html(playlist_url)}</code>\n"
+            f"<b>Playlist URL (tap to copy):</b>\n<code>{escape_html(playlist_url)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>📜 TRACK PREVIEW:</b>\n\n{tracklist_str}"
+            f"<b>TRACK PREVIEW:</b>\n\n{tracklist_str}"
         )
 
     else:
-        text = f"ℹ️ <b>Metadata:</b>\n{escape_html(str(meta))}"
+        text = f"<b>Metadata:</b>\n{escape_html(str(meta))}"
 
     artwork_url = meta.get("artwork")
 
@@ -251,7 +251,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
                 return
             else:
                 # For long texts (e.g. albums/artists with tracklists/catalogs), send main photo first then text message
-                await msg.answer_photo(photo=artwork_url, caption=f"📸 <b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>", parse_mode=ParseMode.HTML)
+                await msg.answer_photo(photo=artwork_url, caption=f"<b>{escape_html(meta.get('title', meta.get('name', 'Cover')))}</b>", parse_mode=ParseMode.HTML)
         except Exception:
             pass
 
@@ -302,42 +302,41 @@ async def info_command(msg: types.Message) -> None:
         stats = await crud.get_user_download_stats(session, user_id)
         alac_12h_count = await crud.get_alac_download_count_12h(session, user_id)
 
-    status_badge = "🌟 <b>Premium User</b>" if user.is_premium else "👤 <b>Standard User</b>"
+    status_badge = "<b>Premium User</b>" if user.is_premium else "<b>Standard User</b>"
     
     # Calculate limits text
     if user.is_premium:
-        daily_limit_text = "Unlimited"
+        mv_limit_text = "Unlimited"
         alac_limit_text = "Unlimited"
     else:
-        daily_limit_text = f"<code>{user.downloaded_today} / {user.daily_limit}</code> tracks/day"
+        mv_limit_text = f"<code>{user.downloaded_today} / 50</code> vids/day"
         alac_limit_text = f"<code>{alac_12h_count} / 100</code> tracks/12h"
 
     total_delivered = stats["cached_count"] + stats["uncached_count"]
     
     # Alerts or suggestions based on limit
-    limit_warning = ""
-    if not user.is_premium and alac_12h_count >= 100:
-        limit_warning = " ⚠️ (Limit reached)"
+    limit_warning = " (Limit reached)" if not user.is_premium and alac_12h_count >= 100 else ""
 
     info_text = (
-        f"📊 <b>YOUR DOWNLOAD DASHBOARD & INFO</b>\n"
+        f"<b>YOUR DOWNLOAD DASHBOARD & INFO</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Account Details:</b>\n"
+        f"<b>Account Details:</b>\n"
         f"• <b>User ID:</b> <code>{user_id}</code>\n"
         f"• <b>Status:</b> {status_badge}\n"
-        f"• <b>Daily Limit:</b> {daily_limit_text}\n\n"
+        f"• <b>Music Video Limit:</b> {mv_limit_text}\n"
+        f"• <b>AAC & Dolby Atmos:</b> Unlimited\n\n"
         
-        f"⚡ <b>ALAC Lossless Limit:</b>\n"
+        f"<b>ALAC Lossless Limit:</b>\n"
         f"• <b>Downloads (Last 12h):</b> {alac_limit_text}{limit_warning}\n\n"
         
-        f"📈 <b>Download Statistics:</b>\n"
+        f"<b>Download Statistics:</b>\n"
         f"• <b>Total Tracks Delivered:</b> <code>{total_delivered}</code>\n"
-        f"  ├ 📥 <i>Downloaded:</i> <code>{stats['uncached_count']}</code>\n"
-        f"  └ ⚡ <i>From Cache:</i> <code>{stats['cached_count']}</code>\n"
+        f"  ├ <i>Downloaded:</i> <code>{stats['uncached_count']}</code>\n"
+        f"  └ <i>From Cache:</i> <code>{stats['cached_count']}</code>\n"
         f"• <b>Total Data Transferred:</b> <code>{human_size(stats['total_size'])}</code>\n"
         f"• <b>Total Cache Saved:</b> <code>{human_size(stats['total_delivered_size'] - stats['total_size'])}</code>\n\n"
         
-        f"🎵 <b>Format Breakdown:</b>\n"
+        f"<b>Format Breakdown:</b>\n"
         f"• <b>ALAC (Lossless):</b> <code>{stats['alac_count']}</code>\n"
         f"• <b>AAC (High Quality):</b> <code>{stats['aac_count']}</code>\n"
         f"• <b>Dolby Atmos (Spatial):</b> <code>{stats['atmos_count']}</code>\n"

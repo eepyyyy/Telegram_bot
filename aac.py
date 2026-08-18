@@ -42,34 +42,6 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
     # Mark user busy immediately
     aac_in_queue.add(user_id_local)
 
-    # Check database daily limit before enqueuing
-    async with async_session() as session:
-        statement = select(User).where(User.user_id == user_id_local)
-        result = await session.exec(statement)
-        user = result.first()
-
-        if not user:
-            user = User(user_id=user_id_local)
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-
-        current_date = datetime.now(timezone.utc).date()
-        if not user.is_premium:
-            if user.last_download != current_date:
-                user.downloaded_today = 0
-                user.last_download = current_date
-                session.add(user)
-                await session.commit()
-
-        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-            aac_in_queue.discard(user_id_local)
-            try:
-                await msg.answer("❌ Daily download limit reached.")
-            except Exception:
-                pass
-            return
-
     # Fetch metadata to see how many tracks
     status_msg = await msg.answer("🔍 Fetching AAC metadata...")
     try:
@@ -228,29 +200,10 @@ async def process_aac_download(task: dict) -> None:
                 if file_path not in uploaded_files:
                     uploaded_files.add(file_path)
 
-                    # Check limit before uploading
+                    # Fetch user before uploading
                     async with async_session() as session:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
                         user = result.one()
-
-                        current_date = datetime.now(timezone.utc).date()
-                        if not user.is_premium and user.last_download != current_date:
-                            user.downloaded_today = 0
-                            user.last_download = current_date
-                            session.add(user)
-                            await session.commit()
-
-                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            try:
-                                await msg.answer("Quota exhausted! Stopping further downloads.")
-                            except Exception:
-                                pass
-                            try:
-                                process.terminate()
-                                await process.wait()
-                            except ProcessLookupError:
-                                pass
-                            return
 
                         # Extract metadata
                         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
@@ -269,10 +222,8 @@ async def process_aac_download(task: dict) -> None:
 
                         if sent_msg:
                             user.download_count += 1
-                            if not user.is_premium:
-                                user.downloaded_today += 1
-                                session.add(user)
-                                await session.commit()
+                            session.add(user)
+                            await session.commit()
 
                             media_obj = sent_msg.audio or sent_msg.document
                             file_id_val = media_obj.file_id if media_obj else None
@@ -400,34 +351,6 @@ async def aac_worker() -> None:
         user_lock = aac_locks.setdefault(user_id, asyncio.Lock())
 
         async with user_lock:
-            # Check database limit before starting download subprocess
-            async with async_session() as session:
-                result = await session.exec(select(User).where(User.user_id == user_id))
-                user = result.first()
-                current_date = datetime.now(timezone.utc).date()
-                if user:
-                    if user.last_download != current_date:
-                        user.downloaded_today = 0
-                        user.last_download = current_date
-                        session.add(user)
-                        await session.commit()
-                        await session.refresh(user)
-
-                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                        try:
-                            await msg.answer("Daily download limit reached. Skipping AAC queued item.")
-                        except Exception:
-                            pass
-                        aac_queue.task_done()
-                        remaining = aac_pending_jobs.get(user_id, 1) - 1
-                        if remaining <= 0:
-                            aac_pending_jobs.pop(user_id, None)
-                            aac_in_queue.discard(user_id)
-                            aac_locks.pop(user_id, None)
-                        else:
-                            aac_pending_jobs[user_id] = remaining
-                        continue
-
             try:
                 await process_aac_download(task)
             except Exception as e:
