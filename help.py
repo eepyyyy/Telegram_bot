@@ -96,8 +96,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         song_url = meta.get('url', '')
 
         text = (
-            f"<b>TRACK DETAILS & METADATA</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>TRACK DETAILS & METADATA</b>\n\n"
             f"• <b>Title:</b> {escape_html(meta.get('title'))}{explicit_tag}\n"
             f"• <b>Artist:</b> {escape_html(meta.get('artist'))}\n"
             f"• <b>Album:</b> {escape_html(meta.get('album'))}\n"
@@ -110,10 +109,8 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             f"• <b>Song ID:</b> <code>{escape_html(meta.get('song_id'))}</code>\n"
             f"• <b>Album ID:</b> <code>{escape_html(meta.get('album_id'))}</code>\n"
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n\n"
+            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n\n"
             f"<b>Track URL (tap to copy):</b>\n<code>{escape_html(song_url)}</code>"
         )
 
@@ -143,8 +140,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         album_url = meta.get('url', '')
 
         text = (
-            f"<b>ALBUM DETAILS & METADATA</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>ALBUM DETAILS & METADATA</b>\n\n"
             f"• <b>Album Title:</b> {escape_html(meta.get('title'))}{explicit_tag}\n"
             f"• <b>Artist:</b> {escape_html(meta.get('artist'))}\n"
             f"• <b>Total Tracks:</b> {meta.get('track_count')}\n"
@@ -154,12 +150,9 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             f"• <b>Album ID:</b> <code>{escape_html(meta.get('album_id'))}</code>\n"
             f"• <b>UPC:</b> <code>{escape_html(meta.get('upc'))}</code>\n"
             f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>Album URL (tap to copy):</b>\n<code>{escape_html(album_url)}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Copyright:</b> {escape_html(meta.get('copyright'))}\n\n"
+            f"<b>AUDIO TECHNICAL DETAILS & FORMATS:</b>\n{formats_text}\n\n"
+            f"<b>Album URL (tap to copy):</b>\n<code>{escape_html(album_url)}</code>\n\n"
             f"<b>TRACKLIST:</b>\n\n{tracklist_str}"
         )
 
@@ -188,17 +181,15 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             section_str = "\n\n".join(lines)
             cat_sections.append(f"<b>{cat_name.upper()} ({len(items)}):</b>\n{section_str}")
 
-        all_cats_str = "\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n".join(cat_sections) if cat_sections else "No albums listed."
+        all_cats_str = "\n\n".join(cat_sections) if cat_sections else "No albums listed."
 
         text = (
-            f"<b>ARTIST DETAILS & CATALOG</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>ARTIST DETAILS & CATALOG</b>\n\n"
             f"• <b>Artist Name:</b> {escape_html(meta.get('name'))}\n"
             f"• <b>Genre:</b> {escape_html(genres)}\n"
             f"• <b>Artist ID:</b> <code>{escape_html(meta.get('artist_id'))}</code>\n"
-            f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"<b>Artist URL (tap to copy):</b>\n<code>{escape_html(artist_url)}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n\n"
+            f"<b>Artist URL (tap to copy):</b>\n<code>{escape_html(artist_url)}</code>\n\n"
             f"{all_cats_str}"
         )
 
@@ -219,15 +210,13 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         playlist_url = meta.get('url', '')
 
         text = (
-            f"<b>PLAYLIST DETAILS & METADATA</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>PLAYLIST DETAILS & METADATA</b>\n\n"
             f"• <b>Playlist Name:</b> {escape_html(meta.get('title'))}\n"
             f"• <b>Curator:</b> {escape_html(meta.get('curator'))}\n"
             f"• <b>Total Tracks:</b> {meta.get('track_count')}{desc}\n"
             f"• <b>Playlist ID:</b> <code>{escape_html(meta.get('playlist_id'))}</code>\n"
-            f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n"
-            f"<b>Playlist URL (tap to copy):</b>\n<code>{escape_html(playlist_url)}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Storefront:</b> <code>{escape_html(meta.get('storefront', '').upper())}</code>\n\n"
+            f"<b>Playlist URL (tap to copy):</b>\n<code>{escape_html(playlist_url)}</code>\n\n"
             f"<b>TRACK PREVIEW:</b>\n\n{tracklist_str}"
         )
 
@@ -318,8 +307,7 @@ async def info_command(msg: types.Message) -> None:
     limit_warning = " (Limit reached)" if not user.is_premium and alac_12h_count >= 100 else ""
 
     info_text = (
-        f"<b>YOUR DOWNLOAD DASHBOARD & INFO</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>YOUR DOWNLOAD DASHBOARD & INFO</b>\n\n"
         f"<b>Account Details:</b>\n"
         f"• <b>User ID:</b> <code>{user_id}</code>\n"
         f"• <b>Status:</b> {status_badge}\n"
@@ -340,8 +328,7 @@ async def info_command(msg: types.Message) -> None:
         f"• <b>ALAC (Lossless):</b> <code>{stats['alac_count']}</code>\n"
         f"• <b>AAC (High Quality):</b> <code>{stats['aac_count']}</code>\n"
         f"• <b>Dolby Atmos (Spatial):</b> <code>{stats['atmos_count']}</code>\n"
-        f"• <b>Music Videos:</b> <code>{stats['mv_count']}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━"
+        f"• <b>Music Videos:</b> <code>{stats['mv_count']}</code>"
     )
 
     try:
