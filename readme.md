@@ -24,10 +24,15 @@ An elegant, highly concurrent, and asynchronous Telegram bot built with **Aiogra
 ```text
 .
 ├── index.py          # Main entrypoint, lifecycle init, and queue worker pool[cite: 4]
+├── lossless.py       # Regular Lossless (/lossless) router, 48kHz remuxing & worker pool
 ├── artist.py         # Advanced FSM multi-select callback routers[cite: 9]
+├── aac.py            # AAC 256kbps audio downloader & queue worker pool
+├── atmos.py          # Dolby Atmos / Spatial audio downloader & worker pool
+├── mv.py             # Music Video HD downloader & worker pool
+├── help.py           # Metadata discovery and bot help command router
 ├── gamdlUrl.py       # Apple Music netscape cookie interface configuration[cite: 5]
 ├── database.py       # SQLModel AsyncEngine declarations & target schemas[cite: 7]
-├── Schema.py         # Core Pydantic validation boundaries[cite: 2]
+├── schema.py         # Core Pydantic validation boundaries[cite: 2]
 ├── utils.py          # Mutagen metadata parsing and ASCII normalization text utility[cite: 1]
 └── queues.py         # Thread-safe global structural locks and storage fields[cite: 3]
 

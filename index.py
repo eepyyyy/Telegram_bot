@@ -15,6 +15,7 @@ from aiogram.client.telegram import TelegramAPIServer
 
 from aac import aac, aac_worker
 from atmos import atmos, atmos_worker
+from lossless import lossless, lossless_worker
 from mv import mv, mv_worker, process_mv_enqueue
 from artist import test_router
 
@@ -191,6 +192,7 @@ async def cmd_start(msg: types.Message) -> None:
         f"  ├ Music Videos: 50 downloads per day\n"
         f"  └ AAC & Dolby Atmos: Unlimited\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
+        f"<b>Note:</b> Regular Lossless downloads (<code>/lossless &lt;url&gt;</code>) ALAC up to 24-bit / 48kHz (standard lossless).\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
         f"<b>Note:</b> Music Video downloads (<code>/mv &lt;url&gt;</code>) H.265 / H.264 HD Video.\n\n"
@@ -729,12 +731,16 @@ async def on_startup(bot: Bot) -> None:
 
     # Start configurable concurrent workers (default 1 concurrent)
     worker_count = int(os.getenv("WORKER_CONCURRENCY", "3"))
+    lossless_worker_count = int(os.getenv("LOSSLESS_WORKER_CONCURRENCY", "3"))
     aac_worker_count = int(os.getenv("AAC_WORKER_CONCURRENCY", "4"))
     atmos_worker_count = int(os.getenv("ATMOS_WORKER_CONCURRENCY", "4"))
     mv_worker_count = int(os.getenv("MV_WORKER_CONCURRENCY", "1"))
 
     for _ in range(worker_count):
         asyncio.create_task(worker())
+
+    for _ in range(lossless_worker_count):
+        asyncio.create_task(lossless_worker())
 
     for _ in range(aac_worker_count):
         asyncio.create_task(aac_worker())
@@ -769,6 +775,7 @@ async def on_startup(bot: Bot) -> None:
     try:
         await bot.set_my_commands([
             types.BotCommand(command="start", description="Start the bot & landing dashboard"),
+            types.BotCommand(command="lossless", description="Download in regular Lossless (up to 48kHz)"),
             types.BotCommand(command="artist", description="Download artist top tracks or catalog"),
             types.BotCommand(command="aac", description="Download track/album in AAC 256kbps"),
             types.BotCommand(command="atmos", description="Download track/album in Dolby Atmos"),
@@ -809,6 +816,7 @@ def main() -> None:
     )
 
     dp.include_router(test_router)
+    dp.include_router(lossless)
     dp.include_router(aac)
     dp.include_router(atmos)
     dp.include_router(mv)

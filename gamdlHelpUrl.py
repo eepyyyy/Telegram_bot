@@ -129,8 +129,9 @@ def parse_available_formats(audio_traits: Optional[List[str]]) -> Dict[str, Any]
 
     if has_hi_res:
         formats_list.append("• <b>ALAC (Hi-Res Lossless 24-bit/192kHz):</b> Available (send link directly)")
+        formats_list.append("• <b>ALAC (Regular Lossless up to 48kHz):</b> Available (<code>/lossless &lt;url&gt;</code>)")
     elif has_alac:
-        formats_list.append("• <b>ALAC (Lossless 24-bit/48kHz):</b> Available (send link directly)")
+        formats_list.append("• <b>ALAC (Lossless 24-bit/48kHz):</b> Available (send link directly or <code>/lossless &lt;url&gt;</code>)")
     else:
         formats_list.append("• <b>ALAC (Lossless):</b> Not Available")
 

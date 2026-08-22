@@ -43,6 +43,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             "<b>Apple Music Downloader - Help & Info</b>\n\n"
             "<b>Commands & Usage:</b>\n"
             "• <code>/help &lt;Apple Music URL&gt;</code> - Get detailed metadata, artwork, audio format support (ALAC/AAC/Atmos), and copyable track/album URLs.\n"
+            "• <code>/lossless &lt;Apple Music URL&gt;</code> - Download in regular Lossless (up to 24-bit / 48kHz ALAC).\n"
             "• <code>/aac &lt;Apple Music URL&gt;</code> - Download AAC 256kbps audio format.\n"
             "• <code>/atmos &lt;Apple Music URL&gt;</code> - Download Spatial Audio / Dolby Atmos.\n"
             "• <code>/mv &lt;Apple Music URL&gt;</code> - Download Music Video in H.265 / H.264 HD video format.\n"
