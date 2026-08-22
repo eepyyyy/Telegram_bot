@@ -192,7 +192,7 @@ async def cmd_start(msg: types.Message) -> None:
         f"  ├ Music Videos: 50 downloads per day\n"
         f"  └ AAC & Dolby Atmos: Unlimited\n\n"
         f"<b>Note:</b> Artist downloads (<code>/artist</code>) are strictly limited to ALAC format.\n\n"
-        f"<b>Note:</b> Regular Lossless downloads (<code>/lossless &lt;url&gt;</code>) ALAC up to 24-bit / 48kHz (standard lossless).\n\n"
+        f"<b>Note:</b> Regular Lossless downloads (<code>/lossless &lt;url&gt;</code>) are deprecated; please send links directly for normal download.\n\n"
         f"<b>Note:</b> AAC downloads (<code>/aac &lt;url&gt;</code>) AAC 256kbps 44.1kHz.\n\n"
         f"<b>Note:</b> Dolby Atmos downloads (<code>/atmos &lt;url&gt;</code>) Spatial Audio.\n\n"
         f"<b>Note:</b> Music Video downloads (<code>/mv &lt;url&gt;</code>) H.265 / H.264 HD Video.\n\n"

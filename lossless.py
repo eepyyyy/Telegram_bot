@@ -135,11 +135,12 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     if not re.search(r"https?://\S+", url):
         usage_text = (
             "<b>Apple Music Regular Lossless Downloader</b>\n\n"
+            "⚠️ <b>Deprecation Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download by sending the link directly to this chat instead.\n\n"
             "<b>Usage:</b>\n"
             "<code>/lossless &lt;Apple Music URL&gt;</code>\n\n"
             "• <b>Audio Quality:</b> ALAC Lossless (up to 24-bit / 48kHz)\n"
             "• <b>Hi-Res Handling:</b> Converts Hi-Res Lossless (96kHz/192kHz) to standard 48kHz Lossless automatically.\n"
-            "• <b>Direct link:</b> Send link directly if you want original Hi-Res Lossless."
+            "• <b>Normal Download:</b> Send link directly to download in standard / Hi-Res Lossless."
         )
         try:
             await msg.answer(usage_text, parse_mode="HTML")
@@ -273,7 +274,11 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     if not tracks_to_download:
         lossless_in_queue.discard(user_id_local)
         try:
-            await status_msg.edit_text("✅ All regular Lossless tracks delivered from cache!\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+            await status_msg.edit_text(
+                "✅ All regular Lossless tracks delivered from cache!\n\n"
+                "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send links directly) instead.\n\n"
+                "🌐 Link can be downloaded at: https://stream.eepy.in/"
+            )
         except Exception:
             pass
         return
@@ -283,7 +288,10 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     position = lossless_queue.qsize()
 
     try:
-        await status_msg.edit_text(f"Queued regular Lossless download (position #{position + 1}). Live progress will update below:")
+        await status_msg.edit_text(
+            f"Queued regular Lossless download (position #{position + 1}). Live progress will update below:\n\n"
+            f"⚠️ <i>Note: The <code>/lossless</code> command is deprecated. Please use normal download (send links directly) instead.</i>"
+        )
     except Exception:
         pass
 
@@ -587,12 +595,20 @@ async def process_lossless_download(task: dict) -> None:
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
             if return_code == 0:
                 try:
-                    await status_msg.edit_text("✅ All regular Lossless tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                    await status_msg.edit_text(
+                        "✅ All regular Lossless tracks processed successfully.\n\n"
+                        "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
+                        "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                    )
                 except Exception:
                     pass
             else:
                 try:
-                    await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                    await status_msg.edit_text(
+                        "⚠ Some tracks might have failed to download.\n\n"
+                        "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
+                        "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                    )
                 except Exception:
                     pass
 
