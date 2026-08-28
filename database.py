@@ -120,6 +120,8 @@ class User(SQLModel, table=True):
     """
     __tablename__ = "user"
     user_id: Optional[int] = Field(sa_type=BigInteger, primary_key=True)
+    username: Optional[str] = Field(default=None)
+    first_name: Optional[str] = Field(default=None)
     is_premium: Optional[bool] = Field(default=False)
     daily_limit: Optional[int] = Field(default=50)
     downloaded_today: Optional[int] = Field(default=0)
@@ -181,6 +183,8 @@ async def init_db():
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;"))
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;"))
         await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
+        await conn.execute(text("ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS username VARCHAR;"))
+        await conn.execute(text("ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
 
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))

@@ -355,21 +355,29 @@ async def get_users_list(request: web.Request):
         if search:
             if search.isdigit():
                 query = query.where(User.user_id == int(search))
+            else:
+                s_term = f"%{search.lstrip('@').lower()}%"
+                query = query.where(or_(
+                    func.lower(User.username).like(s_term),
+                    func.lower(User.first_name).like(s_term)
+                ))
         
         # Order by highest download count
         query = query.order_by(desc(User.download_count)).offset(offset).limit(limit)
         results = (await session.exec(query)).all()
 
-        total_users = (await session.exec(select(func.count()).select_from(User))).one() or 0
+        total_users = int((await session.exec(select(func.count()).select_from(User))).one() or 0)
 
     users_data = [
         {
             "user_id": u.user_id,
-            "download_count": u.download_count,
-            "downloaded_today": u.downloaded_today,
+            "username": getattr(u, "username", None),
+            "first_name": getattr(u, "first_name", None),
+            "download_count": u.download_count or 0,
+            "downloaded_today": u.downloaded_today or 0,
             "last_download": u.last_download.isoformat() if u.last_download else None,
-            "is_premium": u.is_premium,
-            "daily_limit": u.daily_limit,
+            "is_premium": bool(u.is_premium),
+            "daily_limit": u.daily_limit or 50,
         }
         for u in results
     ]

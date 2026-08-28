@@ -114,7 +114,7 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) =
             type="text"
             className="mt-input"
             style={{ paddingLeft: '36px' }}
-            placeholder="Search by Telegram User ID..."
+            placeholder="Search by Username (@handle), Name, or Telegram User ID..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -129,6 +129,7 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) =
         <table className="mt-table">
           <thead>
             <tr>
+              <th>User / Handle</th>
               <th>Telegram ID</th>
               <th>Tier</th>
               <th>Total Downloads</th>
@@ -141,16 +142,36 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) =
           <tbody>
             {users.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--sub-color)' }}>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--sub-color)' }}>
                   {loading ? 'Loading user records...' : 'No users found matching query.'}
                 </td>
               </tr>
             ) : (
               users.map((user) => {
                 const isUpdating = updatingUserId === user.user_id;
+                const displayName = user.username
+                  ? `@${user.username}`
+                  : user.first_name
+                  ? user.first_name
+                  : `User ${user.user_id}`;
+
                 return (
                   <tr key={user.user_id}>
-                    <td style={{ fontWeight: 600 }}>{user.user_id}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-color)' }}>
+                          {displayName}
+                        </span>
+                        {user.first_name && user.username && (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)' }}>
+                            {user.first_name}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: '0.78rem', color: 'var(--sub-color)', fontFamily: 'var(--font-mono)' }}>
+                      {user.user_id}
+                    </td>
                     <td>
                       {user.is_premium ? (
                         <span

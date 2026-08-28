@@ -66,6 +66,8 @@ export interface DatabaseStats {
 
 export interface UserItem {
   user_id: number;
+  username: string | null;
+  first_name: string | null;
   download_count: number;
   downloaded_today: number;
   last_download: string | null;

@@ -41,19 +41,26 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
-  // Polling data fetcher
+  // Polling data fetcher with independent error resilience
   const refreshData = useCallback(async () => {
     if (!getToken()) return;
 
     try {
-      const [statusRes, downloadsRes, statsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.getStatus(),
         api.getActiveDownloads(),
         api.getStats(),
       ]);
-      setStatus(statusRes);
-      setActiveDownloads(downloadsRes.active_downloads);
-      setDbStats(statsRes);
+
+      if (results[0].status === 'fulfilled') {
+        setStatus(results[0].value);
+      }
+      if (results[1].status === 'fulfilled') {
+        setActiveDownloads(results[1].value.active_downloads);
+      }
+      if (results[2].status === 'fulfilled') {
+        setDbStats(results[2].value);
+      }
     } catch (err) {
       console.error('Failed to poll dashboard data:', err);
     }
@@ -75,7 +82,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
       }
-      // Tab + Enter for quick pause toggle
+      // Shift + Enter for quick pause toggle
       if (e.key === 'Enter' && e.shiftKey) {
         e.preventDefault();
         handleTogglePause();
@@ -92,6 +99,7 @@ export const App: React.FC = () => {
     try {
       const res = await api.togglePause();
       setStatus((prev) => prev ? { ...prev, is_paused: res.is_paused } : null);
+      refreshData();
     } catch (err) {
       alert(`Failed to toggle pause: ${err}`);
     } finally {
@@ -100,11 +108,11 @@ export const App: React.FC = () => {
   };
 
   const handleToggleMaintenance = async () => {
-    if (!status) return;
-    const newMode = !status.maintenance_mode;
+    const newMode = status ? !status.maintenance_mode : true;
     try {
       const res = await api.setMaintenance(newMode);
       setStatus((prev) => prev ? { ...prev, maintenance_mode: res.maintenance_mode } : null);
+      refreshData();
     } catch (err) {
       alert(`Failed to toggle maintenance mode: ${err}`);
     }
