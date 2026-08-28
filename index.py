@@ -78,11 +78,51 @@ STREAM_SERVER_URL = os.getenv("STREAM_SERVER_URL", "https://stream.eepy.in")
 
 
 
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
+from aiogram.types import TelegramObject, FSInputFile, Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+
 LISTEN_HOST = os.getenv("WEBHOOK_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("WEBHOOK_LISTEN_PORT", 8080))
 
 dp = Dispatcher()
 async_session = get_session_maker()
+
+
+class MaintenanceMiddleware(BaseMiddleware):
+    """
+    Blocks incoming user interactions during maintenance mode and replies with a maintenance notice.
+    """
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        if bot_control.maintenance_mode:
+            user_id = None
+            if isinstance(event, Message) and event.from_user:
+                user_id = event.from_user.id
+            elif isinstance(event, CallbackQuery) and event.from_user:
+                user_id = event.from_user.id
+
+            admin_id = os.getenv("ADMIN_ID")
+            if admin_id and user_id and str(user_id) == str(admin_id):
+                return await handler(event, data)
+
+            msg_text = bot_control.maintenance_message or "The bot is currently undergoing maintenance or updates. Please try again shortly."
+            if isinstance(event, Message):
+                try:
+                    await event.answer(f"🚧 <b>Maintenance Mode Active</b>\n\n{msg_text}", parse_mode="HTML")
+                except Exception:
+                    pass
+                return
+            elif isinstance(event, CallbackQuery):
+                try:
+                    await event.answer("🚧 Bot is currently under maintenance. Please try again later.", show_alert=True)
+                except Exception:
+                    pass
+                return
+
+        return await handler(event, data)
+
+
+dp.message.outer_middleware(MaintenanceMiddleware())
+dp.callback_query.outer_middleware(MaintenanceMiddleware())
 
 
 def make_progress_bar(current: int, total: int, length: int = 10) -> str:
