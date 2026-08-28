@@ -44,17 +44,17 @@ async def health_check(request: web.Request):
 @routes.get("/api/stats")
 async def get_stats(request: web.Request):
     async with async_session() as session:
-        alac_cnt = (await session.exec(select(func.count()).select_from(Tracks))).one() or 0
-        aac_cnt = (await session.exec(select(func.count()).select_from(AACTracks))).one() or 0
-        atmos_cnt = (await session.exec(select(func.count()).select_from(AtmosTracks))).one() or 0
-        albums_cnt = (await session.exec(select(func.count()).select_from(Albums))).one() or 0
+        alac_cnt = int((await session.exec(select(func.count()).select_from(Tracks))).one() or 0)
+        aac_cnt = int((await session.exec(select(func.count()).select_from(AACTracks))).one() or 0)
+        atmos_cnt = int((await session.exec(select(func.count()).select_from(AtmosTracks))).one() or 0)
+        albums_cnt = int((await session.exec(select(func.count()).select_from(Albums))).one() or 0)
 
-        alac_sz = (await session.exec(select(func.sum(Tracks.size)))).one() or 0
-        aac_sz = (await session.exec(select(func.sum(AACTracks.size)))).one() or 0
-        atmos_sz = (await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0
+        alac_sz = float((await session.exec(select(func.sum(Tracks.size)))).one() or 0.0)
+        aac_sz = float((await session.exec(select(func.sum(AACTracks.size)))).one() or 0.0)
+        atmos_sz = float((await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0.0)
 
     total_tracks = alac_cnt + aac_cnt + atmos_cnt
-    total_size_bytes = int((alac_sz or 0) + (aac_sz or 0) + (atmos_sz or 0))
+    total_size_bytes = int(alac_sz + aac_sz + atmos_sz)
 
     return web.json_response({
         "total_tracks": total_tracks,

@@ -41,14 +41,20 @@ def create_app() -> web.Application:
     dashboard_dist = Path(__file__).resolve().parent.parent / "dashboard" / "dist"
     if dashboard_dist.exists():
         app.router.add_static("/dashboard/assets", dashboard_dist / "assets", name="dashboard_assets")
+        app.router.add_static("/assets", dashboard_dist / "assets", name="root_assets")
+
+        async def redirect_dashboard_slash(request: web.Request):
+            return web.HTTPFound("/dashboard/")
 
         async def serve_dashboard_root(request: web.Request):
             return web.FileResponse(dashboard_dist / "index.html")
 
-        app.router.add_get("/dashboard", serve_dashboard_root)
+        app.router.add_get("/dashboard", redirect_dashboard_slash)
+        app.router.add_get("/dashboard/", serve_dashboard_root)
 
         async def serve_dashboard_sub(request: web.Request):
-            req_path = dashboard_dist / request.match_info.get("tail", "")
+            tail = request.match_info.get("tail", "")
+            req_path = dashboard_dist / tail
             if req_path.is_file():
                 return web.FileResponse(req_path)
             return web.FileResponse(dashboard_dist / "index.html")

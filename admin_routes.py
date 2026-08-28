@@ -299,27 +299,28 @@ async def clear_queue_endpoint(request: web.Request):
 async def get_db_stats(request: web.Request):
     async with async_session() as session:
         # Tracks count
-        alac_cnt = (await session.exec(select(func.count()).select_from(Tracks))).one() or 0
-        aac_cnt = (await session.exec(select(func.count()).select_from(AACTracks))).one() or 0
-        atmos_cnt = (await session.exec(select(func.count()).select_from(AtmosTracks))).one() or 0
-        albums_cnt = (await session.exec(select(func.count()).select_from(Albums))).one() or 0
+        alac_cnt = int((await session.exec(select(func.count()).select_from(Tracks))).one() or 0)
+        aac_cnt = int((await session.exec(select(func.count()).select_from(AACTracks))).one() or 0)
+        atmos_cnt = int((await session.exec(select(func.count()).select_from(AtmosTracks))).one() or 0)
+        albums_cnt = int((await session.exec(select(func.count()).select_from(Albums))).one() or 0)
 
-        # Sizes
-        alac_sz = (await session.exec(select(func.sum(Tracks.size)))).one() or 0
-        aac_sz = (await session.exec(select(func.sum(AACTracks.size)))).one() or 0
-        atmos_sz = (await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0
+        # Sizes (PostgreSQL func.sum returns Decimal, cast to float)
+        alac_sz = float((await session.exec(select(func.sum(Tracks.size)))).one() or 0.0)
+        aac_sz = float((await session.exec(select(func.sum(AACTracks.size)))).one() or 0.0)
+        atmos_sz = float((await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0.0)
 
         # Users
-        users_cnt = (await session.exec(select(func.count()).select_from(User))).one() or 0
-        premium_users_cnt = (await session.exec(select(func.count()).select_from(User).where(User.is_premium == True))).one() or 0
+        users_cnt = int((await session.exec(select(func.count()).select_from(User))).one() or 0)
+        premium_users_cnt = int((await session.exec(select(func.count()).select_from(User).where(User.is_premium == True))).one() or 0)
         
         # Today downloads
         today = datetime.date.today()
-        downloads_today = (await session.exec(select(func.sum(User.downloaded_today)).where(User.last_download == today))).one() or 0
-        total_downloads = (await session.exec(select(func.sum(User.download_count)))).one() or 0
+        downloads_today = int((await session.exec(select(func.sum(User.downloaded_today)).where(User.last_download == today))).one() or 0)
+        total_downloads = int((await session.exec(select(func.sum(User.download_count)))).one() or 0)
 
     total_tracks = alac_cnt + aac_cnt + atmos_cnt
-    total_size_bytes = int((alac_sz or 0) + (aac_sz or 0) + (atmos_sz or 0))
+    total_size_bytes = int(alac_sz + aac_sz + atmos_sz)
+    total_size_gb = round(total_size_bytes / (1024 ** 3), 2) if total_size_bytes else 0.0
 
     return web.json_response({
         "total_tracks": total_tracks,
@@ -329,11 +330,11 @@ async def get_db_stats(request: web.Request):
         "downloads_today": downloads_today,
         "total_downloads": total_downloads,
         "total_size_bytes": total_size_bytes,
-        "total_size_gb": round(total_size_bytes / (1024 ** 3), 2) if total_size_bytes else 0.0,
+        "total_size_gb": total_size_gb,
         "formats": {
-            "alac": {"count": alac_cnt, "size_gb": round((alac_sz or 0) / (1024 ** 3), 2)},
-            "aac": {"count": aac_cnt, "size_gb": round((aac_sz or 0) / (1024 ** 3), 2)},
-            "atmos": {"count": atmos_cnt, "size_gb": round((atmos_sz or 0) / (1024 ** 3), 2)},
+            "alac": {"count": alac_cnt, "size_gb": round(alac_sz / (1024 ** 3), 2) if alac_sz else 0.0},
+            "aac": {"count": aac_cnt, "size_gb": round(aac_sz / (1024 ** 3), 2) if aac_sz else 0.0},
+            "atmos": {"count": atmos_cnt, "size_gb": round(atmos_sz / (1024 ** 3), 2) if atmos_sz else 0.0},
         }
     })
 
