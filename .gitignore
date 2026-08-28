@@ -1,5 +1,4 @@
 .env
-cookies.txt
 downloads/
 Apple Music/
 *.apkm
@@ -14,3 +13,8 @@ __pycache__/
 *.session
 *.dump
 repos/
+node_modules/
+.wrangler/
+dashboard/node_modules/
+dashboard/.wrangler/
+

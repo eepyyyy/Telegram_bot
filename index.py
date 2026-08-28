@@ -34,8 +34,11 @@ from gamdlUrl import get_any_url
 from queues import download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks, is_user_busy
 
 import aiohttp
+from pathlib import Path
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+import bot_control
+from admin_routes import admin_routes
 
 load_dotenv()
 
@@ -678,6 +681,9 @@ async def worker() -> None:
     Worker function to process the download queue.
     """
     while True:
+        while bot_control.is_bot_paused:
+            await asyncio.sleep(1)
+
         task = await download_queue.get()
         msg = task.get("msg") or task.get("message")
         user_id = task.get("user_id")
@@ -843,6 +849,27 @@ def main() -> None:
     # Bind app & dispatcher together
     setup_application(app, dp, bot=bot)
 
+    # Register admin REST API routes
+    app.add_routes(admin_routes)
+
+    # Serve static dashboard if built
+    dashboard_dist = Path(__file__).resolve().parent / "dashboard" / "dist"
+    if dashboard_dist.exists():
+        app.router.add_static("/dashboard/assets", dashboard_dist / "assets", name="dashboard_assets")
+        
+        async def serve_dashboard_root(request: web.Request):
+            return web.FileResponse(dashboard_dist / "index.html")
+
+        app.router.add_get("/dashboard", serve_dashboard_root)
+
+        async def serve_dashboard_sub(request: web.Request):
+            req_path = dashboard_dist / request.match_info.get("tail", "")
+            if req_path.is_file():
+                return web.FileResponse(req_path)
+            return web.FileResponse(dashboard_dist / "index.html")
+
+        app.router.add_get("/dashboard/{tail:.*}", serve_dashboard_sub)
+
     logging.info(f"Starting webhook web server on {LISTEN_HOST}:{LISTEN_PORT}...")
     web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT)
 
@@ -872,8 +899,9 @@ def setup_bot_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
 
-    # 4. Attach console handler
+    # 4. Attach console handler and in-memory dashboard log handler
     logger.addHandler(console_handler)
+    logger.addHandler(bot_control.dashboard_log_handler)
 
 
 if __name__ == "__main__":
