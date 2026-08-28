@@ -17,14 +17,20 @@ bot_start_time: float = time.time()
 # Concurrency overrides (if set via dashboard)
 custom_worker_concurrency: dict[str, int] = {}
 
-# In-memory log buffer (stores last 600 log lines)
-LOG_BUFFER_MAX_SIZE = 600
+# In-memory log buffer (stores last 1200 log lines)
+LOG_BUFFER_MAX_SIZE = 1200
 log_buffer: collections.deque = collections.deque(maxlen=LOG_BUFFER_MAX_SIZE)
 
 
 class DashboardLogHandler(logging.Handler):
-    """Captures application logs in a fixed-size ring buffer for real-time dashboard viewing."""
+    """Captures application logs in a fixed-size ring buffer for real-time dashboard viewing, filtering out polling noise."""
     def emit(self, record: logging.LogRecord):
+        # Ignore noisy repetitive HTTP polling access logs
+        if record.name in ("aiohttp.access", "aiohttp.server"):
+            msg = record.getMessage()
+            if any(path in msg for path in ("/api/admin/", "/dashboard", "/assets", "/favicon")):
+                return
+
         try:
             entry = {
                 "id": f"{record.created}_{record.msecs}",
@@ -39,6 +45,30 @@ class DashboardLogHandler(logging.Handler):
 
 
 dashboard_log_handler = DashboardLogHandler()
+
+
+class LogRedirectStream:
+    """Redirects stdout to logging so any print statements (e.g. gamdl output) are captured in the dashboard terminal."""
+    def __init__(self, original_stream, logger_name="app"):
+        self.original_stream = original_stream
+        self.logger_name = logger_name
+        self.logger = logging.getLogger(logger_name)
+
+    def write(self, data):
+        self.original_stream.write(data)
+        if isinstance(data, str):
+            text = data.strip()
+            if text and not (("/api/admin/" in text or "/dashboard" in text) and "HTTP/" in text):
+                self.logger.info(text)
+
+    def flush(self):
+        self.original_stream.flush()
+
+    def fileno(self):
+        return self.original_stream.fileno()
+
+    def isatty(self):
+        return getattr(self.original_stream, "isatty", lambda: False)()
 
 
 def get_system_stats() -> dict[str, Any]:

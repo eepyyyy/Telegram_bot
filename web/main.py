@@ -23,6 +23,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.server").setLevel(logging.WARNING)
 logger = logging.getLogger("web.main")
 logging.getLogger().addHandler(bot_control.dashboard_log_handler)
 
@@ -68,7 +70,7 @@ def create_app() -> web.Application:
 def main():
     app = create_app()
     logger.info(f"🚀 Starting Standalone Apple Music Web Server on http://{config.SERVER_HOST}:{config.SERVER_PORT}...")
-    web.run_app(app, host=config.SERVER_HOST, port=config.SERVER_PORT)
+    web.run_app(app, host=config.SERVER_HOST, port=config.SERVER_PORT, access_log=None)
 
 
 if __name__ == "__main__":

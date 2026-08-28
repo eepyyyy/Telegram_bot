@@ -919,7 +919,7 @@ def main() -> None:
         app.router.add_get("/dashboard/{tail:.*}", serve_dashboard_sub)
 
     logging.info(f"Starting webhook web server on {LISTEN_HOST}:{LISTEN_PORT}...")
-    web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT)
+    web.run_app(app, host=LISTEN_HOST, port=LISTEN_PORT, access_log=None)
 
 
 def setup_bot_logging():
@@ -929,9 +929,12 @@ def setup_bot_logging():
         sys.stderr.reconfigure(encoding="utf-8")
 
     # 1. Root logger configuration
-
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
+
+    # Silence noisy HTTP access logs from polling dashboard endpoints
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp.server").setLevel(logging.WARNING)
 
     # Clean up existing handlers if re-running in interactive environments
     if logger.hasHandlers():
@@ -944,12 +947,16 @@ def setup_bot_logging():
     )
 
     # 3. Terminal Handler (Live streaming to console only)
-    console_handler = logging.StreamHandler(sys.stdout)
+    raw_stdout = sys.stdout
+    console_handler = logging.StreamHandler(raw_stdout)
     console_handler.setFormatter(formatter)
 
     # 4. Attach console handler and in-memory dashboard log handler
     logger.addHandler(console_handler)
     logger.addHandler(bot_control.dashboard_log_handler)
+
+    # 5. Redirect stdout prints (e.g. gamdl output) to logger
+    sys.stdout = bot_control.LogRedirectStream(raw_stdout, logger_name="bot.downloader")
 
 
 if __name__ == "__main__":
