@@ -120,8 +120,6 @@ class User(SQLModel, table=True):
     """
     __tablename__ = "user"
     user_id: Optional[int] = Field(sa_type=BigInteger, primary_key=True)
-    username: Optional[str] = Field(default=None)
-    first_name: Optional[str] = Field(default=None)
     is_premium: Optional[bool] = Field(default=False)
     daily_limit: Optional[int] = Field(default=50)
     downloaded_today: Optional[int] = Field(default=0)
@@ -162,35 +160,40 @@ engine = create_async_engine(
 )
 
 
-
 async def init_db():
     """
     Initializes the database by creating all tables and adding missing columns safely.
     """
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
-        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
-        await conn.execute(text("ALTER TABLE tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
-        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
-        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
-        await conn.execute(text("ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
-        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
-        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
-        await conn.execute(text("ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
-        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;"))
-        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;"))
-        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;"))
-        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;"))
-        await conn.execute(text("ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();"))
-        await conn.execute(text("ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS username VARCHAR;"))
-        await conn.execute(text("ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS first_name VARCHAR;"))
 
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);"))
+        migration_stmts = [
+            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;",
+            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;",
+            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+            "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+            "CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+            "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+            "CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+            "CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+        ]
+
+        for stmt in migration_stmts:
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                pass
 
 
 

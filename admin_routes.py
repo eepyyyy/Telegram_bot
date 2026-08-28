@@ -355,12 +355,6 @@ async def get_users_list(request: web.Request):
         if search:
             if search.isdigit():
                 query = query.where(User.user_id == int(search))
-            else:
-                s_term = f"%{search.lstrip('@').lower()}%"
-                query = query.where(or_(
-                    func.lower(User.username).like(s_term),
-                    func.lower(User.first_name).like(s_term)
-                ))
         
         # Order by highest download count
         query = query.order_by(desc(User.download_count)).offset(offset).limit(limit)
