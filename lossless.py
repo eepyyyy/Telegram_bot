@@ -19,7 +19,9 @@ import database
 import schema
 import utils
 from database import User, async_session
-from gamdlUrl import get_any_url
+import time
+from gamdl.interface import AppleMusicInterface
+from gamdlUrl import get_any_url, normalize_apple_music_url
 from queues import (
     active_tasks,
     is_user_busy,
@@ -156,6 +158,44 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
+    # Inspect URL type to restrict /lossless strictly to individual songs
+    try:
+        norm_url = normalize_apple_music_url(url)
+        info = AppleMusicInterface.get_url_info(norm_url)
+        if info:
+            if info.type == "artist":
+                try:
+                    await msg.answer(
+                        "❌ <b>The <code>/lossless</code> command is restricted to individual songs only.</b>\n\n"
+                        "Artist links are not allowed with <code>/lossless</code>. Please use <code>/artist &lt;link&gt;</code> or send links directly.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                return
+            elif info.type == "album" and not info.sub_id:
+                try:
+                    await msg.answer(
+                        "❌ <b>The <code>/lossless</code> command is restricted to individual songs only.</b>\n\n"
+                        "Full album links are not allowed with <code>/lossless</code>. Please send direct song links or send links directly without <code>/lossless</code> to download full albums.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                return
+            elif info.type == "playlist":
+                try:
+                    await msg.answer(
+                        "❌ <b>The <code>/lossless</code> command is restricted to individual songs only.</b>\n\n"
+                        "Playlist links are not allowed with <code>/lossless</code>. Please send direct song links.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                return
+    except Exception as e:
+        print(f"[Lossless Check] Exception inspecting URL type: {e}")
+
     # Mark user busy immediately
     lossless_in_queue.add(user_id_local)
 
@@ -175,6 +215,18 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
         lossless_in_queue.discard(user_id_local)
         try:
             await status_msg.edit_text("❌ No tracks found.")
+        except Exception:
+            pass
+        return
+
+    if len(songs) > 1:
+        lossless_in_queue.discard(user_id_local)
+        try:
+            await status_msg.edit_text(
+                "❌ <b>The <code>/lossless</code> command is restricted to individual songs only.</b>\n\n"
+                "Multi-track albums or playlists are not allowed with <code>/lossless</code>. Please send direct song links or send links directly without <code>/lossless</code> to download full albums.",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
         return
@@ -328,11 +380,25 @@ async def process_lossless_download(task: dict) -> None:
     task_temp_dir = f"{task_output_dir}_temp"
     process = None
 
+    track_title = "Lossless Track"
+    artist = "Unknown Artist"
+    if songs:
+        track_title = songs[0].title
+        artist = songs[0].artist
+        if len(songs) > 1:
+            track_title = songs[0].album or f"{songs[0].title} (+{len(songs)-1} tracks)"
+
     active_tasks[unique_task_id] = {
         "process": None,
         "cancelled": False,
         "user_id": user_id_local,
-        "status_msg": status_msg
+        "status_msg": status_msg,
+        "track_title": track_title,
+        "artist": artist,
+        "format": "LOSSLESS",
+        "status": "downloading",
+        "start_time": time.time(),
+        "progress": int((completed_count / total_tracks) * 100) if total_tracks > 0 else 0,
     }
 
     try:
@@ -375,6 +441,7 @@ async def process_lossless_download(task: dict) -> None:
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             *cookies_args,
+            "--truncate", "80",
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
             *tracks_to_download,

@@ -84,6 +84,7 @@ async def download_track_web(
             "gamdl",
             "-n",
             *cookies_arg,
+            "--truncate", "80",
             "--output-path", str(output_dir),
             "--temp-path", str(temp_dir),
             *get_codec_args(format_type),

@@ -19,7 +19,8 @@ import crud
 import database
 from database import User, async_session, MVTracks
 from gamdlUrl import get_any_url
-from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_busy
+import time
+from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_busy, active_tasks
 
 mv = Router()
 
@@ -327,6 +328,7 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
         "gamdl",
         "-n",
         *cookies_args,
+        "--truncate", "80",
         "--output-path", output_dir,
         "--temp-path", temp_dir,
         "--music-video-resolution", resolution or "2160p",
@@ -387,6 +389,25 @@ async def process_mv_download(task: dict) -> None:
     unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     temp_dir = f"{output_dir}_temp"
+
+    track_title = "Music Video"
+    artist = "Unknown Artist"
+    if songs:
+        track_title = songs[0].title
+        artist = songs[0].artist
+
+    active_tasks[unique_task_id] = {
+        "process": None,
+        "cancelled": False,
+        "user_id": user_id_local,
+        "status_msg": status_msg,
+        "track_title": track_title,
+        "artist": artist,
+        "format": "MUSIC VIDEO",
+        "status": "downloading",
+        "start_time": time.time(),
+        "progress": 0,
+    }
 
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
@@ -572,6 +593,7 @@ async def process_mv_download(task: dict) -> None:
         except Exception:
             pass
     finally:
+        active_tasks.pop(unique_task_id, None)
         for d_clean in (output_dir, temp_dir):
             if await asyncio.to_thread(os.path.exists, d_clean):
                 try:

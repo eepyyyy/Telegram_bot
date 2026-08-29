@@ -311,11 +311,18 @@ async def process_download(task: dict) -> None:
     task_output_dir = os.path.join("./downloads", unique_task_id)
     process = None
 
+    import time
     active_tasks[unique_task_id] = {
         "process": None,
         "cancelled": False,
         "user_id": user_id_local,
-        "status_msg": status_msg
+        "status_msg": status_msg,
+        "track_title": "Fetching metadata...",
+        "artist": "Unknown Artist",
+        "format": "ALAC",
+        "status": "fetching",
+        "start_time": time.time(),
+        "progress": 0,
     }
 
     try:
@@ -328,6 +335,15 @@ async def process_download(task: dict) -> None:
             except Exception:
                 pass
             return
+
+        if songs and unique_task_id in active_tasks:
+            if len(songs) == 1:
+                active_tasks[unique_task_id]["track_title"] = songs[0].title
+                active_tasks[unique_task_id]["artist"] = songs[0].artist
+            else:
+                active_tasks[unique_task_id]["track_title"] = songs[0].album or f"{songs[0].title} (+{len(songs)-1} tracks)"
+                active_tasks[unique_task_id]["artist"] = songs[0].artist
+            active_tasks[unique_task_id]["status"] = "downloading"
 
         total_tracks = len(songs)
         completed_count = 0
@@ -471,6 +487,7 @@ async def process_download(task: dict) -> None:
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             *cookies_args,
+            "--truncate", "80",
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
             *tracks_to_download,

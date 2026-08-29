@@ -16,7 +16,8 @@ import crud
 import database
 from database import User, async_session
 from gamdlUrl import get_any_url
-from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks, is_user_busy
+import time
+from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks, is_user_busy, active_tasks
 
 atmos = Router()
 
@@ -154,6 +155,27 @@ async def process_atmos_download(task: dict) -> None:
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     process = None
 
+    track_title = "Dolby Atmos Track"
+    artist = "Unknown Artist"
+    if songs:
+        track_title = songs[0].title
+        artist = songs[0].artist
+        if len(songs) > 1:
+            track_title = songs[0].album or f"{songs[0].title} (+{len(songs)-1} tracks)"
+
+    active_tasks[unique_task_id] = {
+        "process": None,
+        "cancelled": False,
+        "user_id": user_id_local,
+        "status_msg": status_msg,
+        "track_title": track_title,
+        "artist": artist,
+        "format": "DOLBY ATMOS",
+        "status": "downloading",
+        "start_time": time.time(),
+        "progress": 0,
+    }
+
     temp_dir = f"{output_dir}_temp"
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
@@ -167,6 +189,7 @@ async def process_atmos_download(task: dict) -> None:
             "gamdl",
             "-n",
             *cookies_args,
+            "--truncate", "80",
             "--output-path", output_dir,
             "--temp-path", temp_dir,
             "--song-codec-priority", "atmos",
@@ -175,6 +198,8 @@ async def process_atmos_download(task: dict) -> None:
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
         )
+        if unique_task_id in active_tasks:
+            active_tasks[unique_task_id]["process"] = process
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         uploaded_files = set()
@@ -349,6 +374,7 @@ async def process_atmos_download(task: dict) -> None:
         except Exception:
             pass
     finally:
+        active_tasks.pop(unique_task_id, None)
         if process and process.returncode is None:
             try:
                 process.terminate()
