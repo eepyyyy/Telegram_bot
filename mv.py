@@ -320,9 +320,13 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
     Executes gamdl for Music Video. Defaults to 2160p (4K) resolution and h265,h264 codec priority.
     Returns (return_code, format_unavailable).
     """
+    cookies_path = os.path.abspath("cookies.txt")
+    cookies_args = ["--cookies-path", cookies_path] if os.path.exists(cookies_path) else []
+
     cmd = [
         "gamdl",
         "-n",
+        *cookies_args,
         "--output-path", output_dir,
         "--temp-path", temp_dir,
         "--music-video-resolution", resolution or "2160p",

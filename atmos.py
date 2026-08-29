@@ -160,9 +160,13 @@ async def process_atmos_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
         # Start downloading with Dolby Atmos codec priority
+        cookies_path = os.path.abspath("cookies.txt")
+        cookies_args = ["--cookies-path", cookies_path] if os.path.exists(cookies_path) else []
+
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "-n",
+            *cookies_args,
             "--output-path", output_dir,
             "--temp-path", temp_dir,
             "--song-codec-priority", "atmos",

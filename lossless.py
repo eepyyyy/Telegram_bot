@@ -369,8 +369,12 @@ async def process_lossless_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, task_output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, task_temp_dir, exist_ok=True)
 
+        cookies_path = os.path.abspath("cookies.txt")
+        cookies_args = ["--cookies-path", cookies_path] if os.path.exists(cookies_path) else []
+
         process = await asyncio.create_subprocess_exec(
             "gamdl",
+            *cookies_args,
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
             *tracks_to_download,
