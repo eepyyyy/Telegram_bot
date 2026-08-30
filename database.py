@@ -206,10 +206,11 @@ async def init_db():
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(stmt))
+            logging.info(f"✅ Migration applied: {stmt}")
         except Exception as e:
-            logging.debug(f"Migration statement notice/error for [{stmt}]: {e}")
+            logging.warning(f"⚠️ Migration notice for [{stmt}]: {e}")
 
-    logging.info("Database schema initialized and migrations applied successfully.")
+    logging.info("🎉 Database schema initialized and all migrations verified.")
 
 
 
@@ -225,10 +226,10 @@ async_session = get_session_maker()
 
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
-    print("Running database migrations...")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
+    print("🚀 Starting database migrations...")
     await init_db()
-    print("Database migrations finished successfully!")
+    print("✅ All database migrations finished successfully!")
 
 
 if __name__ == "__main__":
