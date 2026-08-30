@@ -483,7 +483,7 @@ async def process_atmos_download(task: dict) -> None:
         # Handle ZIP packaging for 'zip' and 'both' modes
         if not active_tasks.get(unique_task_id, {}).get("cancelled") and download_mode in ("zip", "both") and songs:
             try:
-                await status_msg.edit_text("📦 Packaging Dolby Atmos album into ZIP with max-res cover and lyrics (.lrc, .srt, .ttml)...")
+                await status_msg.edit_text("📦 Packaging Dolby Atmos album into ZIP with max-res cover and lyrics (.lrc)...")
             except Exception:
                 pass
 
@@ -501,7 +501,7 @@ async def process_atmos_download(task: dict) -> None:
             caption = (
                 f"📦 <b>{album_title}</b> (Dolby Atmos)\n"
                 f"👤 <i>{artist}</i>\n"
-                f"🎵 {len(songs)} Tracks • Max-Res Cover • All Lyrics (.lrc, .srt, .ttml)"
+                f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
             )
 
             thumb_data = None
