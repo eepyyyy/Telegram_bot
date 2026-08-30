@@ -173,39 +173,40 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
-        migration_stmts = [
-            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
-            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;",
-            "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
-            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
-            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
-            "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
-            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
-            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
-            "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
-            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
-            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
-            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;",
-            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;",
-            "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_file_id VARCHAR;",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_file_id VARCHAR;",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_file_id VARCHAR;",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_gofile_url VARCHAR;",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_gofile_url VARCHAR;",
-            "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_gofile_url VARCHAR;",
-            "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
-            "CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
-            "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
-            "CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
-            "CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
-        ]
+    migration_stmts = [
+        "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+        "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+        "ALTER TABLE tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+        "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+        "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+        "ALTER TABLE aac_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+        "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+        "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+        "ALTER TABLE atmos_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS chat_id BIGINT;",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_gofile_url VARCHAR;",
+        "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+        "CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+        "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+        "CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+        "CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+    ]
 
-        for stmt in migration_stmts:
-            try:
+    for stmt in migration_stmts:
+        try:
+            async with engine.begin() as conn:
                 await conn.execute(text(stmt))
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 

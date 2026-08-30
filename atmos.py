@@ -115,10 +115,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             f"👤 <b>Artist:</b> {hcode(artist)}\n"
             f"🎵 <b>Tracks:</b> {track_count} track(s)\n"
             f"🎛 <b>Format:</b> Dolby Atmos\n\n"
-            f"⚠️ <b>Please choose your delivery option:</b>\n"
-            f"• <b>Individual Tracks:</b> Delivers each track as audio with player controls.\n"
-            f"• <b>ZIP Archive Only:</b> Packages all tracks, max-res cover & all lyrics (.lrc, .srt, .ttml) into 1 file. <i>(Prevents chat flooding)</i>\n"
-            f"• <b>Tracks + ZIP:</b> Delivers both tracks for in-app listening and the full ZIP archive."
+            f"<b>Please choose delivery option:</b>"
         )
         try:
             await status_msg.edit_text(prompt_text, reply_markup=kb.as_markup(), parse_mode="HTML")
