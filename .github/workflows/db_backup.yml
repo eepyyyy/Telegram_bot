@@ -40,11 +40,26 @@ jobs:
           # Strip asyncpg dialect prefix if present (postgresql+asyncpg:// -> postgresql://)
           PG_CONN_URL=$(echo "$DATABASE_URL" | sed 's/postgresql+asyncpg:\/\//postgresql:\/\//g')
 
+          # Enable pipefail so pg_dump failures cause the step to fail
+          set -eo pipefail
+
           TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
           BACKUP_FILE="db_backup_${TIMESTAMP}.sql.gz"
+          RAW_SQL="db_backup_${TIMESTAMP}.sql"
 
-          echo "Exporting database schema and data..."
-          pg_dump "$PG_CONN_URL" --no-owner --no-acl --clean --if-exists | gzip -9 > "$BACKUP_FILE"
+          echo "Testing connection and exporting database schema and data..."
+          if ! pg_dump "$PG_CONN_URL" --no-owner --no-acl --clean --if-exists > "$RAW_SQL"; then
+            echo "::error::pg_dump failed to connect to the database. If your database is hosted on 'localhost', GitHub Actions cloud runners cannot reach it. Use scripts/backup_db.py directly on your server instead."
+            exit 1
+          fi
+
+          if [ ! -s "$RAW_SQL" ]; then
+            echo "::error::Database dump is empty (0 bytes). Check connection credentials and host."
+            exit 1
+          fi
+
+          gzip -9 < "$RAW_SQL" > "$BACKUP_FILE"
+          rm -f "$RAW_SQL"
 
           FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
           echo "Backup created successfully: $BACKUP_FILE ($FILE_SIZE)"
