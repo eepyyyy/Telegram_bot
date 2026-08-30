@@ -126,8 +126,8 @@ async def upload_to_github_release(file_path: str, timestamp: str) -> Optional[s
             f"- 📁 **File:** `{filename}` ({file_size_mb:.2f} MB)\n"
             f"- 🔒 Complete dump of tracks, albums, users, and download history."
         ),
-        "draft": false,
-        "prerelease": false
+        "draft": False,
+        "prerelease": False
     }
 
     try:
