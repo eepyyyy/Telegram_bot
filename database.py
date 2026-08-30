@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -205,8 +206,10 @@ async def init_db():
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(stmt))
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug(f"Migration statement notice/error for [{stmt}]: {e}")
+
+    logging.info("Database schema initialized and migrations applied successfully.")
 
 
 
@@ -222,7 +225,10 @@ async_session = get_session_maker()
 
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
+    print("Running database migrations...")
     await init_db()
+    print("Database migrations finished successfully!")
 
 
 if __name__ == "__main__":

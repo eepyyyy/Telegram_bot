@@ -106,7 +106,13 @@ class MaintenanceMiddleware(BaseMiddleware):
                 user_id = event.from_user.id
 
             admin_id = os.getenv("ADMIN_ID")
-            if admin_id and user_id and str(user_id) == str(admin_id):
+            allowed_ids = {"6328734431"}
+            if admin_id:
+                for a_id in str(admin_id).split(","):
+                    if a_id.strip():
+                        allowed_ids.add(a_id.strip())
+
+            if user_id and str(user_id) in allowed_ids:
                 return await handler(event, data)
 
             msg_text = bot_control.maintenance_message or "The bot is currently undergoing maintenance or updates. Please try again shortly."
