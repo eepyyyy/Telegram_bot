@@ -1139,6 +1139,27 @@ async def worker() -> None:
                     user_pending_jobs[user_id] = remaining
                 download_queue.task_done()
 
+async def scheduled_db_backup_worker() -> None:
+    """
+    Background worker that runs a daily database backup, uploads to GitHub Releases,
+    and delivers the archive to the Telegram Storage Channel automatically every 24 hours.
+    """
+    # Wait 60 seconds after bot boot before starting
+    await asyncio.sleep(60)
+    from scripts import backup_db
+
+    while True:
+        try:
+            logging.info("Starting automated periodic database backup...")
+            res = await backup_db.run_backup(send_telegram=True, upload_github=True)
+            logging.info(f"Automated DB backup finished successfully: {res.get('file_path')} (GitHub: {res.get('github_url')})")
+        except Exception as e:
+            logging.error(f"Error during scheduled database backup: {e}")
+
+        # Wait 24 hours before next scheduled backup
+        await asyncio.sleep(86400)
+
+
 async def on_startup(bot: Bot) -> None:
     """
     Startup handler: initializes database, background workers, and sets the webhook with health checks.
@@ -1169,6 +1190,9 @@ async def on_startup(bot: Bot) -> None:
 
     for _ in range(mv_worker_count):
         asyncio.create_task(mv_worker())
+
+    # Start periodic database backup task (runs daily)
+    asyncio.create_task(scheduled_db_backup_worker())
 
     # Set webhook on local Telegram API server with backoff retries
     webhook_set = False
