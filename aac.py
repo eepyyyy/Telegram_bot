@@ -15,9 +15,12 @@ import schema
 import crud
 import database
 from database import User, async_session
-from gamdlUrl import get_any_url
+from gamdlUrl import get_any_url, normalize_apple_music_url
+from gamdl.interface import AppleMusicInterface
 import time
-from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks, is_user_busy, active_tasks
+from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks, is_user_busy, active_tasks, pending_album_prompts
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.markdown import hbold, hcode
 
 aac = Router()
 
@@ -40,13 +43,81 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             pass
         return
 
-    # Mark user busy immediately
+    norm_url = normalize_apple_music_url(url)
+    try:
+        url_info = AppleMusicInterface.get_url_info(norm_url)
+    except Exception:
+        url_info = None
+
+    # If it's a full album, present delivery options prompt
+    if url_info and url_info.type == "album" and not url_info.sub_id:
+        status_msg = await msg.answer("🔍 Fetching AAC album information...")
+        try:
+            songs = await get_any_url(norm_url)
+        except Exception as e:
+            try:
+                await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            except Exception:
+                pass
+            return
+
+        if not songs:
+            try:
+                await status_msg.edit_text("❌ No tracks found for this album.")
+            except Exception:
+                pass
+            return
+
+        album_id = url_info.id
+        album_title = songs[0].album or "Album"
+        artist = songs[0].artist or "Unknown Artist"
+        track_count = len(songs)
+
+        prompt_key = f"{user_id_local}_{album_id}_aac"
+        pending_album_prompts[prompt_key] = {
+            "url": norm_url,
+            "songs": songs,
+            "msg": msg,
+            "user_id": user_id_local,
+            "format": "aac",
+            "album_id": album_id,
+            "album_title": album_title,
+            "artist": artist
+        }
+
+        kb = InlineKeyboardBuilder()
+        kb.row(
+            types.InlineKeyboardButton(text="🎵 Individual Tracks", callback_data=f"alb_mode:tracks:{prompt_key}"),
+            types.InlineKeyboardButton(text="📦 ZIP Archive Only", callback_data=f"alb_mode:zip:{prompt_key}")
+        )
+        kb.row(
+            types.InlineKeyboardButton(text="💿 Tracks + ZIP", callback_data=f"alb_mode:both:{prompt_key}"),
+            types.InlineKeyboardButton(text="✖ Cancel", callback_data=f"alb_mode:cancel:{prompt_key}")
+        )
+
+        prompt_text = (
+            f"💿 <b>Album:</b> {hcode(album_title)}\n"
+            f"👤 <b>Artist:</b> {hcode(artist)}\n"
+            f"🎵 <b>Tracks:</b> {track_count} track(s)\n"
+            f"🎛 <b>Format:</b> AAC 256kbps\n\n"
+            f"⚠️ <b>Please choose your delivery option:</b>\n"
+            f"• <b>Individual Tracks:</b> Delivers each track as AAC audio with player controls.\n"
+            f"• <b>ZIP Archive Only:</b> Packages all tracks, max-res cover & all lyrics (.lrc, .srt, .ttml) into 1 file. <i>(Prevents chat flooding)</i>\n"
+            f"• <b>Tracks + ZIP:</b> Delivers both tracks for in-app listening and the full ZIP archive."
+        )
+        try:
+            await status_msg.edit_text(prompt_text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
+    # Mark user busy immediately for single track
     aac_in_queue.add(user_id_local)
 
     # Fetch metadata to see how many tracks
     status_msg = await msg.answer("🔍 Fetching AAC metadata...")
     try:
-        songs = await get_any_url(url)
+        songs = await get_any_url(norm_url)
     except Exception as e:
         aac_in_queue.discard(user_id_local)
         try:
@@ -120,7 +191,8 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
             "songs": songs,
             "msg": msg,
             "user_id": user_id_local,
-            "status_msg": status_msg
+            "status_msg": status_msg,
+            "download_mode": "tracks"
         })
 
 
@@ -130,6 +202,8 @@ async def process_aac_download(task: dict) -> None:
     msg: Message = task["msg"]
     user_id_local = task["user_id"]
     status_msg = task["status_msg"]
+    download_mode = task.get("download_mode", "tracks")
+    album_id_task = task.get("album_id")
 
     unique_task_id = f"aac_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
@@ -156,6 +230,33 @@ async def process_aac_download(task: dict) -> None:
         "progress": 0,
     }
 
+    # If ZIP only mode, check DB cache first
+    album_id = album_id_task or (songs[0].album_id if songs else None)
+    if download_mode == "zip" and album_id:
+        async with async_session() as session:
+            cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="aac")
+            if cached_zip_fid:
+                try:
+                    await msg.answer_document(
+                        document=cached_zip_fid,
+                        caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                        parse_mode="HTML"
+                    )
+                    await status_msg.edit_text("✅ AAC Album ZIP delivered from cache!")
+                    return
+                except Exception as e:
+                    print(f"Failed to deliver cached AAC zip document: {e}")
+            elif cached_gofile_url:
+                await msg.answer(
+                    f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n"
+                    f"👤 <i>{songs[0].artist}</i>\n\n"
+                    f"⚡ <i>Delivered from cache:</i>\n"
+                    f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                    parse_mode="HTML"
+                )
+                await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                return
+
     temp_dir = f"{output_dir}_temp"
     try:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
@@ -164,16 +265,20 @@ async def process_aac_download(task: dict) -> None:
         # Start downloading
         cookies_path = os.path.abspath("cookies.txt")
         cookies_args = ["--cookies-path", cookies_path] if os.path.exists(cookies_path) else []
+        cover_args = ["--save-cover", "--cover-format", "jpg", "--cover-size", "5000"]
+
+        dl_targets = [s.url for s in songs] if (download_mode in ("zip", "both") and songs) else [track_url]
 
         process = await asyncio.create_subprocess_exec(
             "gamdl",
             "-n",
             *cookies_args,
+            *cover_args,
             "--truncate", "80",
             "--output-path", output_dir,
             "--temp-path", temp_dir,
             "--song-codec-priority", "aac-web",
-            track_url,
+            *dl_targets,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
@@ -183,6 +288,8 @@ async def process_aac_download(task: dict) -> None:
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         uploaded_files = set()
+        completed_aac_count = 0
+        total_aac_tracks = len(songs) if songs else 1
 
         while True:
             try:
@@ -228,6 +335,14 @@ async def process_aac_download(task: dict) -> None:
 
                 if file_path not in uploaded_files:
                     uploaded_files.add(file_path)
+
+                    if download_mode == "zip":
+                        completed_aac_count += 1
+                        try:
+                            await status_msg.edit_text(f"🚀 Downloading AAC album: {completed_aac_count}/{total_aac_tracks} track(s)...")
+                        except Exception:
+                            pass
+                        continue
 
                     # Fetch user before uploading
                     async with async_session() as session:
@@ -282,7 +397,6 @@ async def process_aac_download(task: dict) -> None:
                                         await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
                                         await session.commit()
                                         
-                                        # Log download history
                                         try:
                                             await crud.log_download(
                                                 session=session,
@@ -311,7 +425,6 @@ async def process_aac_download(task: dict) -> None:
                                         await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
                                         await session.commit()
                                         
-                                        # Log download history
                                         try:
                                             await crud.log_download(
                                                 session=session,
@@ -327,14 +440,90 @@ async def process_aac_download(task: dict) -> None:
                                             
                                         break
 
-                        try:
-                            await asyncio.to_thread(os.remove, file_path)
-                        except Exception as e:
-                            print(f"Failed to remove file {file_path}: {e}")
+                        if download_mode == "tracks":
+                            try:
+                                await asyncio.to_thread(os.remove, file_path)
+                            except Exception as e:
+                                print(f"Failed to remove file {file_path}: {e}")
 
             await asyncio.sleep(1)
 
         return_code = await process.wait()
+
+        # Handle ZIP packaging for 'zip' and 'both' modes
+        if not active_tasks.get(unique_task_id, {}).get("cancelled") and download_mode in ("zip", "both") and songs:
+            try:
+                await status_msg.edit_text("📦 Packaging AAC album into ZIP with max-res cover and lyrics (.lrc, .srt, .ttml)...")
+            except Exception:
+                pass
+
+            await utils.save_album_cover_and_lyrics(songs, output_dir)
+
+            album_title = songs[0].album or "Album"
+            artist = songs[0].artist or "Unknown Artist"
+            clean_album = re.sub(r'[\\/*?:"<>|]', "", album_title)
+            clean_artist = re.sub(r'[\\/*?:"<>|]', "", artist)
+            zip_filename = f"{clean_artist} - {clean_album} [AAC 256kbps].zip"
+            zip_path = os.path.join(os.path.dirname(output_dir), zip_filename)
+
+            await utils.create_album_zip(output_dir, zip_path)
+
+            caption = (
+                f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
+                f"👤 <i>{artist}</i>\n"
+                f"🎵 {len(songs)} Tracks • Max-Res Cover • All Lyrics (.lrc, .srt, .ttml)"
+            )
+
+            thumb_data = None
+            cover_file = os.path.join(output_dir, "Cover.jpg")
+            if os.path.exists(cover_file):
+                try:
+                    with open(cover_file, "rb") as cf:
+                        thumb_data = types.BufferedInputFile(cf.read(), filename="thumb.jpg")
+                except Exception:
+                    pass
+
+            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url = await utils.upload_and_deliver_zip_document(
+                bot=msg.bot,
+                user_chat_id=msg.chat.id,
+                file_path=zip_path,
+                caption=caption,
+                thumbnail=thumb_data
+            )
+
+            if album_id:
+                async with async_session() as session:
+                    await crud.save_cached_album_zip(
+                        session=session,
+                        album_id=album_id,
+                        album_name=album_title,
+                        artist=artist,
+                        format_type="aac",
+                        zip_file_id=zip_fid,
+                        gofile_url=gofile_url
+                    )
+
+            if gofile_url and not zip_fid:
+                await msg.answer(
+                    f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
+                    f"👤 <i>{artist}</i>\n\n"
+                    f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
+                    f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                    parse_mode="HTML"
+                )
+
+            if os.path.exists(zip_path):
+                try:
+                    os.remove(zip_path)
+                except Exception:
+                    pass
+
+            try:
+                await status_msg.edit_text("✅ AAC Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+            except Exception:
+                pass
+            return
+
         if return_code == 0:
             try:
                 await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")

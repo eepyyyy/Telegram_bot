@@ -6,6 +6,7 @@ user_pending_jobs: dict[int, int] = {}
 
 user_locks: dict[int, asyncio.Lock] = {}
 active_tasks: dict[str, dict] = {}
+pending_album_prompts: dict[str, dict] = {}
 
 aac_queue: asyncio.Queue = asyncio.Queue()
 

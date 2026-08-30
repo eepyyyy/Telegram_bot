@@ -20,9 +20,32 @@ export const LogTerminal: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 2500);
-    return () => clearInterval(interval);
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (document.hidden) return;
+      fetchLogs();
+      timer = setInterval(() => {
+        if (!document.hidden) {
+          fetchLogs();
+        }
+      }, 8000);
+    };
+
+    const handleVisibilityChange = () => {
+      if (timer) clearInterval(timer);
+      if (!document.hidden) {
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [level, search]);
 
   useEffect(() => {

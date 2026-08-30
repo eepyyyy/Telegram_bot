@@ -273,6 +273,79 @@ async def get_user_download_stats(session: async_session, user_id: int) -> dict:
     }
 
 
+async def get_cached_album_zip(session: async_session, album_id: str, format_type: str = "alac") -> Tuple[Optional[str], Optional[str]]:
+    """
+    Returns (zip_file_id, gofile_url) for a cached album ZIP archive.
+    """
+    fmt = (format_type or "alac").lower()
+    stmt = select(database.Albums).where(database.Albums.album_id == album_id)
+    result = await session.exec(stmt)
+    album = result.first()
+    if not album:
+        return None, None
+
+    if fmt == "aac":
+        return album.aac_zip_file_id, album.aac_gofile_url
+    elif fmt == "atmos":
+        return album.atmos_zip_file_id, album.atmos_gofile_url
+    else:
+        return album.alac_zip_file_id, album.alac_gofile_url
+
+
+async def save_cached_album_zip(
+    session: async_session,
+    album_id: str,
+    album_name: Optional[str] = None,
+    artist: Optional[str] = None,
+    artwork: Optional[str] = None,
+    format_type: str = "alac",
+    zip_file_id: Optional[str] = None,
+    gofile_url: Optional[str] = None
+) -> None:
+    """
+    Saves or updates cached album ZIP file_id and/or Gofile URL in the database.
+    """
+    fmt = (format_type or "alac").lower()
+    stmt = select(database.Albums).where(database.Albums.album_id == album_id)
+    result = await session.exec(stmt)
+    album = result.first()
+
+    if not album:
+        album = database.Albums(
+            album_id=album_id,
+            album=album_name,
+            artist=artist,
+            artwork=artwork
+        )
+
+    if album_name and not album.album:
+        album.album = album_name
+    if artist and not album.artist:
+        album.artist = artist
+    if artwork and not album.artwork:
+        album.artwork = artwork
+
+    if fmt == "aac":
+        if zip_file_id:
+            album.aac_zip_file_id = zip_file_id
+        if gofile_url:
+            album.aac_gofile_url = gofile_url
+    elif fmt == "atmos":
+        if zip_file_id:
+            album.atmos_zip_file_id = zip_file_id
+        if gofile_url:
+            album.atmos_gofile_url = gofile_url
+    else:
+        if zip_file_id:
+            album.alac_zip_file_id = zip_file_id
+        if gofile_url:
+            album.alac_gofile_url = gofile_url
+
+    session.add(album)
+    await session.commit()
+
+
+
 async def main():
     await database.init_db()
     test = await gamdlUrl.get_any_url("https://music.apple.com/in/playlist/%E5%A4%A2%E5%88%83/pl.u-38oWZ6esZbL0EGY")

@@ -69,10 +69,34 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    refreshData();
-    const interval = setInterval(refreshData, 1800);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, refreshData]);
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (document.hidden) return;
+      refreshData();
+      const delay = activeDownloads.length > 0 ? 5000 : 10000;
+      timer = setInterval(() => {
+        if (!document.hidden) {
+          refreshData();
+        }
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      if (timer) clearInterval(timer);
+      if (!document.hidden) {
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthenticated, refreshData, activeDownloads.length]);
 
   // Keyboard shortcut listener (Ctrl+K and Tab+Enter)
   useEffect(() => {
