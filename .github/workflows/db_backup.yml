@@ -1,0 +1,75 @@
+name: PostgreSQL Database Backup
+
+on:
+  schedule:
+    # Runs daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish backup to GitHub Releases (true/false)'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  backup:
+    name: Backup PostgreSQL Database
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client gzip
+
+      - name: Create Database Dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set! Please add it in repository Secrets."
+            exit 1
+          fi
+
+          # Strip asyncpg dialect prefix if present (postgresql+asyncpg:// -> postgresql://)
+          PG_CONN_URL=$(echo "$DATABASE_URL" | sed 's/postgresql+asyncpg:\/\//postgresql:\/\//g')
+
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+          BACKUP_FILE="db_backup_${TIMESTAMP}.sql.gz"
+
+          echo "Exporting database schema and data..."
+          pg_dump "$PG_CONN_URL" --no-owner --no-acl --clean --if-exists | gzip -9 > "$BACKUP_FILE"
+
+          FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+          echo "Backup created successfully: $BACKUP_FILE ($FILE_SIZE)"
+          echo "BACKUP_FILE=$BACKUP_FILE" >> $GITHUB_ENV
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Upload Backup to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30
+
+      - name: Upload Backup to GitHub Releases
+        if: ${{ github.event.inputs.create_release != 'false' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: backup-${{ env.TIMESTAMP }}
+          name: Database Backup - ${{ env.TIMESTAMP }}
+          body: |
+            📦 **Automated PostgreSQL Database Backup**
+            - 🕒 **Timestamp:** ${{ env.TIMESTAMP }} UTC
+            - 📁 **File:** `${{ env.BACKUP_FILE }}`
+            - 🔒 Includes all tracks, albums, users, and download history.
+          files: ${{ env.BACKUP_FILE }}
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

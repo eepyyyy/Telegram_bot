@@ -12,6 +12,10 @@ __pycache__/
 *.log
 *.session
 *.dump
+*.sql
+*.sql.gz
+*.json.gz
+backups/
 repos/
 node_modules/
 .wrangler/
