@@ -294,30 +294,60 @@ async def get_user_download_stats(session: async_session, user_id: int) -> dict:
     }
 
 
+async def auto_fix_album_zip_columns():
+    """
+    Dynamically applies missing album ZIP columns if not present in the database.
+    """
+    from sqlalchemy import text
+    stmts = [
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_file_id VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_gofile_url VARCHAR;",
+    ]
+    for s in stmts:
+        try:
+            async with database.engine.begin() as conn:
+                await conn.execute(text(s))
+        except Exception:
+            pass
+
+
 async def get_cached_album_zip(session: async_session, album_id: Any, format_type: str = "alac") -> Tuple[Optional[str], Optional[str]]:
     """
     Returns (zip_file_id, gofile_url) for a cached album ZIP archive.
     """
     if not album_id:
         return None, None
-    try:
-        fmt = (format_type or "alac").lower()
-        alb_id_str = str(album_id)
-        stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
-        result = await session.exec(stmt)
-        album = result.first()
-        if not album:
+
+    fmt = (format_type or "alac").lower()
+    alb_id_str = str(album_id)
+
+    for attempt in range(2):
+        try:
+            stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
+            result = await session.exec(stmt)
+            album = result.first()
+            if not album:
+                return None, None
+
+            if fmt == "aac":
+                return getattr(album, "aac_zip_file_id", None), getattr(album, "aac_gofile_url", None)
+            elif fmt == "atmos":
+                return getattr(album, "atmos_zip_file_id", None), getattr(album, "atmos_gofile_url", None)
+            else:
+                return getattr(album, "alac_zip_file_id", None), getattr(album, "alac_gofile_url", None)
+        except Exception as e:
+            if attempt == 0 and "does not exist" in str(e).lower():
+                print("Missing album columns detected. Auto-applying migration...")
+                await auto_fix_album_zip_columns()
+                continue
+            print(f"Error fetching cached album zip for {album_id}: {e}")
             return None, None
 
-        if fmt == "aac":
-            return getattr(album, "aac_zip_file_id", None), getattr(album, "aac_gofile_url", None)
-        elif fmt == "atmos":
-            return getattr(album, "atmos_zip_file_id", None), getattr(album, "atmos_gofile_url", None)
-        else:
-            return getattr(album, "alac_zip_file_id", None), getattr(album, "alac_gofile_url", None)
-    except Exception as e:
-        print(f"Error fetching cached album zip for {album_id}: {e}")
-        return None, None
+    return None, None
 
 
 async def save_cached_album_zip(
@@ -335,49 +365,57 @@ async def save_cached_album_zip(
     """
     if not album_id:
         return
-    try:
-        fmt = (format_type or "alac").lower()
-        alb_id_str = str(album_id)
-        stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
-        result = await session.exec(stmt)
-        album = result.first()
 
-        if not album:
-            album = database.Albums(
-                album_id=alb_id_str,
-                album=album_name,
-                artist=artist,
-                artwork=artwork
-            )
+    fmt = (format_type or "alac").lower()
+    alb_id_str = str(album_id)
 
-        if album_name and not album.album:
-            album.album = album_name
-        if artist and not album.artist:
-            album.artist = artist
-        if artwork and not album.artwork:
-            album.artwork = artwork
+    for attempt in range(2):
+        try:
+            stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
+            result = await session.exec(stmt)
+            album = result.first()
 
-        if fmt == "aac":
-            if zip_file_id:
-                album.aac_zip_file_id = zip_file_id
-            if gofile_url:
-                album.aac_gofile_url = gofile_url
-        elif fmt == "atmos":
-            if zip_file_id:
-                album.atmos_zip_file_id = zip_file_id
-            if gofile_url:
-                album.atmos_gofile_url = gofile_url
-        else:
-            if zip_file_id:
-                album.alac_zip_file_id = zip_file_id
-            if gofile_url:
-                album.alac_gofile_url = gofile_url
+            if not album:
+                album = database.Albums(
+                    album_id=alb_id_str,
+                    album=album_name,
+                    artist=artist,
+                    artwork=artwork
+                )
 
-        session.add(album)
-        await session.commit()
-        print(f"💾 Successfully saved cached {fmt.upper()} ZIP for album {alb_id_str} (zip_fid={zip_file_id})")
-    except Exception as e:
-        print(f"Error saving cached album zip for {album_id}: {e}")
+            if album_name and not album.album:
+                album.album = album_name
+            if artist and not album.artist:
+                album.artist = artist
+            if artwork and not album.artwork:
+                album.artwork = artwork
+
+            if fmt == "aac":
+                if zip_file_id:
+                    album.aac_zip_file_id = zip_file_id
+                if gofile_url:
+                    album.aac_gofile_url = gofile_url
+            elif fmt == "atmos":
+                if zip_file_id:
+                    album.atmos_zip_file_id = zip_file_id
+                if gofile_url:
+                    album.atmos_gofile_url = gofile_url
+            else:
+                if zip_file_id:
+                    album.alac_zip_file_id = zip_file_id
+                if gofile_url:
+                    album.alac_gofile_url = gofile_url
+
+            session.add(album)
+            await session.commit()
+            print(f"💾 Successfully saved cached {fmt.upper()} ZIP for album {alb_id_str} (zip_fid={zip_file_id})")
+            return
+        except Exception as e:
+            if attempt == 0 and "does not exist" in str(e).lower():
+                print("Missing album columns detected on save. Auto-applying migration...")
+                await auto_fix_album_zip_columns()
+                continue
+            print(f"Error saving cached album zip for {album_id}: {e}")
 
 
 
