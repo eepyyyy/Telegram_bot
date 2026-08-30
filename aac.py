@@ -488,11 +488,12 @@ async def process_aac_download(task: dict) -> None:
                 thumbnail=thumb_data
             )
 
-            if album_id:
+            alb_id_save = album_id or (songs[0].album_id if songs else None)
+            if alb_id_save:
                 async with async_session() as session:
                     await crud.save_cached_album_zip(
                         session=session,
-                        album_id=album_id,
+                        album_id=alb_id_save,
                         album_name=album_title,
                         artist=artist,
                         format_type="aac",

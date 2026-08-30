@@ -27,17 +27,30 @@ def get_track_model(format_type: str = "alac"):
 
 async def save_albums(session: async_session, track_list: List[schema.TrackInputSchema]):
     """
-    Saves albums to the database from a list of tracks.
+    Saves albums to the database from a list of tracks without overwriting existing zip cache columns.
     """
     for track_data in track_list:
         if track_data.album_id:
-            album_obj = database.Albums(
-                album_id=track_data.album_id,
-                album=track_data.album,
-                artist=track_data.artist,
-                artwork=track_data.artwork,
-            )
-            await session.merge(album_obj)
+            alb_id = str(track_data.album_id)
+            stmt = select(database.Albums).where(database.Albums.album_id == alb_id)
+            res = await session.exec(stmt)
+            album_obj = res.first()
+            if not album_obj:
+                album_obj = database.Albums(
+                    album_id=alb_id,
+                    album=track_data.album,
+                    artist=track_data.artist,
+                    artwork=track_data.artwork,
+                )
+                session.add(album_obj)
+            else:
+                if track_data.album and not album_obj.album:
+                    album_obj.album = track_data.album
+                if track_data.artist and not album_obj.artist:
+                    album_obj.artist = track_data.artist
+                if track_data.artwork and not album_obj.artwork:
+                    album_obj.artwork = track_data.artwork
+                session.add(album_obj)
 
 
 async def save_tracks(session: async_session, track_list: List[schema.TrackInputSchema], format_type: str = "alac"):
@@ -69,21 +82,29 @@ async def save_tracks(session: async_session, track_list: List[schema.TrackInput
 
 async def save_single_track(session: async_session, track_data: schema.TrackInputSchema, format_type: str = "alac"):
     """
-    Saves or updates a single track in the database.
-    Note: It does not call commit directly; it's expected to be managed by the session context.
-    Args:
-        session: The active database session.
-        track_data: The track data schema to save.
-        format_type: Quality format ('alac', 'aac', 'atmos', or 'mv').
+    Saves or updates a single track in the database without overwriting existing zip cache columns.
     """
     if track_data.album_id:
-        album_obj = database.Albums(
-            album_id=track_data.album_id,
-            album=track_data.album,
-            artist=track_data.artist,
-            artwork=track_data.artwork,
-        )
-        await session.merge(album_obj)
+        alb_id = str(track_data.album_id)
+        stmt = select(database.Albums).where(database.Albums.album_id == alb_id)
+        res = await session.exec(stmt)
+        album_obj = res.first()
+        if not album_obj:
+            album_obj = database.Albums(
+                album_id=alb_id,
+                album=track_data.album,
+                artist=track_data.artist,
+                artwork=track_data.artwork,
+            )
+            session.add(album_obj)
+        else:
+            if track_data.album and not album_obj.album:
+                album_obj.album = track_data.album
+            if track_data.artist and not album_obj.artist:
+                album_obj.artist = track_data.artist
+            if track_data.artwork and not album_obj.artwork:
+                album_obj.artwork = track_data.artwork
+            session.add(album_obj)
     
     model_cls = get_track_model(format_type)
     extra_kwargs = {}
@@ -273,13 +294,16 @@ async def get_user_download_stats(session: async_session, user_id: int) -> dict:
     }
 
 
-async def get_cached_album_zip(session: async_session, album_id: str, format_type: str = "alac") -> Tuple[Optional[str], Optional[str]]:
+async def get_cached_album_zip(session: async_session, album_id: Any, format_type: str = "alac") -> Tuple[Optional[str], Optional[str]]:
     """
     Returns (zip_file_id, gofile_url) for a cached album ZIP archive.
     """
+    if not album_id:
+        return None, None
     try:
         fmt = (format_type or "alac").lower()
-        stmt = select(database.Albums).where(database.Albums.album_id == album_id)
+        alb_id_str = str(album_id)
+        stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
         result = await session.exec(stmt)
         album = result.first()
         if not album:
@@ -298,7 +322,7 @@ async def get_cached_album_zip(session: async_session, album_id: str, format_typ
 
 async def save_cached_album_zip(
     session: async_session,
-    album_id: str,
+    album_id: Any,
     album_name: Optional[str] = None,
     artist: Optional[str] = None,
     artwork: Optional[str] = None,
@@ -309,15 +333,18 @@ async def save_cached_album_zip(
     """
     Saves or updates cached album ZIP file_id and/or Gofile URL in the database.
     """
+    if not album_id:
+        return
     try:
         fmt = (format_type or "alac").lower()
-        stmt = select(database.Albums).where(database.Albums.album_id == album_id)
+        alb_id_str = str(album_id)
+        stmt = select(database.Albums).where(database.Albums.album_id == alb_id_str)
         result = await session.exec(stmt)
         album = result.first()
 
         if not album:
             album = database.Albums(
-                album_id=album_id,
+                album_id=alb_id_str,
                 album=album_name,
                 artist=artist,
                 artwork=artwork
@@ -348,6 +375,7 @@ async def save_cached_album_zip(
 
         session.add(album)
         await session.commit()
+        print(f"💾 Successfully saved cached {fmt.upper()} ZIP for album {alb_id_str} (zip_fid={zip_file_id})")
     except Exception as e:
         print(f"Error saving cached album zip for {album_id}: {e}")
 
