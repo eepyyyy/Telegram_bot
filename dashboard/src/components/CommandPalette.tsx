@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { NavTabId } from './Navbar';
 import { 
   Terminal, 
   Pause, 
@@ -7,7 +8,12 @@ import {
   Trash2, 
   Layers, 
   LogOut, 
-  Server
+  Server,
+  Activity,
+  Download,
+  Sparkles,
+  Users,
+  ScrollText,
 } from 'lucide-react';
 
 interface CommandItem {
@@ -21,6 +27,7 @@ interface CommandItem {
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
+  onSelectTab?: (tab: NavTabId) => void;
   onTogglePause: () => void;
   onToggleMaintenance: () => void;
   onClearQueue: (type: string) => void;
@@ -34,6 +41,7 @@ interface CommandPaletteProps {
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   isOpen,
   onClose,
+  onSelectTab,
   onTogglePause,
   onToggleMaintenance,
   onClearQueue,
@@ -48,6 +56,58 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: CommandItem[] = [
+    ...(onSelectTab ? [
+      {
+        id: 'nav-overview',
+        title: 'Switch Tab: Overview (Real-time Operations)',
+        category: 'Navigation',
+        icon: <Activity size={16} />,
+        action: () => {
+          onSelectTab('overview');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-downloads',
+        title: 'Switch Tab: Recent Downloads History & Telemetry',
+        category: 'Navigation',
+        icon: <Download size={16} />,
+        action: () => {
+          onSelectTab('downloads');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-artist-cache',
+        title: 'Switch Tab: Artist Discography Cacher',
+        category: 'Navigation',
+        icon: <Sparkles size={16} />,
+        action: () => {
+          onSelectTab('artist_cache');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-database',
+        title: 'Switch Tab: Users & Catalog Database',
+        category: 'Navigation',
+        icon: <Users size={16} />,
+        action: () => {
+          onSelectTab('database');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-logs',
+        title: 'Switch Tab: Real-time Terminal Log Stream',
+        category: 'Navigation',
+        icon: <ScrollText size={16} />,
+        action: () => {
+          onSelectTab('logs');
+          onClose();
+        },
+      },
+    ] : []),
     {
       id: 'toggle-pause',
       title: isPaused ? 'Resume All Download Queues' : 'Emergency Pause All Queues',

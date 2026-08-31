@@ -1,4 +1,15 @@
-import { BotStatus, ActiveDownloadItem, DatabaseStats, UserItem, LogEntry } from './types';
+import { 
+  BotStatus, 
+  ActiveDownloadItem, 
+  DatabaseStats, 
+  UserItem, 
+  LogEntry,
+  RecentDownloadsResponse,
+  ArtistSearchResult,
+  ArtistDetailsResponse,
+  CacheArtistPayload,
+  CacheArtistResponse
+} from './types';
 
 // Detect default backend URL based on environment
 export const getDefaultApiBase = (): string => {
@@ -164,5 +175,43 @@ export const api = {
       limit: String(limit),
     });
     return request<{ logs: LogEntry[]; total_buffered: number }>(`/api/admin/logs?${params.toString()}`);
+  },
+
+  // 10. Recent Downloads
+  async getRecentDownloads(
+    page = 1,
+    limit = 25,
+    format = 'all',
+    cached = 'all',
+    search = ''
+  ): Promise<RecentDownloadsResponse> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      format,
+      cached,
+      search,
+    });
+    return request<RecentDownloadsResponse>(`/api/admin/recent-downloads?${params.toString()}`);
+  },
+
+  // 11. Artist Catalog Search
+  async searchArtist(query: string): Promise<{ artists: ArtistSearchResult[] }> {
+    const params = new URLSearchParams({ q: query });
+    return request<{ artists: ArtistSearchResult[] }>(`/api/admin/artist/search?${params.toString()}`);
+  },
+
+  // 12. Artist Discography & Coverage
+  async getArtistDetails(artistIdOrUrl: string): Promise<ArtistDetailsResponse> {
+    const params = new URLSearchParams({ artist: artistIdOrUrl });
+    return request<ArtistDetailsResponse>(`/api/admin/artist/details?${params.toString()}`);
+  },
+
+  // 13. Bulk Artist Caching
+  async cacheArtist(payload: CacheArtistPayload): Promise<CacheArtistResponse> {
+    return request<CacheArtistResponse>('/api/admin/artist/cache', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };

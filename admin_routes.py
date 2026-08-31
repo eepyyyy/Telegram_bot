@@ -6,15 +6,17 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 
+import aiohttp
 from aiohttp import web
 from sqlmodel import select, func, or_, col, desc
 
 import bot_control
 import database
-from database import Tracks, AACTracks, AtmosTracks, Albums, User, async_session
+import gamdlHelpUrl
+from database import Tracks, AACTracks, AtmosTracks, MVTracks, Albums, User, DownloadHistory, async_session
 from queues import (
     active_tasks,
     get_queue_stats,
@@ -22,6 +24,11 @@ from queues import (
     user_locks,
     user_pending_jobs,
     user_in_queue,
+    download_queue,
+    lossless_queue,
+    aac_queue,
+    atmos_queue,
+    mv_queue,
 )
 
 logger = logging.getLogger("admin.routes")
@@ -447,4 +454,360 @@ async def get_logs(request: web.Request):
         "logs": logs[-limit:],
         "total_buffered": len(bot_control.log_buffer),
         "returned": len(logs[-limit:]),
+    })
+
+
+# -------------------------------------------------------------
+# 10. Recent Downloads History & Telemetry
+# -------------------------------------------------------------
+@admin_routes.get("/api/admin/recent-downloads")
+@require_auth
+async def get_recent_downloads(request: web.Request):
+    page = max(1, int(request.query.get("page", 1)))
+    limit = min(100, max(1, int(request.query.get("limit", 25))))
+    format_filter = request.query.get("format", "all").lower().strip()
+    cached_filter = request.query.get("cached", "all").lower().strip()
+    search = request.query.get("search", "").strip()
+    offset = (page - 1) * limit
+
+    async with async_session() as session:
+        # Base query
+        query = select(DownloadHistory)
+
+        # Filters
+        if format_filter and format_filter != "all":
+            query = query.where(DownloadHistory.format_type == format_filter)
+
+        if cached_filter == "true":
+            query = query.where(DownloadHistory.is_cached == True)
+        elif cached_filter == "false":
+            query = query.where(DownloadHistory.is_cached == False)
+
+        if search:
+            if search.isdigit():
+                query = query.where(
+                    or_(
+                        DownloadHistory.user_id == int(search),
+                        DownloadHistory.song_id == search,
+                    )
+                )
+            else:
+                query = query.where(DownloadHistory.song_id.ilike(f"%{search}%"))
+
+        # Order by newest
+        query = query.order_by(desc(DownloadHistory.downloaded_at)).offset(offset).limit(limit)
+        history_records = (await session.exec(query)).all()
+
+        # Total count query for pagination
+        count_query = select(func.count()).select_from(DownloadHistory)
+        if format_filter and format_filter != "all":
+            count_query = count_query.where(DownloadHistory.format_type == format_filter)
+        if cached_filter == "true":
+            count_query = count_query.where(DownloadHistory.is_cached == True)
+        elif cached_filter == "false":
+            count_query = count_query.where(DownloadHistory.is_cached == False)
+        if search:
+            if search.isdigit():
+                count_query = count_query.where(
+                    or_(
+                        DownloadHistory.user_id == int(search),
+                        DownloadHistory.song_id == search,
+                    )
+                )
+            else:
+                count_query = count_query.where(DownloadHistory.song_id.ilike(f"%{search}%"))
+
+        total_records = int((await session.exec(count_query)).one() or 0)
+
+        # Metrics: Overall cache hit rate
+        total_downloads = int((await session.exec(select(func.count()).select_from(DownloadHistory))).one() or 0)
+        cached_downloads = int((await session.exec(select(func.count()).select_from(DownloadHistory).where(DownloadHistory.is_cached == True))).one() or 0)
+        cache_hit_rate = round((cached_downloads / total_downloads * 100), 1) if total_downloads > 0 else 0.0
+
+        # Collect unique song_ids and user_ids to bulk lookup metadata
+        song_ids = [h.song_id for h in history_records if h.song_id]
+        user_ids = list({h.user_id for h in history_records if h.user_id})
+
+        # Map metadata from Tracks / AACTracks / AtmosTracks / MVTracks
+        track_map = {}
+        if song_ids:
+            # Check Tracks (ALAC)
+            alac_stmt = select(Tracks).where(col(Tracks.song_id).in_(song_ids))
+            for t in (await session.exec(alac_stmt)).all():
+                track_map[t.song_id] = {
+                    "title": t.title,
+                    "artist": t.artist,
+                    "album": t.album,
+                    "artwork": t.artwork,
+                    "size": t.size,
+                }
+            # Check AAC
+            aac_stmt = select(AACTracks).where(col(AACTracks.song_id).in_(song_ids))
+            for t in (await session.exec(aac_stmt)).all():
+                if t.song_id not in track_map:
+                    track_map[t.song_id] = {
+                        "title": t.title,
+                        "artist": t.artist,
+                        "album": t.album,
+                        "artwork": t.artwork,
+                        "size": t.size,
+                    }
+            # Check Atmos
+            atmos_stmt = select(AtmosTracks).where(col(AtmosTracks.song_id).in_(song_ids))
+            for t in (await session.exec(atmos_stmt)).all():
+                if t.song_id not in track_map:
+                    track_map[t.song_id] = {
+                        "title": t.title,
+                        "artist": t.artist,
+                        "album": t.album,
+                        "artwork": t.artwork,
+                        "size": t.size,
+                    }
+            # Check MV
+            mv_stmt = select(MVTracks).where(col(MVTracks.song_id).in_(song_ids))
+            for t in (await session.exec(mv_stmt)).all():
+                if t.song_id not in track_map:
+                    track_map[t.song_id] = {
+                        "title": t.title,
+                        "artist": t.artist,
+                        "album": t.album,
+                        "artwork": t.artwork,
+                        "size": t.size,
+                    }
+
+        # Map users
+        user_map = {}
+        if user_ids:
+            u_stmt = select(User).where(col(User.user_id).in_(user_ids))
+            for u in (await session.exec(u_stmt)).all():
+                user_map[u.user_id] = {
+                    "username": getattr(u, "username", None),
+                    "first_name": getattr(u, "first_name", None),
+                    "is_premium": bool(u.is_premium),
+                }
+
+    # Format result payload
+    downloads_data = []
+    for h in history_records:
+        meta = track_map.get(h.song_id, {})
+        u_info = user_map.get(h.user_id, {})
+        downloads_data.append({
+            "id": h.id,
+            "user_id": h.user_id,
+            "username": u_info.get("username"),
+            "first_name": u_info.get("first_name"),
+            "is_premium": u_info.get("is_premium", False),
+            "song_id": h.song_id,
+            "title": meta.get("title") or (f"Track {h.song_id}" if h.song_id else "Unknown Track"),
+            "artist": meta.get("artist") or "Unknown Artist",
+            "album": meta.get("album"),
+            "artwork": meta.get("artwork"),
+            "format_type": (h.format_type or "alac").upper(),
+            "size": h.size or meta.get("size") or 0,
+            "is_cached": bool(h.is_cached),
+            "downloaded_at": h.downloaded_at.isoformat() if h.downloaded_at else None,
+        })
+
+    return web.json_response({
+        "downloads": downloads_data,
+        "total": total_records,
+        "page": page,
+        "limit": limit,
+        "cache_hit_rate": cache_hit_rate,
+        "total_downloads": total_downloads,
+        "cached_downloads": cached_downloads,
+    })
+
+
+# -------------------------------------------------------------
+# 11. Artist Catalog Search & Discography Coverage
+# -------------------------------------------------------------
+@admin_routes.get("/api/admin/artist/search")
+@require_auth
+async def search_artist(request: web.Request):
+    q = request.query.get("q", "").strip()
+    if not q:
+        return web.json_response({"artists": []})
+
+    # If Apple Music URL is passed directly
+    if "music.apple.com" in q:
+        try:
+            meta = await gamdlHelpUrl.get_artist_metadata(q)
+            return web.json_response({
+                "artists": [{
+                    "id": str(meta.get("artist_id", "")),
+                    "name": meta.get("name", "Unknown Artist"),
+                    "url": meta.get("url", q),
+                    "artwork": meta.get("artwork"),
+                    "genres": meta.get("genres", []),
+                }]
+            })
+        except Exception as e:
+            logger.warning(f"Error parsing direct artist URL {q}: {e}")
+
+    # Search via iTunes / Apple Music search API
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"https://itunes.apple.com/search?term={q}&entity=musicArtist&limit=15"
+            async with session.get(url) as resp:
+                data = await resp.json(content_type=None)
+                results = []
+                for item in data.get("results", []):
+                    results.append({
+                        "id": str(item.get("artistId", "")),
+                        "name": item.get("artistName", ""),
+                        "url": item.get("artistLinkUrl", ""),
+                        "artwork": None,
+                        "genres": [item.get("primaryGenreName")] if item.get("primaryGenreName") else [],
+                    })
+                return web.json_response({"artists": results})
+    except Exception as e:
+        logger.error(f"Error searching artists: {e}")
+        return web.json_response({"artists": [], "error": str(e)}, status=500)
+
+
+@admin_routes.get("/api/admin/artist/details")
+@require_auth
+async def get_artist_details_for_cache(request: web.Request):
+    artist_input = request.query.get("artist", "").strip()
+    if not artist_input:
+        return web.json_response({"error": "artist parameter (ID or URL) required"}, status=400)
+
+    url = (
+        f"https://music.apple.com/us/artist/artist/{artist_input}"
+        if artist_input.isdigit()
+        else artist_input
+    )
+
+    try:
+        meta = await gamdlHelpUrl.get_artist_metadata(url)
+        artist_name = meta.get("name", "Unknown Artist")
+        categories = meta.get("categories", {})
+
+        # Collect all album names or URLs to check cache coverage in local DB
+        all_album_names = []
+        for cat_name, albums in categories.items():
+            for alb in albums:
+                if alb.get("name"):
+                    all_album_names.append(alb["name"].strip().lower())
+
+        cached_albums_set = set()
+        async with async_session() as session:
+            if all_album_names:
+                stmt = select(Albums.album).where(func.lower(Albums.album).in_(all_album_names))
+                db_albs = (await session.exec(stmt)).all()
+                cached_albums_set = {a.strip().lower() for a in db_albs if a}
+
+            # Also query total tracks cached for this artist in Tracks, AACTracks, AtmosTracks
+            alac_tracks = int((await session.exec(select(func.count()).select_from(Tracks).where(col(Tracks.artist).ilike(f"%{artist_name}%")))).one() or 0)
+            aac_tracks = int((await session.exec(select(func.count()).select_from(AACTracks).where(col(AACTracks.artist).ilike(f"%{artist_name}%")))).one() or 0)
+            atmos_tracks = int((await session.exec(select(func.count()).select_from(AtmosTracks).where(col(AtmosTracks.artist).ilike(f"%{artist_name}%")))).one() or 0)
+
+        # Enrich each release with is_cached status
+        enriched_categories = {}
+        total_releases = 0
+        total_cached_releases = 0
+
+        for cat_name, albums in categories.items():
+            enriched_categories[cat_name] = []
+            for alb in albums:
+                total_releases += 1
+                name_clean = (alb.get("name") or "").strip().lower()
+                is_cached = name_clean in cached_albums_set
+                if is_cached:
+                    total_cached_releases += 1
+
+                enriched_categories[cat_name].append({
+                    "name": alb.get("name"),
+                    "release_date": alb.get("release_date"),
+                    "track_count": alb.get("track_count"),
+                    "url": alb.get("url"),
+                    "is_cached": is_cached,
+                })
+
+        return web.json_response({
+            "artist_id": meta.get("artist_id"),
+            "name": artist_name,
+            "url": meta.get("url", url),
+            "storefront": meta.get("storefront", "us"),
+            "artwork": meta.get("artwork"),
+            "genres": meta.get("genres", []),
+            "categories": enriched_categories,
+            "total_releases": total_releases,
+            "total_cached_releases": total_cached_releases,
+            "coverage_percent": round((total_cached_releases / total_releases * 100), 1) if total_releases > 0 else 0,
+            "cached_tracks": {
+                "alac": alac_tracks,
+                "aac": aac_tracks,
+                "atmos": atmos_tracks,
+                "total": alac_tracks + aac_tracks + atmos_tracks,
+            },
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching artist details: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+# -------------------------------------------------------------
+# 12. Enqueue Bulk Artist Releases to Bot Cache Queue
+# -------------------------------------------------------------
+@admin_routes.post("/api/admin/artist/cache")
+@require_auth
+async def bulk_cache_artist_releases(request: web.Request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    albums = data.get("albums", [])
+    format_type = data.get("format", "alac").lower().strip()
+    admin_user_id = data.get("admin_user_id")
+
+    if not albums:
+        return web.json_response({"error": "No albums provided to cache"}, status=400)
+
+    # Use a dummy system user_id if none provided
+    system_user_id = int(admin_user_id) if admin_user_id and str(admin_user_id).isdigit() else 999999999
+
+    queued_jobs = 0
+    formats_to_queue = []
+    if format_type in ("all", "both"):
+        formats_to_queue = ["alac", "aac", "atmos"]
+    elif format_type == "aac":
+        formats_to_queue = ["aac"]
+    elif format_type == "atmos":
+        formats_to_queue = ["atmos"]
+    else:
+        formats_to_queue = ["alac"]
+
+    for alb in albums:
+        url = alb.get("url")
+        if not url:
+            continue
+
+        for fmt in formats_to_queue:
+            payload = {
+                "url": url,
+                "user_id": system_user_id,
+                "format_type": fmt,
+                "is_admin_cache": True,
+                "album_name": alb.get("name"),
+            }
+
+            if fmt == "aac":
+                await aac_queue.put(payload)
+            elif fmt == "atmos":
+                await atmos_queue.put(payload)
+            else:
+                await download_queue.put(payload)
+
+            queued_jobs += 1
+
+    logger.info(f"[Admin Cacher] Queued {queued_jobs} release jobs for formats {formats_to_queue}.")
+    return web.json_response({
+        "success": True,
+        "queued_jobs": queued_jobs,
+        "formats": formats_to_queue,
+        "message": f"Successfully queued {len(albums)} release(s) ({queued_jobs} download jobs) for background caching.",
     })

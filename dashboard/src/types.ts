@@ -82,3 +82,79 @@ export interface LogEntry {
   logger: string;
   message: string;
 }
+
+export interface RecentDownloadItem {
+  id: number;
+  user_id: number;
+  username: string | null;
+  first_name: string | null;
+  is_premium: boolean;
+  song_id: string | null;
+  title: string;
+  artist: string;
+  album: string | null;
+  artwork: string | null;
+  format_type: 'ALAC' | 'AAC' | 'ATMOS' | 'MV' | string;
+  size: number;
+  is_cached: boolean;
+  downloaded_at: string | null;
+}
+
+export interface RecentDownloadsResponse {
+  downloads: RecentDownloadItem[];
+  total: number;
+  page: number;
+  limit: number;
+  cache_hit_rate: number;
+  total_downloads: number;
+  cached_downloads: number;
+}
+
+export interface ArtistSearchResult {
+  id: string;
+  name: string;
+  url: string;
+  artwork: string | null;
+  genres: string[];
+}
+
+export interface DiscographyRelease {
+  name: string;
+  release_date?: string;
+  track_count?: number;
+  url: string;
+  is_cached: boolean;
+}
+
+export interface ArtistDetailsResponse {
+  artist_id: string;
+  name: string;
+  url: string;
+  storefront: string;
+  artwork: string | null;
+  genres: string[];
+  categories: Record<string, DiscographyRelease[]>;
+  total_releases: number;
+  total_cached_releases: number;
+  coverage_percent: number;
+  cached_tracks: {
+    alac: number;
+    aac: number;
+    atmos: number;
+    total: number;
+  };
+}
+
+export interface CacheArtistPayload {
+  albums: { url: string; name: string; track_count?: number }[];
+  format: 'alac' | 'aac' | 'atmos' | 'all';
+  admin_user_id?: number;
+}
+
+export interface CacheArtistResponse {
+  success: boolean;
+  queued_jobs: number;
+  formats: string[];
+  message: string;
+}
+

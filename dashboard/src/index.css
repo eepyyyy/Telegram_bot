@@ -539,6 +539,23 @@ kbd {
   box-shadow: var(--shadow-glow);
 }
 
+.hover-highlight:hover {
+  background-color: var(--sub-alt-color);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
 /* Responsive queries */
 @media (max-width: 768px) {
   .app-container {
@@ -552,5 +569,7 @@ kbd {
   .nav-actions {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
   }
 }
+
