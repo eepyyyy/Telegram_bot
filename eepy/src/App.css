@@ -1,0 +1,40 @@
+/* Fullscreen minimal container */
+.eepy-container {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  background-color: #08080a;
+  cursor: default;
+}
+
+/* Centerpiece container */
+.eepy-center {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Big, elegant, clean 'eepy' text in JetBrains Mono */
+.eepy-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: clamp(5rem, 18vw, 15rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: #f4f4f5;
+  margin: 0;
+  padding: 0;
+  transition: opacity 0.3s ease;
+}
+
+.eepy-text:hover {
+  opacity: 0.85;
+}
