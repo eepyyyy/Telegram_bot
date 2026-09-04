@@ -40,6 +40,8 @@ export interface ActiveDownloadItem {
   user_id: number;
   track_title: string;
   artist: string;
+  album_name?: string | null;
+  url?: string | null;
   format: string;
   status: string;
   progress: number;

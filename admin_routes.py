@@ -220,6 +220,8 @@ async def get_active_downloads(request: web.Request):
             "user_id": task.get("user_id"),
             "track_title": task.get("track_title") or "Unknown Track",
             "artist": task.get("artist") or "Unknown Artist",
+            "album_name": task.get("album_name") or task.get("album"),
+            "url": task.get("url"),
             "format": task.get("format", "alac").upper(),
             "status": task.get("status", "downloading"),
             "progress": task.get("progress", 0),

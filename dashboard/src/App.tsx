@@ -251,7 +251,11 @@ export const App: React.FC = () => {
       )}
 
       {activeTab === 'artist_cache' && (
-        <ArtistCacher />
+        <ArtistCacher
+          activeDownloads={activeDownloads}
+          status={status}
+          onRefreshData={refreshData}
+        />
       )}
 
       {activeTab === 'database' && (

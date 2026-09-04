@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArtistSearchResult,
   ArtistDetailsResponse,
   CacheArtistPayload,
+  ActiveDownloadItem,
+  BotStatus,
 } from '../types';
 import { api } from '../api';
 import {
@@ -21,9 +23,21 @@ import {
   Square,
   Check,
   AlertCircle,
+  Radio,
+  X,
 } from 'lucide-react';
 
-export const ArtistCacher: React.FC = () => {
+interface ArtistCacherProps {
+  activeDownloads?: ActiveDownloadItem[];
+  status?: BotStatus | null;
+  onRefreshData?: () => void;
+}
+
+export const ArtistCacher: React.FC<ArtistCacherProps> = ({
+  activeDownloads: propActiveDownloads,
+  status: propStatus,
+  onRefreshData,
+}) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<ArtistSearchResult[]>([]);
@@ -34,6 +48,69 @@ export const ArtistCacher: React.FC = () => {
   const [targetFormat, setTargetFormat] = useState<'alac' | 'aac' | 'atmos' | 'all'>('alac');
   const [isCaching, setIsCaching] = useState(false);
   const [cacheResultMsg, setCacheResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Local active downloads state for fast live polling during caching
+  const [localActiveDownloads, setLocalActiveDownloads] = useState<ActiveDownloadItem[]>([]);
+  const [localQueues, setLocalQueues] = useState<any>(null);
+  const prevActiveCountRef = useRef<number>(0);
+
+  // Sync with propActiveDownloads or poll
+  useEffect(() => {
+    if (propActiveDownloads) {
+      setLocalActiveDownloads(propActiveDownloads);
+    }
+  }, [propActiveDownloads]);
+
+  useEffect(() => {
+    if (propStatus?.queues) {
+      setLocalQueues(propStatus.queues);
+    }
+  }, [propStatus]);
+
+  // Fast live polling when there are active downloads or queues
+  const pollLiveProgress = useCallback(async () => {
+    try {
+      const [downloadsRes, statusRes] = await Promise.allSettled([
+        api.getActiveDownloads(),
+        api.getStatus(),
+      ]);
+
+      let currentActiveCount = 0;
+
+      if (downloadsRes.status === 'fulfilled') {
+        setLocalActiveDownloads(downloadsRes.value.active_downloads);
+        currentActiveCount = downloadsRes.value.active_downloads.length;
+      }
+      if (statusRes.status === 'fulfilled') {
+        setLocalQueues(statusRes.value.queues);
+      }
+
+      // If downloads were running and just completed (transition to 0), auto-refresh artist cache status
+      if (prevActiveCountRef.current > 0 && currentActiveCount === 0 && selectedArtist) {
+        loadArtistDetails(selectedArtist.url, true);
+        if (onRefreshData) onRefreshData();
+      }
+
+      prevActiveCountRef.current = currentActiveCount;
+    } catch {
+      // ignore
+    }
+  }, [selectedArtist, onRefreshData]);
+
+  // Polling interval
+  useEffect(() => {
+    const totalQueued = localQueues?.total || 0;
+    const isBusy = localActiveDownloads.length > 0 || totalQueued > 0 || isCaching;
+    const intervalTime = isBusy ? 2500 : 8000;
+
+    const timer = setInterval(() => {
+      if (!document.hidden) {
+        pollLiveProgress();
+      }
+    }, intervalTime);
+
+    return () => clearInterval(timer);
+  }, [pollLiveProgress, localActiveDownloads.length, localQueues?.total, isCaching]);
 
   // Debounced artist search
   useEffect(() => {
@@ -58,28 +135,36 @@ export const ArtistCacher: React.FC = () => {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const loadArtistDetails = async (artistUrlOrId: string) => {
-    setIsLoadingArtist(true);
-    setCacheResultMsg(null);
-    setSelectedUrls(new Set());
-    setSearchResults([]);
+  const loadArtistDetails = async (artistUrlOrId: string, isSilent = false) => {
+    if (!isSilent) {
+      setIsLoadingArtist(true);
+      setCacheResultMsg(null);
+      setSelectedUrls(new Set());
+      setSearchResults([]);
+    }
 
     try {
       const data = await api.getArtistDetails(artistUrlOrId);
       setSelectedArtist(data);
 
-      // Default to the first available category with items
-      const categories = Object.keys(data.categories || {});
-      const firstNonEmpty = categories.find((cat) => (data.categories[cat] || []).length > 0);
-      if (firstNonEmpty) {
-        setActiveCategory(firstNonEmpty);
-      } else if (categories.length > 0) {
-        setActiveCategory(categories[0]);
+      if (!isSilent) {
+        // Default to the first available category with items
+        const categories = Object.keys(data.categories || {});
+        const firstNonEmpty = categories.find((cat) => (data.categories[cat] || []).length > 0);
+        if (firstNonEmpty) {
+          setActiveCategory(firstNonEmpty);
+        } else if (categories.length > 0) {
+          setActiveCategory(categories[0]);
+        }
       }
     } catch (err) {
-      alert(`Failed to fetch artist details: ${err}`);
+      if (!isSilent) {
+        alert(`Failed to fetch artist details: ${err}`);
+      }
     } finally {
-      setIsLoadingArtist(false);
+      if (!isSilent) {
+        setIsLoadingArtist(false);
+      }
     }
   };
 
@@ -90,8 +175,10 @@ export const ArtistCacher: React.FC = () => {
     loadArtistDetails(trimmed);
   };
 
-  // Toggle individual release selection
-  const toggleRelease = (url: string) => {
+  // Toggle individual release selection (ONLY for UNCACHED items)
+  const toggleRelease = (url: string, isCached: boolean) => {
+    if (isCached) return; // Prevent selection of already cached items
+
     setSelectedUrls((prev) => {
       const next = new Set(prev);
       if (next.has(url)) {
@@ -103,16 +190,20 @@ export const ArtistCacher: React.FC = () => {
     });
   };
 
-  // Select / Deselect all in current active category
+  // Select / Deselect all UNCACHED in current active category
   const toggleCategorySelection = () => {
     if (!selectedArtist) return;
-    const currentCategoryItems = selectedArtist.categories[activeCategory] || [];
-    const allSelected = currentCategoryItems.every((item) => selectedUrls.has(item.url));
+    const currentCategoryUncached = (selectedArtist.categories[activeCategory] || []).filter(
+      (item) => !item.is_cached
+    );
+    if (currentCategoryUncached.length === 0) return;
+
+    const allUncachedSelected = currentCategoryUncached.every((item) => selectedUrls.has(item.url));
 
     setSelectedUrls((prev) => {
       const next = new Set(prev);
-      currentCategoryItems.forEach((item) => {
-        if (allSelected) {
+      currentCategoryUncached.forEach((item) => {
+        if (allUncachedSelected) {
           next.delete(item.url);
         } else {
           next.add(item.url);
@@ -122,18 +213,8 @@ export const ArtistCacher: React.FC = () => {
     });
   };
 
-  // Select all discography releases across all categories
+  // Select all UNCACHED discography releases across all categories
   const selectAllDiscography = () => {
-    if (!selectedArtist) return;
-    const allUrls = new Set<string>();
-    Object.values(selectedArtist.categories).forEach((items) => {
-      items.forEach((item) => allUrls.add(item.url));
-    });
-    setSelectedUrls(allUrls);
-  };
-
-  // Select only uncached releases
-  const selectUncachedReleases = () => {
     if (!selectedArtist) return;
     const uncachedUrls = new Set<string>();
     Object.values(selectedArtist.categories).forEach((items) => {
@@ -157,11 +238,11 @@ export const ArtistCacher: React.FC = () => {
     setIsCaching(true);
     setCacheResultMsg(null);
 
-    // Build payload releases list
+    // Build payload releases list (filter out any already cached items for safety)
     const albumsToCache: { url: string; name: string; track_count?: number }[] = [];
     Object.values(selectedArtist.categories).forEach((items) => {
       items.forEach((item) => {
-        if (selectedUrls.has(item.url)) {
+        if (selectedUrls.has(item.url) && !item.is_cached) {
           albumsToCache.push({
             url: item.url,
             name: item.name,
@@ -183,6 +264,7 @@ export const ArtistCacher: React.FC = () => {
         text: `🚀 ${res.message}`,
       });
       clearSelection();
+      pollLiveProgress();
     } catch (err) {
       setCacheResultMsg({
         type: 'error',
@@ -193,9 +275,35 @@ export const ArtistCacher: React.FC = () => {
     }
   };
 
+  // Cancel an individual active download task
+  const handleCancelActiveTask = async (taskId: string) => {
+    try {
+      await api.cancelTask(taskId);
+      setLocalActiveDownloads((prev) => prev.filter((t) => t.task_id !== taskId));
+    } catch (err) {
+      alert(`Failed to cancel task: ${err}`);
+    }
+  };
+
   const currentCategoryItems = selectedArtist ? selectedArtist.categories[activeCategory] || [] : [];
-  const isAllCurrentCategorySelected =
-    currentCategoryItems.length > 0 && currentCategoryItems.every((item) => selectedUrls.has(item.url));
+  const uncachedCategoryItems = currentCategoryItems.filter((item) => !item.is_cached);
+  const isAllCategoryUncachedSelected =
+    uncachedCategoryItems.length > 0 &&
+    uncachedCategoryItems.every((item) => selectedUrls.has(item.url));
+
+  const totalQueuedJobs = localQueues?.total || 0;
+  const isCacherBusy = localActiveDownloads.length > 0 || totalQueuedJobs > 0;
+
+  // Helper to check if a release is actively being downloaded
+  const getActiveTaskForRelease = (releaseName: string) => {
+    if (!releaseName || localActiveDownloads.length === 0) return null;
+    const norm = releaseName.toLowerCase().trim();
+    return localActiveDownloads.find((task) => {
+      const trackTitle = (task.track_title || '').toLowerCase();
+      const albumTitle = (task.album_name || '').toLowerCase();
+      return trackTitle.includes(norm) || albumTitle.includes(norm) || norm.includes(trackTitle);
+    });
+  };
 
   return (
     <div className="mt-card" style={{ gap: '1.5rem' }}>
@@ -205,9 +313,30 @@ export const ArtistCacher: React.FC = () => {
           <Sparkles size={18} />
           <span>Artist Discography Cacher & Stream Vault Importer</span>
         </div>
-        <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)' }}>
-          Powered by Apple Music API & stream.eepy.in
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {isCacherBusy && (
+            <span
+              className="animate-pulse"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                padding: '3px 9px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(97, 218, 251, 0.15)',
+                color: '#61dafb',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+              }}
+            >
+              <Radio size={12} />
+              <span>CACHING ACTIVE ({localActiveDownloads.length} running, {totalQueuedJobs} queued)</span>
+            </span>
+          )}
+          <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)' }}>
+            Apple Music API & stream.eepy.in
+          </span>
+        </div>
       </div>
 
       {/* 2. Search & URL Bar */}
@@ -335,7 +464,151 @@ export const ArtistCacher: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Selected Artist Profile & Discography View */}
+      {/* 4. Live Caching Progress Panel */}
+      {isCacherBusy && (
+        <div
+          style={{
+            backgroundColor: 'var(--bg-color)',
+            border: '1px solid #61dafb',
+            borderRadius: 'var(--border-radius)',
+            padding: '1rem 1.25rem',
+            boxShadow: '0 0 16px rgba(97, 218, 251, 0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.85rem',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Radio size={16} color="#61dafb" className="animate-pulse" />
+              <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-color)' }}>
+                Live Caching Operations in Progress
+              </span>
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  padding: '2px 7px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(97, 218, 251, 0.2)',
+                  color: '#61dafb',
+                  fontWeight: 700,
+                }}
+              >
+                {localActiveDownloads.length} active • {totalQueuedJobs} pending
+              </span>
+            </div>
+            <button
+              className="mt-btn"
+              style={{ fontSize: '0.72rem', padding: '0.25rem 0.5rem' }}
+              onClick={pollLiveProgress}
+              title="Refresh live status"
+            >
+              <RefreshCw size={12} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {/* Active Tasks List */}
+          {localActiveDownloads.length === 0 ? (
+            <div style={{ fontSize: '0.78rem', color: 'var(--sub-color)', fontStyle: 'italic' }}>
+              Waiting for queue workers to pick up next pending job ({totalQueuedJobs} jobs in queue)...
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {localActiveDownloads.map((task) => {
+                const isIndeterminate = !task.progress || task.progress === 0;
+
+                return (
+                  <div
+                    key={task.task_id}
+                    style={{
+                      backgroundColor: 'var(--sub-alt-color)',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.4rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                        <Disc size={15} color="var(--main-color)" className="animate-spin" />
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            fontSize: '0.82rem',
+                            color: 'var(--text-color)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {task.track_title}
+                        </span>
+                        {task.artist && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)' }}>
+                            — {task.artist}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span
+                          style={{
+                            fontSize: '0.68rem',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(226, 183, 20, 0.15)',
+                            color: 'var(--main-color)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {task.format}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#61dafb', fontWeight: 600, textTransform: 'uppercase' }}>
+                          {task.status} {task.progress > 0 ? `(${task.progress}%)` : ''}
+                        </span>
+                        <button
+                          className="mt-btn danger"
+                          style={{ padding: '2px 5px', fontSize: '0.68rem' }}
+                          onClick={() => handleCancelActiveTask(task.task_id)}
+                          title="Cancel this download task"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '5px',
+                        backgroundColor: 'var(--bg-color)',
+                        borderRadius: '3px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: isIndeterminate ? '100%' : `${task.progress}%`,
+                          height: '100%',
+                          backgroundColor: '#61dafb',
+                          transition: 'width 0.3s ease',
+                          opacity: isIndeterminate ? 0.7 : 1,
+                        }}
+                        className={isIndeterminate ? 'animate-pulse' : ''}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. Selected Artist Profile & Discography View */}
       {selectedArtist && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Artist Hero Profile Banner */}
@@ -486,7 +759,8 @@ export const ArtistCacher: React.FC = () => {
             {/* Categories */}
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {Object.keys(selectedArtist.categories).map((catName) => {
-                const count = (selectedArtist.categories[catName] || []).length;
+                const items = selectedArtist.categories[catName] || [];
+                const uncachedCount = items.filter((i) => !i.is_cached).length;
                 const isActive = activeCategory === catName;
 
                 return (
@@ -509,33 +783,45 @@ export const ArtistCacher: React.FC = () => {
                         backgroundColor: isActive ? 'var(--bg-color)' : 'var(--sub-alt-color)',
                         fontSize: '0.68rem',
                         fontWeight: 700,
+                        color: uncachedCount > 0 ? 'var(--text-color)' : 'var(--success-color)',
                       }}
                     >
-                      {count}
+                      {items.length} {uncachedCount === 0 && items.length > 0 ? '✓' : ''}
                     </span>
                   </button>
                 );
               })}
             </div>
 
-            {/* Quick Bulk Selection Tools */}
+            {/* Quick Bulk Selection Tools (Only applies to UNCACHED items) */}
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
               <button
                 className="mt-btn"
                 style={{ fontSize: '0.72rem', padding: '0.35rem 0.65rem' }}
                 onClick={toggleCategorySelection}
+                disabled={uncachedCategoryItems.length === 0}
+                title={
+                  uncachedCategoryItems.length === 0
+                    ? 'All items in this category are already cached in database'
+                    : 'Select or deselect all uncached items in this category'
+                }
               >
-                {isAllCurrentCategorySelected ? <Square size={13} /> : <CheckSquare size={13} />}
-                <span>{isAllCurrentCategorySelected ? 'Deselect Category' : 'Select Category'}</span>
-              </button>
-
-              <button
-                className="mt-btn"
-                style={{ fontSize: '0.72rem', padding: '0.35rem 0.65rem' }}
-                onClick={selectUncachedReleases}
-              >
-                <Zap size={13} color="var(--main-color)" />
-                <span>Select Uncached Only</span>
+                {uncachedCategoryItems.length === 0 ? (
+                  <>
+                    <CheckCircle2 size={13} color="var(--success-color)" />
+                    <span>Category Fully Cached</span>
+                  </>
+                ) : isAllCategoryUncachedSelected ? (
+                  <>
+                    <Square size={13} />
+                    <span>Deselect Category ({uncachedCategoryItems.length})</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckSquare size={13} />
+                    <span>Select Uncached ({uncachedCategoryItems.length})</span>
+                  </>
+                )}
               </button>
 
               <button
@@ -544,7 +830,7 @@ export const ArtistCacher: React.FC = () => {
                 onClick={selectAllDiscography}
               >
                 <Check size={13} />
-                <span>Select All Discography</span>
+                <span>Select All Uncached</span>
               </button>
 
               {selectedUrls.size > 0 && (
@@ -553,7 +839,7 @@ export const ArtistCacher: React.FC = () => {
                   style={{ fontSize: '0.72rem', padding: '0.35rem 0.65rem' }}
                   onClick={clearSelection}
                 >
-                  Clear ({selectedUrls.size})
+                  Clear Selection ({selectedUrls.size})
                 </button>
               )}
             </div>
@@ -574,182 +860,251 @@ export const ArtistCacher: React.FC = () => {
             >
               {currentCategoryItems.map((release) => {
                 const isSelected = selectedUrls.has(release.url);
+                const isCached = release.is_cached;
+                const activeTask = getActiveTaskForRelease(release.name);
+                const isDownloading = !!activeTask;
 
                 return (
                   <div
                     key={release.url}
                     style={{
-                      backgroundColor: isSelected ? 'rgba(226, 183, 20, 0.08)' : 'var(--bg-color)',
-                      border: isSelected
-                        ? '1px solid var(--main-color)'
+                      backgroundColor: isDownloading
+                        ? 'rgba(97, 218, 251, 0.08)'
+                        : isSelected
+                        ? 'rgba(226, 183, 20, 0.08)'
+                        : isCached
+                        ? 'rgba(152, 195, 121, 0.03)'
+                        : 'var(--bg-color)',
+                      border: isDownloading
+                        ? '1.5px solid #61dafb'
+                        : isSelected
+                        ? '1.5px solid var(--main-color)'
+                        : isCached
+                        ? '1px solid rgba(152, 195, 121, 0.2)'
                         : '1px solid var(--sub-alt-color)',
                       borderRadius: 'var(--border-radius)',
                       padding: '0.85rem 1rem',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.85rem',
-                      cursor: 'pointer',
+                      flexDirection: 'column',
+                      gap: '0.5rem',
+                      cursor: isCached || isDownloading ? 'default' : 'pointer',
+                      opacity: isCached ? 0.7 : 1,
                       transition: 'all 0.15s ease',
-                      boxShadow: isSelected ? 'var(--shadow-glow)' : 'none',
+                      boxShadow: isDownloading
+                        ? '0 0 12px rgba(97, 218, 251, 0.2)'
+                        : isSelected
+                        ? 'var(--shadow-glow)'
+                        : 'none',
                     }}
-                    onClick={() => toggleRelease(release.url)}
+                    onClick={() => toggleRelease(release.url, isCached || isDownloading)}
                   >
-                    {/* Checkbox indicator */}
-                    <div style={{ color: isSelected ? 'var(--main-color)' : 'var(--sub-color)' }}>
-                      {isSelected ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                    </div>
-
-                    {/* Album Details */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          color: 'var(--text-color)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                        title={release.name}
-                      >
-                        {release.name}
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          marginTop: '0.2rem',
-                          fontSize: '0.72rem',
-                          color: 'var(--sub-color)',
-                        }}
-                      >
-                        {release.release_date && <span>{release.release_date.split('-')[0]}</span>}
-                        {release.track_count && <span>• {release.track_count} tracks</span>}
-                      </div>
-                    </div>
-
-                    {/* Cache Status Badge */}
-                    <div>
-                      {release.is_cached ? (
-                        <span
-                          style={{
-                            fontSize: '0.65rem',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: 'rgba(152, 195, 121, 0.15)',
-                            color: 'var(--success-color)',
-                            fontWeight: 700,
-                          }}
-                        >
-                          CACHED
-                        </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                      {/* Checkbox indicator: ONLY FOR UNCACHED NON-DOWNLOADING ITEMS */}
+                      {isCached ? (
+                        <div style={{ color: 'var(--success-color)' }} title="Already cached in database">
+                          <CheckCircle2 size={20} />
+                        </div>
+                      ) : isDownloading ? (
+                        <div style={{ color: '#61dafb' }} title="Currently downloading">
+                          <Disc size={20} className="animate-spin" />
+                        </div>
                       ) : (
-                        <span
+                        <div style={{ color: isSelected ? 'var(--main-color)' : 'var(--sub-color)' }}>
+                          {isSelected ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                        </div>
+                      )}
+
+                      {/* Album Details */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
                           style={{
-                            fontSize: '0.65rem',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: 'var(--sub-alt-color)',
-                            color: 'var(--sub-color)',
                             fontWeight: 600,
+                            fontSize: '0.85rem',
+                            color: isCached ? 'var(--sub-color)' : 'var(--text-color)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={release.name}
+                        >
+                          {release.name}
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            marginTop: '0.2rem',
+                            fontSize: '0.72rem',
+                            color: 'var(--sub-color)',
                           }}
                         >
-                          UNCACHED
-                        </span>
-                      )}
+                          {release.release_date && <span>{release.release_date.split('-')[0]}</span>}
+                          {release.track_count && <span>• {release.track_count} tracks</span>}
+                        </div>
+                      </div>
+
+                      {/* Cache / Downloading Status Badge */}
+                      <div>
+                        {isDownloading ? (
+                          <span
+                            className="animate-pulse"
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: 'rgba(97, 218, 251, 0.2)',
+                              color: '#61dafb',
+                              fontWeight: 700,
+                            }}
+                          >
+                            DOWNLOADING
+                          </span>
+                        ) : isCached ? (
+                          <span
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: 'rgba(152, 195, 121, 0.15)',
+                              color: 'var(--success-color)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            CACHED
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: 'var(--sub-alt-color)',
+                              color: 'var(--sub-color)',
+                              fontWeight: 600,
+                            }}
+                          >
+                            UNCACHED
+                          </span>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Active Download Progress Bar on Card */}
+                    {isDownloading && activeTask && (
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '4px',
+                          backgroundColor: 'var(--sub-alt-color)',
+                          borderRadius: '2px',
+                          overflow: 'hidden',
+                          marginTop: '0.25rem',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: activeTask.progress > 0 ? `${activeTask.progress}%` : '100%',
+                            height: '100%',
+                            backgroundColor: '#61dafb',
+                          }}
+                          className={activeTask.progress === 0 ? 'animate-pulse' : ''}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           )}
 
-          {/* 5. Sticky Action Bar for Caching */}
-          <div
-            style={{
-              position: 'sticky',
-              bottom: '1rem',
-              backgroundColor: 'var(--bg-color)',
-              border: '2px solid var(--main-color)',
-              borderRadius: 'var(--border-radius)',
-              padding: '0.85rem 1.25rem',
-              boxShadow: 'var(--shadow-glow)',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              zIndex: 30,
-            }}
-          >
-            {/* Selection info */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <div
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '50%',
-                  backgroundColor: 'var(--sub-alt-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--main-color)',
-                  fontWeight: 700,
-                }}
-              >
-                {selectedUrls.size}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-color)' }}>
-                  {selectedUrls.size} release(s) selected for caching
-                </span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)' }}>
-                  Jobs will be dispatched to Telegram bot background workers
-                </span>
-              </div>
-            </div>
-
-            {/* Format selection & Caching action */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)', fontWeight: 600 }}>
-                  FORMAT:
-                </span>
-                <select
-                  className="mt-input"
-                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
-                  value={targetFormat}
-                  onChange={(e) => setTargetFormat(e.target.value as any)}
+          {/* 6. Sticky Action Bar for Caching */}
+          {selectedUrls.size > 0 && (
+            <div
+              style={{
+                position: 'sticky',
+                bottom: '1rem',
+                backgroundColor: 'var(--bg-color)',
+                border: '2px solid var(--main-color)',
+                borderRadius: 'var(--border-radius)',
+                padding: '0.85rem 1.25rem',
+                boxShadow: 'var(--shadow-glow)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem',
+                zIndex: 30,
+              }}
+            >
+              {/* Selection info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--sub-alt-color)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--main-color)',
+                    fontWeight: 700,
+                  }}
                 >
-                  <option value="alac">ALAC Lossless (Hi-Res/48k)</option>
-                  <option value="aac">AAC 256kbps</option>
-                  <option value="atmos">Dolby Atmos (Spatial)</option>
-                  <option value="all">All Formats (Lossless + AAC + Atmos)</option>
-                </select>
+                  {selectedUrls.size}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-color)' }}>
+                    {selectedUrls.size} uncached release(s) selected for caching
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)' }}>
+                    Jobs will be queued for Telegram bot workers
+                  </span>
+                </div>
               </div>
 
-              <button
-                className="mt-btn primary"
-                disabled={selectedUrls.size === 0 || isCaching}
-                onClick={handleStartCaching}
-                style={{ minWidth: '180px', justifyContent: 'center', padding: '0.5rem 1rem' }}
-              >
-                {isCaching ? (
-                  <>
-                    <RefreshCw size={15} className="animate-spin" />
-                    <span>Dispatching Jobs...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap size={15} />
-                    <span>Start Caching Now</span>
-                    <ArrowRight size={14} />
-                  </>
-                )}
-              </button>
+              {/* Format selection & Caching action */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)', fontWeight: 600 }}>
+                    FORMAT:
+                  </span>
+                  <select
+                    className="mt-input"
+                    style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: 600 }}
+                    value={targetFormat}
+                    onChange={(e) => setTargetFormat(e.target.value as any)}
+                  >
+                    <option value="alac">ALAC Lossless (Hi-Res/48k)</option>
+                    <option value="aac">AAC 256kbps</option>
+                    <option value="atmos">Dolby Atmos (Spatial)</option>
+                    <option value="all">All Formats (Lossless + AAC + Atmos)</option>
+                  </select>
+                </div>
+
+                <button
+                  className="mt-btn primary"
+                  disabled={selectedUrls.size === 0 || isCaching}
+                  onClick={handleStartCaching}
+                  style={{ minWidth: '180px', justifyContent: 'center', padding: '0.5rem 1rem' }}
+                >
+                  {isCaching ? (
+                    <>
+                      <RefreshCw size={15} className="animate-spin" />
+                      <span>Dispatching Jobs...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={15} />
+                      <span>Start Caching Now</span>
+                      <ArrowRight size={14} />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

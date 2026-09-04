@@ -1,107 +1,226 @@
-I see exactly what happened—the previous attempt flattened the whole tree structure into a broken inline mess like in your screenshot. Let's fix that formatting so it renders as a clean, properly aligned project tree alongside the rest of the text.
+# Apple Music Telegram Bot
 
-Here is the entire, raw `README.md` file in one single, complete code block:
+An asynchronous Telegram bot and companion web stack for cataloguing, downloading, caching, and streaming Apple Music media. The project supports ALAC/lossless audio, AAC, Dolby Atmos, and music videos, with PostgreSQL metadata storage and Telegram-backed media delivery.
 
-```markdown
-# 🎵 Apple Music High-Fidelity Downloader Telegram Bot
+> This project relies on third-party services and tools such as Telegram and `gamdl`. Configure and use it only in accordance with their terms and applicable law.
 
-An elegant, highly concurrent, and asynchronous Telegram bot built with **Aiogram 3** and **SQLModel** (SQLAlchemy). It facilitates pulling studio-grade audio profiles (AAC, Lossless ALAC, Dolby Atmos) using a background worker cluster powered by `gamdl` while leveraging a strict per-user request queuing system to avoid race conditions.
+## What it does
 
----
+- Accepts Apple Music links through the Telegram bot.
+- Fetches metadata for songs, albums, playlists, and artists.
+- Queues downloads by media format and serializes each user's work within a queue.
+- Uses PostgreSQL to cache metadata and Telegram file/message IDs.
+- Delivers cached media through Telegram and exposes a streaming/download API.
+- Provides an administrator dashboard for queue controls, telemetry, logs, users, and artist caching.
+- Creates database backups locally, through the bot, and optionally through GitHub Actions/Releases.
 
-## ✨ Features
+## Architecture
 
-- **Concurrent Processing Engine:** Implements a global worker pool (3 concurrent workers) paired with a strict **Per-User Async Lock (`asyncio.Lock`)**[cite: 3, 4]. Multiple users download at the same time, but a single user's requests queue sequentially to maximize runtime stability.
-- **Intelligent Database Caching:** Checks incoming ISRCs against local PostgreSQL tracking tables before downloading[cite: 8]. Matches are instantly delivered via Telegram cached `file_id` parameters, conserving network bandwidth and API tokens[cite: 4].
-- **FSM Dynamic Navigation:** Integrates a robust Finite State Machine (FSM) via Aiogram Routers, enabling user interactive sorting across Full Albums, Singles, Live Concerts, and Compilations[cite: 9].
-- **Native Metadata Extraction:** Reads `.m4a` file headers using standard atoms mapping (`©nam`, `©ART`, `covr`) to automatically append high-quality dynamic album thumbnails and correct tags during execution[cite: 1].
-- **Anti-Spam Quota Limiting:** Tracks rolling quotas locally via database validation matrices, halting standard user backlogs gracefully when daily boundaries are hit[cite: 4, 7].
-
+```text
+                         Telegram updates (webhook)
+                                     |
+                                     v
+                         +-----------------------+
+                         |  Bot service           |
+                         |  index.py              |
+                         +-----------------------+
+                           |     |          |
+                           |     |          +--> Admin REST API + dashboard assets
+                           |     |
+                           |     +--> Format queues and workers
+                           |          ALAC | lossless | AAC | Atmos | music video
+                           v
+                 Apple Music metadata + gamdl / yt-dlp
+                           |
+                           v
+                  Telegram media upload and delivery
+                           |
+                           v
+              +------------------------+     +----------------------+
+              | PostgreSQL             |<--->| Stream service       |
+              | tracks, albums, users, |     | server/main.py       |
+              | download history       |     | Telegram MTProto     |
+              +------------------------+     +----------------------+
+                           ^
+                           |
+              +------------------------+
+              | Optional web service   |
+              | web/main.py            |
+              | local file downloads   |
+              +------------------------+
 ```
 
-## 🏗️ Project Architecture Overview
+### Main components
+
+| Component | Entry point | Responsibility |
+| --- | --- | --- |
+| Telegram bot | `index.py` | Receives webhook updates, registers handlers, starts workers, and serves the admin API/dashboard. |
+| Format handlers | `lossless.py`, `aac.py`, `atmos.py`, `mv.py` | Parse commands, enqueue work, run format-specific workers, and deliver media. |
+| Metadata layer | `gamdlUrl.py`, `gamdlHelpUrl.py`, `app/gamdlapi.py` | Normalizes Apple Music URLs and retrieves metadata. |
+| Queue state | `queues.py`, `bot_control.py` | Holds in-memory queues, per-user locks, active tasks, pause state, and telemetry logs. |
+| Data layer | `database.py`, `crud.py`, `schema.py` | Defines SQLModel tables and data access for media, albums, users, and download history. |
+| Admin dashboard | `dashboard/`, `admin_routes.py` | React/Vite UI and the authenticated operational API it calls. |
+| Stream API | `server/main.py` | Streams cached Telegram files over HTTP using Pyrogram and supports range requests. |
+| Web downloader | `web/main.py` | Hosts a standalone web UI/API and downloads media to local storage. |
+| Operations | `scripts/`, `.github/workflows/db_backup.yml` | Provides backups, migration helpers, and scheduled database backup automation. |
+
+### Data flow
+
+1. A user sends an Apple Music URL to the bot.
+2. A handler normalizes the URL and queries metadata.
+3. The bot checks PostgreSQL for a suitable cached copy.
+4. If absent, the handler adds a job to its format-specific queue.
+5. A worker downloads and processes the media, then uploads it to the configured Telegram storage channel.
+6. The worker stores metadata and Telegram `chat_id`/`message_id` values in PostgreSQL.
+7. Future requests can use the cached Telegram media. The stream service reads those identifiers and serves the file over HTTP.
+
+## Repository layout
 
 ```text
 .
-├── index.py          # Main entrypoint, lifecycle init, and queue worker pool[cite: 4]
-├── lossless.py       # Regular Lossless (/lossless) router, 48kHz remuxing & worker pool
-├── artist.py         # Advanced FSM multi-select callback routers[cite: 9]
-├── aac.py            # AAC 256kbps audio downloader & queue worker pool
-├── atmos.py          # Dolby Atmos / Spatial audio downloader & worker pool
-├── mv.py             # Music Video HD downloader & worker pool
-├── help.py           # Metadata discovery and bot help command router
-├── gamdlUrl.py       # Apple Music netscape cookie interface configuration[cite: 5]
-├── database.py       # SQLModel AsyncEngine declarations & target schemas[cite: 7]
-├── schema.py         # Core Pydantic validation boundaries[cite: 2]
-├── utils.py          # Mutagen metadata parsing and ASCII normalization text utility[cite: 1]
-└── queues.py         # Thread-safe global structural locks and storage fields[cite: 3]
-
+├── index.py                   # Bot, webhook server, workers, admin dashboard serving
+├── aac.py / atmos.py          # Format-specific audio handlers and workers
+├── lossless.py / mv.py        # Lossless and music-video handlers and workers
+├── artist.py / help.py        # Bot interaction flows
+├── database.py / crud.py      # PostgreSQL models and data access
+├── queues.py / bot_control.py # In-memory jobs, locks, active-task and admin state
+├── admin_routes.py            # Dashboard authentication and operational endpoints
+├── server/                    # Telegram-backed HTTP streaming service
+├── web/                       # Optional local-file web downloader service
+├── dashboard/                 # React/Vite administrator dashboard
+├── app/                       # Static web application and metadata API
+├── scripts/                   # Backup and migration utilities
+└── .github/workflows/         # Scheduled PostgreSQL backup workflow
 ```
 
-## 🚀 Infrastructure & Remote Networking (Cloudflare Tunnel)
+## Prerequisites
 
-When connecting your local deployment back to a secure cloud database service instance routed over Cloudflare network infrastructure without exposing local machines to the open internet, run the following inbound terminal bridge command:
+- Python 3.14 or later (the version declared in `pyproject.toml`)
+- PostgreSQL
+- Node.js and npm (only for dashboard development/builds)
+- `gamdl` and its system dependencies, including FFmpeg and Bento4 where required
+- A Telegram bot token and a Telegram API ID/hash for the streaming client
+- A reachable webhook URL when running the bot in webhook mode
 
-```bash
-cloudflared access tcp --hostname sqldb.eepy.in --url localhost:5432
+## Configuration
 
-```
-This handles secure tunneling of the TCP stream directly between your local PostgreSQL database (`localhost:5432`) and the remote infrastructure zone.
----
+1. Copy `.env.example` to `.env`.
+2. Replace every placeholder with environment-specific values.
+3. Keep `.env`, cookies, sessions, downloads, and backups outside source control.
 
-## 🛠️ Step-by-Step Local Deployment
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `TOKEN_API` | Bot and stream client | Telegram bot token. |
+| `API_ID`, `API_HASH` | Stream service | Telegram MTProto application credentials. |
+| `DATABASE_URL` | All services | PostgreSQL async SQLAlchemy URL. |
+| `WEBHOOK_HOST`, `WEBHOOK_PATH`, `WEBHOOK_SECRET` | Bot | Public webhook configuration. |
+| `WEBHOOK_LISTEN_HOST`, `WEBHOOK_LISTEN_PORT` | Bot | Local listener address and port. |
+| `STORAGE_CHANNEL_ID` | Bot and stream service | Telegram channel where media is cached. |
+| `STREAM_SERVER_URL` | Bot and web services | Public stream-server base URL. |
+| `ADMIN_PASSWORD`, `JWT_SECRET` | Dashboard API | Administrator authentication credentials. Use strong unique values. |
+| `WORKER_CONCURRENCY` and format-specific worker variables | Bot | Number of background workers per format. |
 
-### 1. Prerequisites
+For Apple Music access, place an authorized Netscape-format cookie file at `cookies.txt` in the project root. It is intentionally ignored by Git.
 
-Ensure you have system-level access to the following dependencies:
+## Installation
 
-* **Python 3.10+**
-* **FFmpeg & Bento4** (Required by `gamdl` for file assembly/muxing)
-* **PostgreSQL Database**
+This repository includes a `uv.lock`, so `uv` is the preferred installer:
 
-### 2. Environment Configuration
-
-Create a `.env` file within your project root folder and specify your bot credentials and database engine target URI strings:
-
-```env
-TOKEN_API="YOUR_TELEGRAM_BOT_TOKEN"
-DATABASE_URL="postgresql+asyncpg://postgres:user@localhost:5432/test_Tbot"
-```
-
-### 3. Apple Music Authorization
-
-Export a Netscape-format cookie file containing an authorized active subscription token session from your browser, name it **`cookies.txt`**, and place it directly into the application's root folder directory.
-
-### 4. Installation & Start Execution
-
-Install all mandatory structural modules via your terminal and kick off the daemon execution:
-
-```bash
-# Install core runtime packages
-pip install aiogram sqlmodel asyncpg mutagen pydantic python-dotenv gamdl
-
-# Launch the engine process
-python index.py
+```powershell
+uv sync
 ```
 
----
+Alternatively, install the package dependencies into a virtual environment using your preferred Python package manager.
 
-## 🔧 Core Mechanics Explained
+Build the dashboard when serving it from the bot service:
 
-### The Microsecond Sandbox Fix
-
-To prevent cross-worker interference where overlapping tasks for the same user accidentally deleted concurrent assets, directories are isolated via an event-loop clock mapping signature:
-
-```python
-unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
-task_output_dir = os.path.join("./downloads", unique_task_id)
+```powershell
+Set-Location dashboard
+npm ci
+npm run build
+Set-Location ..
 ```
 
-### Clean Asynchronous Lock Releases
+## Running services
 
-Users are cleanly removed from runtime anti-spam state dictionaries strictly when their total queue tracking length reads zero and their explicit worker process lock state toggles to unrestricted:
+Run only the services needed for your deployment. All services read the root `.env` file.
 
-```python
-if download_queue.empty() and not user_lock.locked():
-    user_in_queue.discard(user_id)
+### Telegram bot and dashboard
+
+```powershell
+uv run python index.py
 ```
+
+The bot waits for the local Telegram Bot API server configured by `LOCAL_SERVER_URL`, initializes the database, starts workers, sets its webhook, and serves the dashboard at `/dashboard/` when `dashboard/dist` exists.
+
+### Streaming service
+
+```powershell
+uv run python -m server.main
+```
+
+This service uses Pyrogram to retrieve cached media from Telegram. It exposes a health endpoint at `/health` and serves streaming/download routes backed by database records.
+
+### Optional web downloader
+
+```powershell
+uv run python -m web.main
+```
+
+This standalone service hosts a browser UI plus an API for local media downloads. It is separate from the Telegram-backed streaming service.
+
+### Dashboard development server
+
+```powershell
+Set-Location dashboard
+npm run dev
+```
+
+The Vite development server proxies `/api` calls to `http://localhost:8080` by default.
+
+## Operations
+
+### Database backup
+
+Run a local backup manually:
+
+```powershell
+uv run python scripts/backup_db.py --help
+```
+
+The bot also starts a periodic backup worker. The GitHub Actions workflow in `.github/workflows/db_backup.yml` can create scheduled backups when its `DATABASE_URL` repository secret is configured and reachable from GitHub Actions.
+
+### Useful endpoints
+
+| Service | Endpoint | Purpose |
+| --- | --- | --- |
+| Bot | `POST {WEBHOOK_PATH}` | Telegram webhook receiver. |
+| Bot | `/dashboard/` | Administrator dashboard after building the frontend. |
+| Bot | `/api/admin/*` | Dashboard control and telemetry API. |
+| Stream | `/health` | Stream service health check. |
+| Stream | `/stream/{format}/{song_id}` | Stream a Telegram-cached media record. |
+| Stream | `/download/{format}/{song_id}` | Download a Telegram-cached media record. |
+| Web | `/health` | Web downloader health check. |
+
+## Development notes
+
+- `queues.py` and `bot_control.py` are in-memory state. A restart clears queued jobs, active task information, dashboard sessions, and pause/maintenance state.
+- Database schema initialization and compatibility changes currently run during service startup through `database.init_db()`.
+- The dashboard source lives in `dashboard/src`; `dashboard/dist` is the built output served by the bot/web application.
+- Before deploying changes, compile Python modules and build the dashboard:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q .
+Set-Location dashboard; npm run build
+```
+
+## Security checklist
+
+- Use long, unique values for all secrets—especially `WEBHOOK_SECRET`, `ADMIN_PASSWORD`, and `JWT_SECRET`.
+- Never commit `.env`, `cookies.txt`, Telegram `.session` files, media, or database backups.
+- Put the dashboard and admin API behind HTTPS and restrict access at the reverse proxy/firewall.
+- Configure PostgreSQL with a dedicated least-privilege application user and regular, verified backups.
+
+## License
+
+No license is currently declared. Add one before distributing or accepting external contributions.
