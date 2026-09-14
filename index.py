@@ -942,63 +942,64 @@ async def process_download(task: dict) -> None:
                             message_id=saved_message_id
                         )
                             
-                            matched = False
-                            # 1. Match by ISRC
-                            if isrc:
-                                for original_track in songs:
-                                    if original_track.isrc == isrc:
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input)
+                        matched = False
+                        # 1. Match by ISRC
+                        if isrc:
+                            for original_track in songs:
+                                if original_track.isrc == isrc:
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input)
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="alac",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="alac",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log download history: {le}")
-                                            
-                                        matched = True
-                                        break
+                                    matched = True
+                                    break
 
-                            # 2. Fallback to normalized title match
-                            if not matched:
-                                for original_track in songs:
-                                    if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input)
+                        # 2. Fallback to normalized title match
+                        if not matched:
+                            for original_track in songs:
+                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input)
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="alac",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="alac",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log download history: {le}")
-                                            
-                                        break
+                                    break
+
 
                         # In 'tracks' mode only, delete local file immediately after upload
                         if download_mode == "tracks":

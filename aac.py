@@ -194,15 +194,27 @@ async def aac_download(msg: types.Message, command: CommandObject) -> None:
 
 
 async def process_aac_download(task: dict) -> None:
-    track_url = task["url"]
-    songs = task["songs"]
-    msg: Message = task["msg"]
-    user_id_local = task["user_id"]
-    status_msg = task["status_msg"]
+    import secrets
+    track_url = task.get("url")
+    songs = task.get("songs")
+    msg: Optional[Message] = task.get("msg")
+    user_id_local = task.get("user_id", 999999999)
+    status_msg = task.get("status_msg")
     download_mode = task.get("download_mode", "tracks")
     album_id_task = task.get("album_id")
 
-    unique_task_id = f"aac_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    if not songs and track_url:
+        from gamdlUrl import get_any_url
+        try:
+            songs = await get_any_url(track_url)
+        except Exception:
+            songs = []
+
+    if msg and hasattr(msg, "message_id"):
+        unique_task_id = f"aac_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    else:
+        unique_task_id = f"aac_cache_{int(asyncio.get_event_loop().time() * 1000)}_{secrets.token_hex(4)}"
+
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     process = None
 
@@ -233,26 +245,40 @@ async def process_aac_download(task: dict) -> None:
         async with async_session() as session:
             cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="aac")
             if cached_zip_fid:
-                try:
-                    await msg.answer_document(
-                        document=cached_zip_fid,
-                        caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
-                        parse_mode="HTML"
-                    )
-                    await status_msg.edit_text("✅ AAC Album ZIP delivered from cache!")
-                    return
-                except Exception as e:
-                    print(f"Failed to deliver cached AAC zip document: {e}")
-            elif cached_gofile_url:
-                await msg.answer(
-                    f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n"
-                    f"👤 <i>{songs[0].artist}</i>\n\n"
-                    f"⚡ <i>Delivered from cache:</i>\n"
-                    f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                    parse_mode="HTML"
-                )
-                await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                if msg:
+                    try:
+                        await msg.answer_document(
+                            document=cached_zip_fid,
+                            caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        print(f"Failed to deliver cached AAC zip document: {e}")
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("✅ AAC Album ZIP delivered from cache!")
+                    except Exception:
+                        pass
                 return
+            elif cached_gofile_url:
+                if msg:
+                    try:
+                        await msg.answer(
+                            f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n"
+                            f"👤 <i>{songs[0].artist}</i>\n\n"
+                            f"⚡ <i>Delivered from cache:</i>\n"
+                            f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                    except Exception:
+                        pass
+                return
+
 
     temp_dir = f"{output_dir}_temp"
     try:
@@ -276,6 +302,7 @@ async def process_aac_download(task: dict) -> None:
             "--temp-path", temp_dir,
             "--song-codec-priority", "aac-web",
             *dl_targets,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
@@ -283,14 +310,43 @@ async def process_aac_download(task: dict) -> None:
         if unique_task_id in active_tasks:
             active_tasks[unique_task_id]["process"] = process
 
+
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         uploaded_files = set()
         completed_aac_count = 0
         total_aac_tracks = len(songs) if songs else 1
+        timeout_seconds = 1800
+        start_dl_time = asyncio.get_event_loop().time()
 
         while True:
+            if active_tasks.get(unique_task_id, {}).get("cancelled"):
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                return
+
+            if (asyncio.get_event_loop().time() - start_dl_time) > timeout_seconds:
+                print(f"Task {unique_task_id} exceeded maximum timeout of {timeout_seconds}s. Terminating process.")
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("❌ Download timed out after 30 minutes. Please try again.")
+                    except Exception:
+                        pass
+                return
+
             try:
-                line_bytes = await process.stdout.readline()
+                line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
+            except asyncio.TimeoutError:
+                if process.returncode is not None:
+                    break
+                continue
             except (ValueError, asyncio.LimitOverrunError):
                 try:
                     line_bytes = await process.stdout.read(8192)
@@ -311,13 +367,14 @@ async def process_aac_download(task: dict) -> None:
                         await process.wait()
                     except ProcessLookupError:
                         pass
-                    try:
-                        await status_msg.edit_text(
-                            "⚠️ <b>AAC format is not available</b> for this track/album.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                    if status_msg:
+                        try:
+                            await status_msg.edit_text(
+                                "⚠️ <b>AAC format is not available</b> for this track/album.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
                     return
 
             # Check for new finalized files
@@ -335,107 +392,114 @@ async def process_aac_download(task: dict) -> None:
 
                     if download_mode == "zip":
                         completed_aac_count += 1
-                        try:
-                            await status_msg.edit_text(f"🚀 Downloading AAC album: {completed_aac_count}/{total_aac_tracks} track(s)...")
-                        except Exception:
-                            pass
+                        if status_msg:
+                            try:
+                                await status_msg.edit_text(f"🚀 Downloading AAC album: {completed_aac_count}/{total_aac_tracks} track(s)...")
+                            except Exception:
+                                pass
                         continue
 
                     # Fetch user before uploading
                     async with async_session() as session:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.one()
+                        user = result.first()
 
                         # Extract metadata
                         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
                             utils.extract_track_metadata, file_path
                         )
 
-                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
-                            bot=msg.bot,
-                            user_chat_id=msg.chat.id,
-                            file_path=file_path,
-                            title=track_title,
-                            performer=artist,
-                            thumbnail=thumbnail,
-                            duration=duration
-                        )
+                        sent_msg = None
+                        saved_chat_id = utils.STORAGE_CHANNEL_ID
+                        saved_message_id = None
+                        if msg:
+                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                                bot=msg.bot,
+                                user_chat_id=msg.chat.id,
+                                file_path=file_path,
+                                title=track_title,
+                                performer=artist,
+                                thumbnail=thumbnail,
+                                duration=duration
+                            )
 
-                        if sent_msg:
+                        if user:
                             user.download_count += 1
                             session.add(user)
                             await session.commit()
 
-                            media_obj = sent_msg.audio or sent_msg.document
-                            file_id_val = media_obj.file_id if media_obj else None
-                            file_uniq_val = media_obj.file_unique_id if media_obj else None
-                            file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
+                        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
+                        file_id_val = media_obj.file_id if media_obj else f"cached_{secrets.token_hex(8)}"
+                        file_uniq_val = media_obj.file_unique_id if media_obj else f"uniq_{secrets.token_hex(8)}"
+                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
 
-                            tbot = schema.TrackInputSchema(
-                                file_id=file_id_val,
-                                file_unique_id=file_uniq_val,
-                                title=track_title,
-                                size=file_sz_val,
-                                isrc=isrc,
-                                chat_id=saved_chat_id,
-                                message_id=saved_message_id
-                            )
+                        tbot = schema.TrackInputSchema(
+                            file_id=file_id_val,
+                            file_unique_id=file_uniq_val,
+                            title=track_title,
+                            size=file_sz_val,
+                            isrc=isrc,
+                            chat_id=saved_chat_id,
+                            message_id=saved_message_id
+                        )
 
-                            matched = False
-                            if isrc:
-                                for original_track in songs:
-                                    if original_track.isrc == isrc:
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+
+                        matched = False
+                        if isrc:
+                            for original_track in songs:
+                                if original_track.isrc == isrc:
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="aac",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log AAC download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="aac",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log AAC download history: {le}")
-                                            
-                                        matched = True
-                                        break
+                                    matched = True
+                                    break
 
-                            if not matched:
-                                for original_track in songs:
-                                    if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+                        if not matched:
+                            for original_track in songs:
+                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input, format_type="aac")
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="aac",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log AAC download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="aac",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log AAC download history: {le}")
-                                            
-                                        break
+                                    break
+
 
                         if download_mode == "tracks":
                             try:
@@ -501,14 +565,17 @@ async def process_aac_download(task: dict) -> None:
                         gofile_url=gofile_url
                     )
 
-            if gofile_url and not zip_fid:
-                await msg.answer(
-                    f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
-                    f"👤 <i>{artist}</i>\n\n"
-                    f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
-                    f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                    parse_mode="HTML"
-                )
+            if gofile_url and not zip_fid and msg:
+                try:
+                    await msg.answer(
+                        f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
+                        f"👤 <i>{artist}</i>\n\n"
+                        f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
+                        f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
             if os.path.exists(zip_path):
                 try:
@@ -516,29 +583,32 @@ async def process_aac_download(task: dict) -> None:
                 except Exception:
                     pass
 
-            try:
-                await status_msg.edit_text("✅ AAC Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("✅ AAC Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
             return
 
-        if return_code == 0:
-            try:
-                await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
-        else:
-            try:
-                await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+        if status_msg:
+            if return_code == 0:
+                try:
+                    await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
 
     except Exception as error:
         print(f"AAC download error: {error}")
-        try:
-            await status_msg.edit_text(f"AAC download failed: {error}")
-        except Exception:
-            pass
+        if status_msg:
+            try:
+                await status_msg.edit_text(f"AAC download failed: {error}")
+            except Exception:
+                pass
     finally:
         active_tasks.pop(unique_task_id, None)
         if process and process.returncode is None:
@@ -561,23 +631,31 @@ async def aac_worker() -> None:
     Worker function to process the aac download queue. Up to 10 run concurrently.
     """
     while True:
-        task = await aac_queue.get()
-        user_id = task["user_id"]
-        msg = task["msg"]
+        try:
+            while bot_control.is_bot_paused:
+                await asyncio.sleep(1)
 
-        user_lock = aac_locks.setdefault(user_id, asyncio.Lock())
+            task = await aac_queue.get()
+            user_id = task.get("user_id", 999999999)
 
-        async with user_lock:
-            try:
-                await process_aac_download(task)
-            except Exception as e:
-                print(f"AAC worker caught execution exception: {e}")
-            finally:
-                remaining = aac_pending_jobs.get(user_id, 1) - 1
-                if remaining <= 0:
-                    aac_pending_jobs.pop(user_id, None)
-                    aac_in_queue.discard(user_id)
-                    aac_locks.pop(user_id, None)
-                else:
-                    aac_pending_jobs[user_id] = remaining
-                aac_queue.task_done()
+            user_lock = aac_locks.setdefault(user_id, asyncio.Lock())
+
+            async with user_lock:
+                try:
+                    await process_aac_download(task)
+                except Exception as e:
+                    print(f"AAC worker caught execution exception: {e}")
+                finally:
+                    remaining = aac_pending_jobs.get(user_id, 1) - 1
+                    if remaining <= 0:
+                        aac_pending_jobs.pop(user_id, None)
+                        aac_in_queue.discard(user_id)
+                        aac_locks.pop(user_id, None)
+                    else:
+                        aac_pending_jobs[user_id] = remaining
+                    aac_queue.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[AAC Worker] Unexpected error in worker loop: {e}")
+            await asyncio.sleep(1)

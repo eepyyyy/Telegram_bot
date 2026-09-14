@@ -226,15 +226,27 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
 
 
 async def process_atmos_download(task: dict) -> None:
-    track_url = task["url"]
-    songs = task["songs"]
-    msg: Message = task["msg"]
-    user_id_local = task["user_id"]
-    status_msg = task["status_msg"]
+    import secrets
+    track_url = task.get("url")
+    songs = task.get("songs")
+    msg: Optional[Message] = task.get("msg")
+    user_id_local = task.get("user_id", 999999999)
+    status_msg = task.get("status_msg")
     download_mode = task.get("download_mode", "tracks")
     album_id_task = task.get("album_id")
 
-    unique_task_id = f"atmos_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    if not songs and track_url:
+        from gamdlUrl import get_any_url
+        try:
+            songs = await get_any_url(track_url)
+        except Exception:
+            songs = []
+
+    if msg and hasattr(msg, "message_id"):
+        unique_task_id = f"atmos_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    else:
+        unique_task_id = f"atmos_cache_{int(asyncio.get_event_loop().time() * 1000)}_{secrets.token_hex(4)}"
+
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     process = None
 
@@ -265,26 +277,40 @@ async def process_atmos_download(task: dict) -> None:
         async with async_session() as session:
             cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="atmos")
             if cached_zip_fid:
-                try:
-                    await msg.answer_document(
-                        document=cached_zip_fid,
-                        caption=f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
-                        parse_mode="HTML"
-                    )
-                    await status_msg.edit_text("✅ Dolby Atmos Album ZIP delivered from cache!")
-                    return
-                except Exception as e:
-                    print(f"Failed to deliver cached Atmos zip document: {e}")
-            elif cached_gofile_url:
-                await msg.answer(
-                    f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n"
-                    f"👤 <i>{songs[0].artist}</i>\n\n"
-                    f"⚡ <i>Delivered from cache:</i>\n"
-                    f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                    parse_mode="HTML"
-                )
-                await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                if msg:
+                    try:
+                        await msg.answer_document(
+                            document=cached_zip_fid,
+                            caption=f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        print(f"Failed to deliver cached Atmos zip document: {e}")
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("✅ Dolby Atmos Album ZIP delivered from cache!")
+                    except Exception:
+                        pass
                 return
+            elif cached_gofile_url:
+                if msg:
+                    try:
+                        await msg.answer(
+                            f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n"
+                            f"👤 <i>{songs[0].artist}</i>\n\n"
+                            f"⚡ <i>Delivered from cache:</i>\n"
+                            f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                    except Exception:
+                        pass
+                return
+
 
     temp_dir = f"{output_dir}_temp"
     try:
