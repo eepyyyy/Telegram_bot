@@ -511,23 +511,33 @@ async def process_download(task: dict) -> None:
     Supports 'tracks', 'zip', and 'both' delivery modes.
     """
     message = task["url"]  # The specific target album/track URL
-    msg: Message = task["msg"]  # The aiogram message context used to reply
-    user_id_local = task["user_id"]
+    msg: Optional[Message] = task.get("msg")  # The aiogram message context used to reply
+    user_id_local = task.get("user_id", 999999999)
     download_mode = task.get("download_mode", "tracks")
     album_id_task = task.get("album_id")
+    is_admin_cache = task.get("is_admin_cache", False) or (msg is None)
 
-    unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    import secrets
+    if msg and hasattr(msg, "message_id"):
+        unique_task_id = f"{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    else:
+        unique_task_id = f"cache_{int(asyncio.get_event_loop().time() * 1000)}_{secrets.token_hex(4)}"
+
     cancel_builder = InlineKeyboardBuilder()
     cancel_builder.row(types.InlineKeyboardButton(text="✖ Cancel Download", callback_data=f"cancel_download:{unique_task_id}"))
 
     status_msg = task.get("status_msg")
-    if not status_msg:
-        status_msg = await msg.answer('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
-    else:
-        try:
-            await status_msg.edit_text('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
-        except Exception:
-            status_msg = await msg.answer('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
+    if msg:
+        if not status_msg:
+            try:
+                status_msg = await msg.answer('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
+            except Exception:
+                status_msg = None
+        else:
+            try:
+                await status_msg.edit_text('🔍 Processing request...', reply_markup=cancel_builder.as_markup())
+            except Exception:
+                pass
 
     task_output_dir = os.path.join("./downloads", unique_task_id)
     process = None
@@ -545,6 +555,7 @@ async def process_download(task: dict) -> None:
         "start_time": time.time(),
         "progress": 0,
     }
+
 
     try:
         # 1. Fetch metadata from Apple Music if not preloaded
@@ -749,6 +760,7 @@ async def process_download(task: dict) -> None:
             "--output-path", task_output_dir,
             "--temp-path", task_temp_dir,
             *target_dl_urls,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
@@ -758,18 +770,38 @@ async def process_download(task: dict) -> None:
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         already_processed = set()
+        timeout_seconds = 1800
+        start_dl_time = asyncio.get_event_loop().time()
 
         while True:
             if active_tasks.get(unique_task_id, {}).get("cancelled"):
                 try:
                     process.terminate()
                     await process.wait()
-                except ProcessLookupError:
+                except Exception:
                     pass
                 return
 
+            if (asyncio.get_event_loop().time() - start_dl_time) > timeout_seconds:
+                print(f"Task {unique_task_id} exceeded maximum timeout of {timeout_seconds}s. Terminating process.")
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("❌ Download timed out after 30 minutes. Please try again.")
+                    except Exception:
+                        pass
+                return
+
             try:
-                line_bytes = await process.stdout.readline()
+                line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
+            except asyncio.TimeoutError:
+                if process.returncode is not None:
+                    break
+                continue
             except (ValueError, asyncio.LimitOverrunError):
                 try:
                     line_bytes = await process.stdout.read(8192)
@@ -790,14 +822,15 @@ async def process_download(task: dict) -> None:
                         await process.wait()
                     except ProcessLookupError:
                         pass
-                    try:
-                        await status_msg.edit_text(
-                            "⚠️ <b>Requested format (Lossless ALAC) is not available</b> for this track/album.\n\n"
-                            "👉 Please use <code>/aac &lt;link&gt;</code> to download in AAC 256kbps format.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                    if status_msg:
+                        try:
+                            await status_msg.edit_text(
+                                "⚠️ <b>Requested format (Lossless ALAC) is not available</b> for this track/album.\n\n"
+                                "👉 Please use <code>/aac &lt;link&gt;</code> to download in AAC 256kbps format.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
                     return
 
             # Check for finalized .m4a files in output directory
@@ -824,24 +857,25 @@ async def process_download(task: dict) -> None:
                     if download_mode == "zip":
                         # In ZIP-only mode, don't send individual audio tracks to PM; just update progress
                         completed_count += 1
-                        progress_text = (
-                            f"🚀 {hbold('PACKAGING ALBUM')}\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{make_progress_bar(completed_count, total_tracks)}\n"
-                            f"📥 Downloaded {completed_count}/{total_tracks} tracks..."
-                        )
-                        try:
-                            await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
-                        except Exception:
-                            pass
+                        if status_msg:
+                            progress_text = (
+                                f"🚀 {hbold('PACKAGING ALBUM')}\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"{make_progress_bar(completed_count, total_tracks)}\n"
+                                f"📥 Downloaded {completed_count}/{total_tracks} tracks..."
+                            )
+                            try:
+                                await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+                            except Exception:
+                                pass
                         continue
 
                     # For 'tracks' or 'both' mode, deliver audio track
                     async with async_session() as session:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.one()
+                        user = result.first()
                         
-                        if not user.is_premium:
+                        if user and not user.is_premium and msg:
                             alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
                             if alac_count >= 100:
                                 try:
@@ -860,23 +894,28 @@ async def process_download(task: dict) -> None:
                             utils.extract_track_metadata, file_path
                         )
                         
-                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
-                            bot=msg.bot,
-                            user_chat_id=msg.chat.id,
-                            file_path=file_path,
-                            title=track_title,
-                            performer=artist,
-                            thumbnail=thumbnail,
-                            duration=duration
-                        )
+                        sent_msg = None
+                        saved_chat_id = utils.STORAGE_CHANNEL_ID
+                        saved_message_id = None
+                        if msg:
+                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                                bot=msg.bot,
+                                user_chat_id=msg.chat.id,
+                                file_path=file_path,
+                                title=track_title,
+                                performer=artist,
+                                thumbnail=thumbnail,
+                                duration=duration
+                            )
 
-                        if sent_msg:
-                            completed_count += 1
+                        completed_count += 1
+                        if user:
                             user.download_count += 1
                             session.add(user)
                             await session.commit()
 
-                            # Real-Time Progress Bar Update
+                        # Real-Time Progress Bar Update
+                        if status_msg:
                             progress_text = (
                                 f"🚀 {hbold('PROCESSING DOWNLOAD')}\n"
                                 f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -888,20 +927,20 @@ async def process_download(task: dict) -> None:
                             except Exception:
                                 pass
 
-                            media_obj = sent_msg.audio or sent_msg.document
-                            file_id_val = media_obj.file_id if media_obj else None
-                            file_uniq_val = media_obj.file_unique_id if media_obj else None
-                            file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
+                        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
+                        file_id_val = media_obj.file_id if media_obj else f"cached_{secrets.token_hex(8)}"
+                        file_uniq_val = media_obj.file_unique_id if media_obj else f"uniq_{secrets.token_hex(8)}"
+                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
 
-                            tbot = schema.TrackInputSchema(
-                                file_id=file_id_val,
-                                file_unique_id=file_uniq_val,
-                                title=track_title,
-                                size=file_sz_val,
-                                isrc=isrc,
-                                chat_id=saved_chat_id,
-                                message_id=saved_message_id
-                            )
+                        tbot = schema.TrackInputSchema(
+                            file_id=file_id_val,
+                            file_unique_id=file_uniq_val,
+                            title=track_title,
+                            size=file_sz_val,
+                            isrc=isrc,
+                            chat_id=saved_chat_id,
+                            message_id=saved_message_id
+                        )
                             
                             matched = False
                             # 1. Match by ISRC
@@ -1034,14 +1073,17 @@ async def process_download(task: dict) -> None:
                         gofile_url=gofile_url
                     )
 
-            if gofile_url and not zip_fid:
-                await msg.answer(
-                    f"📦 <b>{album_title}</b> (Lossless ALAC)\n"
-                    f"👤 <i>{artist}</i>\n\n"
-                    f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
-                    f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                    parse_mode="HTML"
-                )
+            if gofile_url and not zip_fid and msg:
+                try:
+                    await msg.answer(
+                        f"📦 <b>{album_title}</b> (Lossless ALAC)\n"
+                        f"👤 <i>{artist}</i>\n\n"
+                        f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
+                        f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
             if os.path.exists(zip_path):
                 try:
@@ -1049,30 +1091,33 @@ async def process_download(task: dict) -> None:
                 except Exception:
                     pass
 
-            try:
-                await status_msg.edit_text("✅ Album download and packaging completed successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("✅ Album download and packaging completed successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
             return
 
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
-            if return_code == 0:
-                try:
-                    await status_msg.edit_text("✅ All tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                except Exception:
-                    pass
-            else:
-                try:
-                    await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                except Exception:
-                    pass
+            if status_msg:
+                if return_code == 0:
+                    try:
+                        await status_msg.edit_text("✅ All tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                    except Exception:
+                        pass
 
     except Exception as e:
         print(f"Error handling download: {e}")
-        try:
-            await msg.answer(f"⚠️ An unexpected error occurred. {str(e)}")
-        except Exception:
-            pass
+        if msg:
+            try:
+                await msg.answer(f"⚠️ An unexpected error occurred. {str(e)}")
+            except Exception:
+                pass
     finally:
         active_tasks.pop(unique_task_id, None)
         if process and process.returncode is None:
@@ -1095,50 +1140,54 @@ async def worker() -> None:
     Worker function to process the download queue.
     """
     while True:
-        while bot_control.is_bot_paused:
+        try:
+            while bot_control.is_bot_paused:
+                await asyncio.sleep(1)
+
+            task = await download_queue.get()
+            msg = task.get("msg") or task.get("message")
+            user_id = task.get("user_id")
+            if not user_id and msg and hasattr(msg, "from_user") and msg.from_user:
+                user_id = msg.from_user.id
+            if not user_id:
+                user_id = 999999999
+
+            user_lock = user_locks.setdefault(user_id, asyncio.Lock())
+
+            async with user_lock:
+                try:
+                    if msg:
+                        # Check database limit before starting download subprocess
+                        async with async_session() as session:
+                            result = await session.exec(select(User).where(User.user_id == user_id))
+                            user = result.first()
+                            if user and not user.is_premium:
+                                alac_count = await crud.get_alac_download_count_12h(session, user_id)
+                                if alac_count >= 100:
+                                    try:
+                                        await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Skipping queued item.")
+                                    except Exception:
+                                        pass
+                                    continue
+
+                    await process_download(task)
+                except Exception as e:
+                    print(f"Worker caught execution exception for user {user_id}: {e}")
+                finally:
+                    remaining = user_pending_jobs.get(user_id, 1) - 1
+                    if remaining <= 0:
+                        user_pending_jobs.pop(user_id, None)
+                        user_in_queue.discard(user_id)
+                        user_locks.pop(user_id, None)
+                    else:
+                        user_pending_jobs[user_id] = remaining
+                    download_queue.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as outer_err:
+            print(f"[Worker Error] Unexpected error in ALAC worker: {outer_err}")
             await asyncio.sleep(1)
 
-        task = await download_queue.get()
-        msg = task.get("msg") or task.get("message")
-        user_id = task.get("user_id")
-        if not user_id and msg and hasattr(msg, "from_user") and msg.from_user:
-            user_id = msg.from_user.id
-
-        if not user_id or not msg:
-            print(f"Worker received malformed task: {task}")
-            download_queue.task_done()
-            continue
-
-        user_lock = user_locks.setdefault(user_id, asyncio.Lock())
-
-        async with user_lock:
-            try:
-                # Check database limit before starting download subprocess
-                async with async_session() as session:
-                    result = await session.exec(select(User).where(User.user_id == user_id))
-                    user = result.first()
-                    if user:
-                        if not user.is_premium:
-                            alac_count = await crud.get_alac_download_count_12h(session, user_id)
-                            if alac_count >= 100:
-                                try:
-                                    await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Skipping queued item.")
-                                except Exception:
-                                    pass
-                                continue
-
-                await process_download(task)
-            except Exception as e:
-                print(f"Worker caught execution exception for user {user_id}: {e}")
-            finally:
-                remaining = user_pending_jobs.get(user_id, 1) - 1
-                if remaining <= 0:
-                    user_pending_jobs.pop(user_id, None)
-                    user_in_queue.discard(user_id)
-                    user_locks.pop(user_id, None)
-                else:
-                    user_pending_jobs[user_id] = remaining
-                download_queue.task_done()
 
 async def scheduled_db_backup_worker() -> None:
     """
