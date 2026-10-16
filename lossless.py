@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import html
 import os
 import re
 import shutil
@@ -341,7 +342,7 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
 
     try:
         quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+            [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
         ])
         await status_msg.edit_text(
             f"Queued regular Lossless download (position #{position + 1}). Live progress will update below:\n\n"
@@ -467,6 +468,8 @@ async def process_lossless_download(task: dict) -> None:
 
         ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         already_processed = set()
+        has_playback_dispatch_error = False
+        captured_errors = []
 
         while True:
             if active_tasks.get(unique_task_id, {}).get("cancelled"):
@@ -526,6 +529,11 @@ async def process_lossless_download(task: dict) -> None:
                     except Exception:
                         pass
                     return
+
+                if "playback_dispatch_failed" in line or "1830087704" in line or "502 Bad Gateway" in line:
+                    has_playback_dispatch_error = True
+                if "Error downloading" in line or ("Finished with" in line and "error(s)" in line) or "GamdlApiResponseError" in line or "HTTPStatusError" in line:
+                    captured_errors.append(line)
 
             # Check for finalized .m4a files in output directory
             downloaded_files = await asyncio.to_thread(
@@ -700,27 +708,66 @@ async def process_lossless_download(task: dict) -> None:
             await asyncio.sleep(1)
 
         return_code = await process.wait()
+
+        if active_tasks.get(unique_task_id, {}).get("cancelled"):
+            return
+
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
-            if return_code == 0:
-                if status_msg:
+            if status_msg:
+                if len(already_processed) == 0:
+                    if has_playback_dispatch_error:
+                        try:
+                            await status_msg.edit_text(
+                                "❌ <b>Download Failed: Apple Music Playback Error (502)</b>\n\n"
+                                "Apple Music server returned <code>playback_dispatch_failed (1830087704)</code>.\n\n"
+                                "💡 <b>Common Reasons:</b>\n"
+                                "• <b>Region / Storefront Mismatch:</b> This track may not be available in your account's storefront.\n"
+                                "• <b>Session Expired:</b> The Apple Music session or wrapper on the server may need a restart or refreshed cookies.\n\n"
+                                "👉 Try downloading in AAC using <code>/aac &lt;link&gt;</code> or try another song.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        last_err = captured_errors[-1] if captured_errors else "No tracks could be downloaded from Apple Music."
+                        try:
+                            await status_msg.edit_text(
+                                f"❌ <b>Lossless Download Failed</b>\n\n"
+                                f"⚠️ <code>{html.escape(last_err)}</code>\n\n"
+                                f"👉 Try using <code>/aac &lt;link&gt;</code> to download in AAC format.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                elif len(already_processed) < total_tracks:
                     try:
                         await status_msg.edit_text(
-                            "✅ All regular Lossless tracks processed successfully.\n\n"
-                            "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
-                            "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                            f"⚠️ <b>Partially Completed:</b> {len(already_processed)}/{total_tracks} Lossless tracks delivered.\n"
+                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"🌐 Downloaded tracks: https://stream.eepy.in/",
+                            parse_mode="HTML"
                         )
                     except Exception:
                         pass
-            else:
-                if status_msg:
-                    try:
-                        await status_msg.edit_text(
-                            "⚠ Some tracks might have failed to download.\n\n"
-                            "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
-                            "🌐 Link can be downloaded at: https://stream.eepy.in/"
-                        )
-                    except Exception:
-                        pass
+                else:
+                    if return_code == 0:
+                        try:
+                            await status_msg.edit_text(
+                                "✅ All regular Lossless tracks processed successfully.\n\n"
+                                "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
+                                "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await status_msg.edit_text(
+                                "⚠ Some tracks might have failed to download.\n\n"
+                                "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
+                                "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                            )
+                        except Exception:
+                            pass
 
     except Exception as e:
         print(f"Error handling regular Lossless download: {e}")

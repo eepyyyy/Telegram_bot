@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import html
 import os
 import re
 import shutil
@@ -319,6 +320,8 @@ async def process_aac_download(task: dict) -> None:
         total_aac_tracks = len(songs) if songs else 1
         timeout_seconds = 1800
         start_dl_time = asyncio.get_event_loop().time()
+        has_playback_dispatch_error = False
+        captured_errors = []
 
         while True:
             if active_tasks.get(unique_task_id, {}).get("cancelled"):
@@ -378,6 +381,11 @@ async def process_aac_download(task: dict) -> None:
                         except Exception:
                             pass
                     return
+
+                if "playback_dispatch_failed" in line or "1830087704" in line or "502 Bad Gateway" in line:
+                    has_playback_dispatch_error = True
+                if "Error downloading" in line or ("Finished with" in line and "error(s)" in line) or "GamdlApiResponseError" in line or "HTTPStatusError" in line:
+                    captured_errors.append(line)
 
             # Check for new finalized files
             downloaded_files = await asyncio.to_thread(
@@ -513,8 +521,12 @@ async def process_aac_download(task: dict) -> None:
 
         return_code = await process.wait()
 
-        # Handle ZIP packaging for 'zip' and 'both' modes
-        if not active_tasks.get(unique_task_id, {}).get("cancelled") and download_mode in ("zip", "both") and songs:
+        # Check if task was cancelled while process was terminating
+        if active_tasks.get(unique_task_id, {}).get("cancelled"):
+            return
+
+        # Handle ZIP packaging for 'zip' and 'both' modes (only if files were downloaded)
+        if download_mode in ("zip", "both") and songs and len(uploaded_files) > 0:
             try:
                 await status_msg.edit_text("📦 Packaging AAC album into ZIP with max-res cover and lyrics (.lrc)...")
             except Exception:
@@ -592,22 +604,65 @@ async def process_aac_download(task: dict) -> None:
 
             if status_msg:
                 try:
-                    await status_msg.edit_text("✅ AAC Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+                    if len(uploaded_files) < total_aac_tracks:
+                        await status_msg.edit_text(
+                            f"⚠️ <b>Partial AAC Album Completed:</b> {len(uploaded_files)}/{total_aac_tracks} tracks packaged.\n"
+                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"🌐 Link can also be downloaded at: https://stream.eepy.in/",
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await status_msg.edit_text("✅ AAC Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
                 except Exception:
                     pass
             return
 
-        if status_msg:
-            if return_code == 0:
-                try:
-                    await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                except Exception:
-                    pass
-            else:
-                try:
-                    await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                except Exception:
-                    pass
+        if not active_tasks.get(unique_task_id, {}).get("cancelled"):
+            if status_msg:
+                if len(uploaded_files) == 0:
+                    if has_playback_dispatch_error:
+                        try:
+                            await status_msg.edit_text(
+                                "❌ <b>AAC Download Failed: Apple Music Playback Error (502)</b>\n\n"
+                                "Apple Music dispatch returned <code>playback_dispatch_failed (1830087704)</code>.\n\n"
+                                "💡 <b>Common Reasons:</b>\n"
+                                "• <b>Region / Storefront Mismatch:</b> This track may not be available in your account's storefront.\n"
+                                "• <b>Session Expired:</b> The Apple Music session or wrapper on the server may need a restart or refreshed cookies.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        last_err = captured_errors[-1] if captured_errors else "No tracks could be downloaded from Apple Music."
+                        try:
+                            await status_msg.edit_text(
+                                f"❌ <b>AAC Download Failed</b>\n\n"
+                                f"⚠️ <code>{html.escape(last_err)}</code>",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                elif len(uploaded_files) < total_aac_tracks:
+                    try:
+                        await status_msg.edit_text(
+                            f"⚠️ <b>Partially Completed:</b> {len(uploaded_files)}/{total_aac_tracks} AAC tracks delivered.\n"
+                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"🌐 Downloaded tracks: https://stream.eepy.in/",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                else:
+                    if return_code == 0:
+                        try:
+                            await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                        except Exception:
+                            pass
 
     except Exception as error:
         print(f"AAC download error: {error}")

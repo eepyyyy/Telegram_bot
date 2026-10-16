@@ -300,7 +300,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         res_str = f" {resolution.upper()}" if resolution else " 4K"
         codec_str = f" ({codec.upper()})" if codec else " (H.265)"
         quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+            [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
         ])
         await status_msg.edit_text(
             f"🎬 Queued Music Video{res_str}{codec_str} at position #{position + 1}. Download starting...",

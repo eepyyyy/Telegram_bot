@@ -150,17 +150,54 @@ def clear_queue(queue_type: str = "all", cancel_active: bool = True) -> dict[str
     }
 
 
-def cancel_user_queue(user_id: int) -> dict[str, int]:
+def get_user_queue_status(user_id: int) -> dict[str, int]:
     """
-    Cancels active tasks and removes pending queued tasks for a specific user_id.
-    Returns {'active_cancelled': count, 'queued_removed': count}.
+    Returns the count of active downloads and pending queued items for user_id.
+    """
+    active_count = sum(1 for t in active_tasks.values() if t.get("user_id") == user_id and not t.get("cancelled"))
+
+    queued_count = 0
+    queues = [
+        download_queue,
+        lossless_queue,
+        aac_queue,
+        atmos_queue,
+        mv_queue,
+    ]
+    for q in queues:
+        try:
+            for item in list(q._queue):
+                item_user_id = None
+                if isinstance(item, dict):
+                    item_user_id = item.get("user_id")
+                    if not item_user_id and "msg" in item:
+                        m = item["msg"]
+                        item_user_id = getattr(getattr(m, "from_user", None), "id", None) or getattr(m, "chat_id", None) or getattr(getattr(m, "chat", None), "id", None)
+                elif isinstance(item, (list, tuple)) and len(item) > 0:
+                    m = item[0]
+                    item_user_id = getattr(getattr(m, "from_user", None), "id", None) or getattr(m, "chat_id", None) or getattr(getattr(m, "chat", None), "id", None)
+                else:
+                    item_user_id = getattr(item, "user_id", None)
+
+                if item_user_id == user_id:
+                    queued_count += 1
+        except Exception:
+            pass
+
+    return {
+        "active_count": active_count,
+        "queued_count": queued_count,
+    }
+
+
+def cancel_user_active_downloads(user_id: int) -> int:
+    """
+    Cancels only the active running tasks for this user.
+    Leaves pending queued items intact.
     """
     active_cancelled = 0
-    queued_removed = 0
-
-    # 1. Cancel active running tasks for this user
     for task_id, task in list(active_tasks.items()):
-        if task.get("user_id") == user_id:
+        if task.get("user_id") == user_id and not task.get("cancelled"):
             task["cancelled"] = True
             proc = task.get("process")
             if proc:
@@ -174,23 +211,29 @@ def cancel_user_queue(user_id: int) -> dict[str, int]:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         asyncio.create_task(
-                            status_msg.edit_text("🚫 Download cancelled by user.")
+                            status_msg.edit_text("🚫 Active download cancelled by user.")
                         )
                 except Exception:
                     pass
-            active_tasks.pop(task_id, None)
             active_cancelled += 1
+    return active_cancelled
 
-    # 2. Filter out pending queue items belonging to this user
+
+def clear_user_pending_queue(user_id: int) -> int:
+    """
+    Removes pending items from queues for this user.
+    Leaves the currently running download intact.
+    """
+    queued_removed = 0
     queue_tuples = [
-        (download_queue, user_in_queue, user_pending_jobs, user_locks),
-        (lossless_queue, lossless_in_queue, lossless_pending_jobs, lossless_locks),
-        (aac_queue, aac_in_queue, aac_pending_jobs, aac_locks),
-        (atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks),
-        (mv_queue, mv_in_queue, mv_pending_jobs, mv_locks),
+        (download_queue, user_in_queue, user_pending_jobs),
+        (lossless_queue, lossless_in_queue, lossless_pending_jobs),
+        (aac_queue, aac_in_queue, aac_pending_jobs),
+        (atmos_queue, atmos_in_queue, atmos_pending_jobs),
+        (mv_queue, mv_in_queue, mv_pending_jobs),
     ]
 
-    for q, in_q, pending, locks in queue_tuples:
+    for q, in_q, pending in queue_tuples:
         items = []
         while not q.empty():
             try:
@@ -217,7 +260,7 @@ def cancel_user_queue(user_id: int) -> dict[str, int]:
                 queued_removed += 1
                 if isinstance(item, dict) and item.get("status_msg"):
                     try:
-                        asyncio.create_task(item["status_msg"].edit_text("🚫 Download cancelled by user."))
+                        asyncio.create_task(item["status_msg"].edit_text("🚫 Queued download removed."))
                     except Exception:
                         pass
             else:
@@ -225,12 +268,27 @@ def cancel_user_queue(user_id: int) -> dict[str, int]:
 
         in_q.discard(user_id)
         pending.pop(user_id, None)
+
+    return queued_removed
+
+
+def cancel_user_queue(user_id: int) -> dict[str, int]:
+    """
+    Cancels active tasks and removes pending queued tasks for a specific user_id.
+    Returns {'active_cancelled': count, 'queued_removed': count}.
+    """
+    active_cancelled = cancel_user_active_downloads(user_id)
+    queued_removed = clear_user_pending_queue(user_id)
+
+    # Clean up locks if user has nothing left
+    for locks in (user_locks, lossless_locks, aac_locks, atmos_locks, mv_locks):
         locks.pop(user_id, None)
 
     return {
         "active_cancelled": active_cancelled,
         "queued_removed": queued_removed,
     }
+
 
 
 

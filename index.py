@@ -1,4 +1,4 @@
-import asyncio, glob, os, re, shutil, logging, sys, crud, database, schema, utils
+import asyncio, glob, os, re, shutil, logging, sys, html, crud, database, schema, utils
 from datetime import date, datetime, timezone
 
 # Ensure stdout/stderr handle UTF-8 symbols safely on Windows
@@ -35,7 +35,8 @@ from gamdl.interface import AppleMusicInterface
 from queues import (
     download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks,
     is_user_busy, pending_album_prompts, aac_queue, aac_in_queue, aac_pending_jobs,
-    atmos_queue, atmos_in_queue, atmos_pending_jobs, cancel_user_queue
+    atmos_queue, atmos_in_queue, atmos_pending_jobs, cancel_user_queue,
+    get_user_queue_status, cancel_user_active_downloads, clear_user_pending_queue
 )
 
 import aiohttp
@@ -180,28 +181,109 @@ async def handle_cancel_download(call: types.CallbackQuery) -> None:
 
 @dp.message(Command("cancel", "quit", "clear"))
 async def handle_user_cancel_command(msg: types.Message) -> None:
-    """Cancels active downloads and purges pending queue for the user so they can start fresh."""
+    """Checks active and queued downloads for the user and asks what they want to cancel."""
     user_id = msg.from_user.id if msg.from_user else msg.chat.id
-    res = cancel_user_queue(user_id)
-    total = res["active_cancelled"] + res["queued_removed"]
-    if total > 0:
+    status = get_user_queue_status(user_id)
+    active_count = status["active_count"]
+    queued_count = status["queued_count"]
+
+    if active_count == 0 and queued_count == 0:
         await msg.answer(
-            f"🚫 <b>Queue Cleared & Stopped!</b>\n\n"
-            f"• Active downloads stopped: <code>{res['active_cancelled']}</code>\n"
-            f"• Queued items removed: <code>{res['queued_removed']}</code>\n\n"
-            f"✨ You can now start fresh!",
+            "ℹ️ You don't have any active downloads or queued items right now.",
             parse_mode="HTML"
         )
-    else:
-        await msg.answer(
-            "ℹ️ You don't have any active or queued downloads at the moment. You're ready to start fresh!",
-            parse_mode="HTML"
-        )
+        return
+
+    kb = InlineKeyboardBuilder()
+    if active_count > 0:
+        kb.row(InlineKeyboardButton(text=f"🛑 Stop Active Download ({active_count})", callback_data=f"cancel_act:active:{user_id}"))
+    if queued_count > 0:
+        kb.row(InlineKeyboardButton(text=f"🗑️ Clear Pending Queue ({queued_count})", callback_data=f"cancel_act:queue:{user_id}"))
+    if active_count > 0 and queued_count > 0:
+        kb.row(InlineKeyboardButton(text="💥 Cancel Everything & Reset", callback_data=f"cancel_act:all:{user_id}"))
+    kb.row(InlineKeyboardButton(text="❌ Dismiss / Keep Downloading", callback_data=f"cancel_act:dismiss:{user_id}"))
+
+    await msg.answer(
+        f"⚙️ <b>Queue & Download Management</b>\n\n"
+        f"• <b>Active Downloading:</b> <code>{active_count}</code> item(s)\n"
+        f"• <b>Waiting in Queue:</b> <code>{queued_count}</code> item(s)\n\n"
+        f"<i>Please select what you would like to cancel:</i>",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
 
 
-@dp.callback_query(F.data.startswith("quit_queue:"))
-async def handle_quit_queue_callback(call: types.CallbackQuery) -> None:
-    """Cancels active downloads and purges pending queue for the user when they click the quit queue button."""
+@dp.callback_query(F.data.startswith("cancel_act:"))
+async def handle_cancel_act_callback(call: types.CallbackQuery) -> None:
+    """Handles specific cancellation actions (active only, queue only, or everything)."""
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    action = parts[1]
+    try:
+        target_user_id = int(parts[2])
+    except Exception:
+        target_user_id = call.from_user.id
+
+    if call.from_user.id != target_user_id:
+        await call.answer("❌ This menu is not for you.", show_alert=True)
+        return
+
+    if action == "dismiss":
+        await call.answer("Dismissed.")
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        return
+
+    if action == "active":
+        cancelled = cancel_user_active_downloads(target_user_id)
+        await call.answer(f"🛑 Cancelled {cancelled} active download(s).")
+        try:
+            await call.message.edit_text(
+                f"🛑 <b>Active Download Cancelled!</b>\n\n"
+                f"• Stopped <code>{cancelled}</code> active downloading item(s).\n"
+                f"• Pending items in your queue will continue automatically.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+    if action == "queue":
+        cleared = clear_user_pending_queue(target_user_id)
+        await call.answer(f"🗑️ Cleared {cleared} queued item(s).")
+        try:
+            await call.message.edit_text(
+                f"🗑️ <b>Queue Cleared!</b>\n\n"
+                f"• Removed <code>{cleared}</code> pending item(s) from the queue.\n"
+                f"• Your currently active download will finish uninterrupted.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+    if action == "all":
+        res = cancel_user_queue(target_user_id)
+        await call.answer("💥 Everything cancelled & reset.")
+        try:
+            await call.message.edit_text(
+                f"💥 <b>Everything Cancelled & Reset!</b>\n\n"
+                f"• Active downloads stopped: <code>{res['active_cancelled']}</code>\n"
+                f"• Queued items removed: <code>{res['queued_removed']}</code>\n\n"
+                f"✨ You can now start fresh!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+
+@dp.callback_query(F.data.startswith("manage_cancel:") | F.data.startswith("quit_queue:"))
+async def handle_manage_cancel_callback(call: types.CallbackQuery) -> None:
+    """Opens interactive cancellation menu when clicking cancel button on queue messages."""
     try:
         user_id_str = call.data.split(":", 1)[1]
         target_user_id = int(user_id_str)
@@ -209,17 +291,38 @@ async def handle_quit_queue_callback(call: types.CallbackQuery) -> None:
         target_user_id = call.from_user.id
 
     if call.from_user.id != target_user_id:
-        await call.answer("❌ You can only quit your own queue.", show_alert=True)
+        await call.answer("❌ This menu is not for you.", show_alert=True)
         return
 
-    res = cancel_user_queue(target_user_id)
-    await call.answer("🚫 Queue quit! Starting fresh.")
+    status = get_user_queue_status(target_user_id)
+    active_count = status["active_count"]
+    queued_count = status["queued_count"]
+
+    if active_count == 0 and queued_count == 0:
+        await call.answer("ℹ️ No active or queued downloads right now.", show_alert=True)
+        try:
+            await call.message.edit_text("ℹ️ You don't have any active downloads or queued items right now.")
+        except Exception:
+            pass
+        return
+
+    kb = InlineKeyboardBuilder()
+    if active_count > 0:
+        kb.row(InlineKeyboardButton(text=f"🛑 Stop Active Download ({active_count})", callback_data=f"cancel_act:active:{target_user_id}"))
+    if queued_count > 0:
+        kb.row(InlineKeyboardButton(text=f"🗑️ Clear Pending Queue ({queued_count})", callback_data=f"cancel_act:queue:{target_user_id}"))
+    if active_count > 0 and queued_count > 0:
+        kb.row(InlineKeyboardButton(text="💥 Cancel Everything & Reset", callback_data=f"cancel_act:all:{target_user_id}"))
+    kb.row(InlineKeyboardButton(text="❌ Dismiss / Keep Downloading", callback_data=f"cancel_act:dismiss:{target_user_id}"))
+
+    await call.answer()
     try:
-        await call.message.edit_text(
-            f"🚫 <b>Queue Quit & Reset!</b>\n\n"
-            f"• Active downloads stopped: <code>{res['active_cancelled']}</code>\n"
-            f"• Queued items removed: <code>{res['queued_removed']}</code>\n\n"
-            f"✨ You can now start fresh!",
+        await call.message.answer(
+            f"⚙️ <b>Queue & Download Management</b>\n\n"
+            f"• <b>Active Downloading:</b> <code>{active_count}</code> item(s)\n"
+            f"• <b>Waiting in Queue:</b> <code>{queued_count}</code> item(s)\n\n"
+            f"<i>Please select what you would like to cancel:</i>",
+            reply_markup=kb.as_markup(),
             parse_mode="HTML"
         )
     except Exception:
@@ -281,7 +384,7 @@ async def cmd_start(msg: types.Message) -> None:
                 "format_type": "alac"
             })
             quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+                [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
             ])
             await msg.answer(
                 f"✅ Queued at position #{position + 1}. Live download progress will update below:",
@@ -418,7 +521,7 @@ async def download_handle(msg: types.Message) -> None:
     user_pending_jobs[user_id_local] = len(links)
     position = download_queue.qsize()
     quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+        [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
     ])
     await msg.answer(f"Queued {len(links)} link(s) (starting at position {position + 1}).", reply_markup=quit_kb)
 
@@ -831,6 +934,8 @@ async def process_download(task: dict) -> None:
         already_processed = set()
         timeout_seconds = 1800
         start_dl_time = asyncio.get_event_loop().time()
+        has_playback_dispatch_error = False
+        captured_errors = []
 
         while True:
             if active_tasks.get(unique_task_id, {}).get("cancelled"):
@@ -891,6 +996,11 @@ async def process_download(task: dict) -> None:
                         except Exception:
                             pass
                     return
+
+                if "playback_dispatch_failed" in line or "1830087704" in line or "502 Bad Gateway" in line:
+                    has_playback_dispatch_error = True
+                if "Error downloading" in line or ("Finished with" in line and "error(s)" in line) or "GamdlApiResponseError" in line or "HTTPStatusError" in line:
+                    captured_errors.append(line)
 
             # Check for finalized .m4a files in output directory
             downloaded_files = await asyncio.to_thread(
@@ -1071,8 +1181,12 @@ async def process_download(task: dict) -> None:
 
         return_code = await process.wait()
 
-        # Handle ZIP Generation & Delivery for 'zip' and 'both' modes
-        if not active_tasks.get(unique_task_id, {}).get("cancelled") and download_mode in ("zip", "both"):
+        # Check if task was cancelled while process was terminating
+        if active_tasks.get(unique_task_id, {}).get("cancelled"):
+            return
+
+        # Handle ZIP Generation & Delivery for 'zip' and 'both' modes (only if files were downloaded)
+        if download_mode in ("zip", "both") and len(already_processed) > 0:
             try:
                 await status_msg.edit_text("📦 Packaging album into ZIP with max-res cover and lyrics (.lrc)...")
             except Exception:
@@ -1149,8 +1263,6 @@ async def process_download(task: dict) -> None:
                     )
                 except Exception:
                     pass
-                except Exception:
-                    pass
 
             if os.path.exists(zip_path):
                 try:
@@ -1160,23 +1272,67 @@ async def process_download(task: dict) -> None:
 
             if status_msg:
                 try:
-                    await status_msg.edit_text("✅ Album download and packaging completed successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+                    if len(already_processed) < total_tracks:
+                        await status_msg.edit_text(
+                            f"⚠️ <b>Partial Album Completed:</b> {len(already_processed)}/{total_tracks} tracks packaged.\n"
+                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"🌐 Link can also be downloaded at: https://stream.eepy.in/",
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await status_msg.edit_text("✅ Album download and packaging completed successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
                 except Exception:
                     pass
             return
 
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
             if status_msg:
-                if return_code == 0:
+                if len(already_processed) == 0:
+                    if has_playback_dispatch_error:
+                        try:
+                            await status_msg.edit_text(
+                                "❌ <b>Download Failed: Apple Music Playback Error (502)</b>\n\n"
+                                "Apple Music server returned <code>playback_dispatch_failed (1830087704)</code>.\n\n"
+                                "💡 <b>Common Reasons:</b>\n"
+                                "• <b>Region / Storefront Mismatch:</b> This track may not be available in your account's storefront.\n"
+                                "• <b>Session Expired:</b> The Apple Music session or wrapper on the server may need a restart or refreshed cookies.\n\n"
+                                "👉 Try downloading in AAC using <code>/aac &lt;link&gt;</code> or try another song.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        last_err = captured_errors[-1] if captured_errors else "No tracks could be downloaded from Apple Music."
+                        try:
+                            await status_msg.edit_text(
+                                f"❌ <b>Download Failed</b>\n\n"
+                                f"⚠️ <code>{html.escape(last_err)}</code>\n\n"
+                                f"👉 Try using <code>/aac &lt;link&gt;</code> to download in AAC format.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                elif len(already_processed) < total_tracks:
                     try:
-                        await status_msg.edit_text("✅ All tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                        await status_msg.edit_text(
+                            f"⚠️ <b>Partially Completed:</b> {len(already_processed)}/{total_tracks} tracks delivered.\n"
+                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"🌐 Downloaded tracks: https://stream.eepy.in/",
+                            parse_mode="HTML"
+                        )
                     except Exception:
                         pass
                 else:
-                    try:
-                        await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                    except Exception:
-                        pass
+                    if return_code == 0:
+                        try:
+                            await status_msg.edit_text("✅ All tracks processed successfully.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await status_msg.edit_text("⚠ Some tracks might have failed to download.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                        except Exception:
+                            pass
 
     except Exception as e:
         print(f"Error handling download: {e}")
