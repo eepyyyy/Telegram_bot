@@ -512,8 +512,24 @@ async def backfill_missing_zip_sizes(bot: Optional[Any] = None) -> dict:
                         alac_size = tg_file.file_size
                         updated = True
                 except Exception as e:
-                    stats["failed"] += 1
-                    print(f"⚠️ Failed getting ALAC zip size for album {album.album_id}: {e}")
+                    # Fallback: estimate from sum of track sizes in DB
+                    try:
+                        from sqlalchemy import func
+                        async with database.async_session() as track_sess:
+                            t_stmt = select(func.sum(database.Tracks.size)).where(database.Tracks.album_id == album.album_id)
+                            t_res = await track_sess.exec(t_stmt)
+                            track_sum = t_res.first()
+                            if track_sum and track_sum > 0:
+                                alac_size = int(track_sum)
+                                updated = True
+                            elif "too big" in str(e).lower():
+                                alac_size = 0
+                                updated = True
+                    except Exception:
+                        pass
+                    if not updated:
+                        stats["failed"] += 1
+                        print(f"⚠️ Failed getting ALAC zip size for album {album.album_id}: {e}")
 
             # AAC
             if album.aac_zip_file_id and album.aac_zip_size is None:
@@ -523,8 +539,24 @@ async def backfill_missing_zip_sizes(bot: Optional[Any] = None) -> dict:
                         aac_size = tg_file.file_size
                         updated = True
                 except Exception as e:
-                    stats["failed"] += 1
-                    print(f"⚠️ Failed getting AAC zip size for album {album.album_id}: {e}")
+                    # Fallback: estimate from sum of track sizes in DB
+                    try:
+                        from sqlalchemy import func
+                        async with database.async_session() as track_sess:
+                            t_stmt = select(func.sum(database.AACTracks.size)).where(database.AACTracks.album_id == album.album_id)
+                            t_res = await track_sess.exec(t_stmt)
+                            track_sum = t_res.first()
+                            if track_sum and track_sum > 0:
+                                aac_size = int(track_sum)
+                                updated = True
+                            elif "too big" in str(e).lower():
+                                aac_size = 0
+                                updated = True
+                    except Exception:
+                        pass
+                    if not updated:
+                        stats["failed"] += 1
+                        print(f"⚠️ Failed getting AAC zip size for album {album.album_id}: {e}")
 
             # Atmos
             if album.atmos_zip_file_id and album.atmos_zip_size is None:
@@ -534,8 +566,24 @@ async def backfill_missing_zip_sizes(bot: Optional[Any] = None) -> dict:
                         atmos_size = tg_file.file_size
                         updated = True
                 except Exception as e:
-                    stats["failed"] += 1
-                    print(f"⚠️ Failed getting Atmos zip size for album {album.album_id}: {e}")
+                    # Fallback: estimate from sum of track sizes in DB
+                    try:
+                        from sqlalchemy import func
+                        async with database.async_session() as track_sess:
+                            t_stmt = select(func.sum(database.AtmosTracks.size)).where(database.AtmosTracks.album_id == album.album_id)
+                            t_res = await track_sess.exec(t_stmt)
+                            track_sum = t_res.first()
+                            if track_sum and track_sum > 0:
+                                atmos_size = int(track_sum)
+                                updated = True
+                            elif "too big" in str(e).lower():
+                                atmos_size = 0
+                                updated = True
+                    except Exception:
+                        pass
+                    if not updated:
+                        stats["failed"] += 1
+                        print(f"⚠️ Failed getting Atmos zip size for album {album.album_id}: {e}")
 
             if updated:
                 try:

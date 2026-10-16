@@ -21,6 +21,7 @@ import time
 from queues import atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks, is_user_busy, active_tasks, pending_album_prompts
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode
+import bot_control
 
 atmos = Router()
 
@@ -669,6 +670,9 @@ async def atmos_worker() -> None:
     """
     while True:
         try:
+            while bot_control.is_bot_paused:
+                await asyncio.sleep(1)
+
             task = await atmos_queue.get()
         except asyncio.CancelledError:
             break

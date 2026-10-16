@@ -21,6 +21,7 @@ import time
 from queues import aac_queue, aac_in_queue, aac_pending_jobs, aac_locks, is_user_busy, active_tasks, pending_album_prompts
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode
+import bot_control
 
 aac = Router()
 

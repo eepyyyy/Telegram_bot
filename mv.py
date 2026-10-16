@@ -21,6 +21,7 @@ from database import User, async_session, MVTracks
 from gamdlUrl import get_any_url
 import time
 from queues import mv_queue, mv_in_queue, mv_pending_jobs, mv_locks, is_user_busy, active_tasks
+import bot_control
 
 mv = Router()
 
@@ -636,6 +637,9 @@ async def mv_worker() -> None:
     """
     while True:
         try:
+            while bot_control.is_bot_paused:
+                await asyncio.sleep(1)
+
             task = await mv_queue.get()
         except asyncio.CancelledError:
             break
