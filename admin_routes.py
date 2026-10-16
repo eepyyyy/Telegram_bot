@@ -403,6 +403,7 @@ async def clear_queue_endpoint(request: web.Request):
         data = {}
 
     queue_type = data.get("queue_type", "all").lower()
+    cancel_active = bool(data.get("cancel_active", True))
     result = clear_queue(queue_type, cancel_active=cancel_active)
     removed_jobs = result["removed_jobs"] if isinstance(result, dict) else result
     cancelled_active = result.get("cancelled_active", 0) if isinstance(result, dict) else 0
@@ -428,12 +429,29 @@ async def get_db_stats(request: web.Request):
         alac_cnt = int((await session.exec(select(func.count()).select_from(Tracks))).one() or 0)
         aac_cnt = int((await session.exec(select(func.count()).select_from(AACTracks))).one() or 0)
         atmos_cnt = int((await session.exec(select(func.count()).select_from(AtmosTracks))).one() or 0)
+        mv_cnt = int((await session.exec(select(func.count()).select_from(MVTracks))).one() or 0)
         albums_cnt = int((await session.exec(select(func.count()).select_from(Albums))).one() or 0)
 
         # Sizes (PostgreSQL func.sum returns Decimal, cast to float)
         alac_sz = float((await session.exec(select(func.sum(Tracks.size)))).one() or 0.0)
         aac_sz = float((await session.exec(select(func.sum(AACTracks.size)))).one() or 0.0)
         atmos_sz = float((await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0.0)
+        mv_sz = float((await session.exec(select(func.sum(MVTracks.size)))).one() or 0.0)
+
+        # Album ZIP sizes
+        alac_zip_sz = float((await session.exec(select(func.sum(Albums.alac_zip_size)))).one() or 0.0)
+        aac_zip_sz = float((await session.exec(select(func.sum(Albums.aac_zip_size)))).one() or 0.0)
+        atmos_zip_sz = float((await session.exec(select(func.sum(Albums.atmos_zip_size)))).one() or 0.0)
+        total_zip_sz = alac_zip_sz + aac_zip_sz + atmos_zip_sz
+
+        # Album ZIP counts
+        alac_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.alac_zip_file_id.is_not(None)))).one() or 0)
+        aac_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.aac_zip_file_id.is_not(None)))).one() or 0)
+        atmos_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.atmos_zip_file_id.is_not(None)))).one() or 0)
+        total_zip_cnt = alac_zip_cnt + aac_zip_cnt + atmos_zip_cnt
+
+        total_zip_bytes = int(total_zip_sz)
+        total_zip_gb = round(total_zip_sz / (1024 ** 3), 2) if total_zip_sz else 0.0
 
         # Users
         users_cnt = int((await session.exec(select(func.count()).select_from(User))).one() or 0)
@@ -444,8 +462,9 @@ async def get_db_stats(request: web.Request):
         downloads_today = int((await session.exec(select(func.sum(User.downloaded_today)).where(User.last_download == today))).one() or 0)
         total_downloads = int((await session.exec(select(func.sum(User.download_count)))).one() or 0)
 
-    total_tracks = alac_cnt + aac_cnt + atmos_cnt
-    total_size_bytes = int(alac_sz + aac_sz + atmos_sz)
+    total_tracks = alac_cnt + aac_cnt + atmos_cnt + mv_cnt
+    total_audio_bytes = int(alac_sz + aac_sz + atmos_sz + mv_sz)
+    total_size_bytes = int(total_audio_bytes + total_zip_bytes)
     total_size_gb = round(total_size_bytes / (1024 ** 3), 2) if total_size_bytes else 0.0
 
     return web.json_response({
@@ -457,10 +476,36 @@ async def get_db_stats(request: web.Request):
         "total_downloads": total_downloads,
         "total_size_bytes": total_size_bytes,
         "total_size_gb": total_size_gb,
+        "total_zip_size_bytes": total_zip_bytes,
+        "total_zip_size_gb": total_zip_gb,
+        "total_zip_count": total_zip_cnt,
         "formats": {
-            "alac": {"count": alac_cnt, "size_gb": round(alac_sz / (1024 ** 3), 2) if alac_sz else 0.0},
-            "aac": {"count": aac_cnt, "size_gb": round(aac_sz / (1024 ** 3), 2) if aac_sz else 0.0},
-            "atmos": {"count": atmos_cnt, "size_gb": round(atmos_sz / (1024 ** 3), 2) if atmos_sz else 0.0},
+            "alac": {
+                "count": alac_cnt,
+                "size_gb": round(alac_sz / (1024 ** 3), 2) if alac_sz else 0.0,
+                "zip_count": alac_zip_cnt,
+                "zip_size_gb": round(alac_zip_sz / (1024 ** 3), 2) if alac_zip_sz else 0.0,
+            },
+            "aac": {
+                "count": aac_cnt,
+                "size_gb": round(aac_sz / (1024 ** 3), 2) if aac_sz else 0.0,
+                "zip_count": aac_zip_cnt,
+                "zip_size_gb": round(aac_zip_sz / (1024 ** 3), 2) if aac_zip_sz else 0.0,
+            },
+            "atmos": {
+                "count": atmos_cnt,
+                "size_gb": round(atmos_sz / (1024 ** 3), 2) if atmos_sz else 0.0,
+                "zip_count": atmos_zip_cnt,
+                "zip_size_gb": round(atmos_zip_sz / (1024 ** 3), 2) if atmos_zip_sz else 0.0,
+            },
+            "mv": {
+                "count": mv_cnt,
+                "size_gb": round(mv_sz / (1024 ** 3), 2) if mv_sz else 0.0,
+            },
+            "zips": {
+                "count": total_zip_cnt,
+                "size_gb": total_zip_gb,
+            }
         }
     })
 

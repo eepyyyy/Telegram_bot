@@ -59,10 +59,15 @@ export interface DatabaseStats {
   total_downloads: number;
   total_size_bytes: number;
   total_size_gb: number;
+  total_zip_size_bytes?: number;
+  total_zip_size_gb?: number;
+  total_zip_count?: number;
   formats: {
-    alac: { count: number; size_gb: number };
-    aac: { count: number; size_gb: number };
-    atmos: { count: number; size_gb: number };
+    alac: { count: number; size_gb: number; zip_count?: number; zip_size_gb?: number };
+    aac: { count: number; size_gb: number; zip_count?: number; zip_size_gb?: number };
+    atmos: { count: number; size_gb: number; zip_count?: number; zip_size_gb?: number };
+    mv?: { count: number; size_gb: number };
+    zips?: { count: number; size_gb: number };
   };
 }
 

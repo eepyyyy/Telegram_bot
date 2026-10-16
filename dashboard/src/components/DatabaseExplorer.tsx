@@ -103,6 +103,16 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) =
               </span>
             </div>
           </div>
+
+          <div style={{ backgroundColor: 'var(--bg-color)', padding: '0.85rem 1rem', borderRadius: 'var(--border-radius)' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)', fontWeight: 600 }}>ALBUM ZIP ARCHIVES</span>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-color)', marginTop: '0.2rem' }}>
+              {(dbStats.total_zip_count ?? 0).toLocaleString()} zips
+              <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)', marginLeft: '0.35rem' }}>
+                ({dbStats.total_zip_size_gb ?? 0} GB)
+              </span>
+            </div>
+          </div>
         </div>
       )}
 

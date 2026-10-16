@@ -90,7 +90,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ status, dbStats }) => {
           <span className="stat-unit">GB</span>
         </div>
         <span style={{ fontSize: '0.74rem', color: 'var(--sub-color)' }}>
-          {totalTracks.toLocaleString()} cached tracks / albums
+          {totalTracks.toLocaleString()} tracks{dbStats?.total_zip_count ? ` · ${dbStats.total_zip_count} ZIPs (${dbStats.total_zip_size_gb ?? 0} GB)` : ''}
         </span>
       </div>
     </div>

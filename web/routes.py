@@ -53,14 +53,23 @@ async def get_stats(request: web.Request):
         aac_sz = float((await session.exec(select(func.sum(AACTracks.size)))).one() or 0.0)
         atmos_sz = float((await session.exec(select(func.sum(AtmosTracks.size)))).one() or 0.0)
 
+        # Sum album ZIP sizes
+        alac_zip_sz = float((await session.exec(select(func.sum(Albums.alac_zip_size)))).one() or 0.0)
+        aac_zip_sz = float((await session.exec(select(func.sum(Albums.aac_zip_size)))).one() or 0.0)
+        atmos_zip_sz = float((await session.exec(select(func.sum(Albums.atmos_zip_size)))).one() or 0.0)
+        total_zip_bytes = int(alac_zip_sz + aac_zip_sz + atmos_zip_sz)
+
     total_tracks = alac_cnt + aac_cnt + atmos_cnt
-    total_size_bytes = int(alac_sz + aac_sz + atmos_sz)
+    total_audio_bytes = int(alac_sz + aac_sz + atmos_sz)
+    total_size_bytes = total_audio_bytes + total_zip_bytes
 
     return web.json_response({
         "total_tracks": total_tracks,
         "total_albums": albums_cnt,
         "total_size_bytes": total_size_bytes,
         "total_size_gb": round(total_size_bytes / (1024 ** 3), 2) if total_size_bytes else 0.0,
+        "total_zip_size_bytes": total_zip_bytes,
+        "total_zip_size_gb": round(total_zip_bytes / (1024 ** 3), 2) if total_zip_bytes else 0.0,
         "formats": {
             "alac": alac_cnt,
             "aac": aac_cnt,
