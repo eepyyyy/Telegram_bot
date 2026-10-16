@@ -381,6 +381,29 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
             print(f"[gamdl MV] {line}")
             if "Requested format is not available" in line:
                 format_unavailable = True
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                break
+            if any(err in line for err in (
+                "playback_dispatch_failed",
+                "1830087704",
+                "502 Bad Gateway",
+                "Server error '502'",
+                "HTTPStatusError",
+                "GamdlApiResponseError",
+                "response.raise_for_status",
+                "raise HTTPStatusError",
+            )):
+                format_unavailable = True
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                break
 
     return_code = await process.wait()
     return return_code, format_unavailable
@@ -610,7 +633,11 @@ async def process_mv_download(task: dict) -> None:
         else:
             if status_msg:
                 try:
-                    await status_msg.edit_text("⚠️ <b>Requested video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
+                    await status_msg.edit_text(
+                        "❌ Music Video Download Failed\n\n"
+                        "Unable to download this music video from Apple Music.\n\n"
+                        "👉 The video might be georestricted or unavailable."
+                    )
                 except Exception:
                     pass
 
@@ -618,7 +645,10 @@ async def process_mv_download(task: dict) -> None:
         print(f"Music Video download error: {error}")
         if status_msg:
             try:
-                await status_msg.edit_text(f"Music Video download failed: {error}")
+                await status_msg.edit_text(
+                    "❌ Music Video Download Failed\n\n"
+                    "An unexpected error occurred while downloading this music video."
+                )
             except Exception:
                 pass
     finally:

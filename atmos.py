@@ -401,23 +401,54 @@ async def process_atmos_download(task: dict) -> None:
                     try:
                         process.terminate()
                         await process.wait()
-                    except ProcessLookupError:
+                    except (ProcessLookupError, Exception):
                         pass
-                    if status_msg:
+                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
                         try:
                             await status_msg.edit_text(
-                                "⚠️ <b>Dolby Atmos format is not available</b> for this track/album.\n\n"
-                                "👉 Send the link directly for Lossless ALAC or use <code>/aac &lt;link&gt;</code> for AAC 256kbps.",
-                                parse_mode="HTML"
+                                "❌ Dolby Atmos Download Failed\n\n"
+                                "Dolby Atmos format is not available for this track/album.\n\n"
+                                "👉 Send the link directly for Lossless ALAC or use /aac <link> for AAC 256kbps."
                             )
                         except Exception:
                             pass
                     return
 
-                if "playback_dispatch_failed" in line or "1830087704" in line or "502 Bad Gateway" in line:
-                    has_playback_dispatch_error = True
-                if "Error downloading" in line or ("Finished with" in line and "error(s)" in line) or "GamdlApiResponseError" in line or "HTTPStatusError" in line:
-                    captured_errors.append(line)
+                # Immediately terminate subprocess on any playback/server/fatal errors from Apple Music
+                if any(err in line for err in (
+                    "playback_dispatch_failed",
+                    "1830087704",
+                    "502 Bad Gateway",
+                    "Server error '502'",
+                    "HTTPStatusError",
+                    "GamdlApiResponseError",
+                    "response.raise_for_status",
+                    "raise HTTPStatusError",
+                )):
+                    print(f"🛑 Terminating Dolby Atmos download subprocess due to Apple Music error: {line}")
+                    try:
+                        process.terminate()
+                        await process.wait()
+                    except (ProcessLookupError, Exception):
+                        pass
+
+                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
+                        try:
+                            if len(uploaded_files) == 0:
+                                await status_msg.edit_text(
+                                    "❌ Dolby Atmos Download Failed\n\n"
+                                    "Apple Music server error (502 Bad Gateway / Playback error).\n"
+                                    "The track could not be streamed or is unavailable in the server's storefront.\n\n"
+                                    "👉 Try downloading with Lossless ALAC or /aac <link>."
+                                )
+                            else:
+                                await status_msg.edit_text(
+                                    f"⚠️ Download stopped: {len(uploaded_files)}/{total_atmos_tracks} tracks delivered.\n"
+                                    f"Subsequent tracks failed due to an Apple Music playback error."
+                                )
+                        except Exception:
+                            pass
+                    return
 
 
             # Check for new finalized files
@@ -650,30 +681,14 @@ async def process_atmos_download(task: dict) -> None:
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
             if status_msg:
                 if len(uploaded_files) == 0:
-                    if has_playback_dispatch_error:
-                        try:
-                            await status_msg.edit_text(
-                                "❌ <b>Dolby Atmos Download Failed: Apple Music Playback Error (502)</b>\n\n"
-                                "Apple Music dispatch returned <code>playback_dispatch_failed (1830087704)</code>.\n\n"
-                                "💡 <b>Common Reasons:</b>\n"
-                                "• <b>Region / Storefront Mismatch:</b> This track may not be available in your account's storefront.\n"
-                                "• <b>Session Expired:</b> The Apple Music session or wrapper on the server may need a restart or refreshed cookies.\n\n"
-                                "👉 Try downloading in AAC using <code>/aac &lt;link&gt;</code>.",
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
-                    else:
-                        last_err = captured_errors[-1] if captured_errors else "No tracks could be downloaded from Apple Music."
-                        try:
-                            await status_msg.edit_text(
-                                f"❌ <b>Dolby Atmos Download Failed</b>\n\n"
-                                f"⚠️ <code>{html.escape(last_err)}</code>\n\n"
-                                f"👉 Try using <code>/aac &lt;link&gt;</code> to download in AAC format.",
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
+                    try:
+                        await status_msg.edit_text(
+                            "❌ Dolby Atmos Download Failed\n\n"
+                            "The requested track or album could not be downloaded in Dolby Atmos from Apple Music.\n\n"
+                            "👉 Try downloading with Lossless ALAC or /aac <link>."
+                        )
+                    except Exception:
+                        pass
                 elif len(uploaded_files) < total_atmos_tracks:
                     try:
                         await status_msg.edit_text(
