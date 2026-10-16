@@ -14,6 +14,7 @@ import {
   Sparkles,
   Users,
   ScrollText,
+  RotateCw,
 } from 'lucide-react';
 
 interface CommandItem {
@@ -30,6 +31,7 @@ interface CommandPaletteProps {
   onSelectTab?: (tab: NavTabId) => void;
   onTogglePause: () => void;
   onToggleMaintenance: () => void;
+  onRestartBot?: () => void;
   onClearQueue: (type: string) => void;
   onThemeChange: (theme: string) => void;
   onOpenApiSettings: () => void;
@@ -44,6 +46,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onSelectTab,
   onTogglePause,
   onToggleMaintenance,
+  onRestartBot,
   onClearQueue,
   onThemeChange,
   onOpenApiSettings,
@@ -128,6 +131,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         onClose();
       },
     },
+    ...(onRestartBot ? [{
+      id: 'bot-restart',
+      title: 'Bot: Restart Process & Clear Queues',
+      category: 'Bot Controls',
+      icon: <RotateCw size={16} />,
+      action: () => {
+        onRestartBot();
+        onClose();
+      },
+    }] : []),
     {
       id: 'clear-all',
       title: 'Purge All Pending Queues',

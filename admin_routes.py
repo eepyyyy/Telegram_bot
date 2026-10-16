@@ -21,9 +21,22 @@ from queues import (
     active_tasks,
     get_queue_stats,
     clear_queue,
+    cancel_all_active_tasks,
     user_locks,
     user_pending_jobs,
     user_in_queue,
+    aac_locks,
+    aac_pending_jobs,
+    aac_in_queue,
+    atmos_locks,
+    atmos_pending_jobs,
+    atmos_in_queue,
+    lossless_locks,
+    lossless_pending_jobs,
+    lossless_in_queue,
+    mv_locks,
+    mv_pending_jobs,
+    mv_in_queue,
     download_queue,
     lossless_queue,
     aac_queue,
@@ -35,15 +48,15 @@ logger = logging.getLogger("admin.routes")
 admin_routes = web.RouteTableDef()
 
 # Auth config
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "eepyadmin123")
-JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "user")
+JWT_SECRET = os.getenv("JWT_SECRET", "tbot_admin_jwt_secret_key_stable")
 
 # Active admin tokens (token -> expiry timestamp)
 active_tokens: dict[str, float] = {}
 
 
 def generate_token() -> str:
-    timestamp = str(time.time())
+    timestamp = str(int(time.time()))
     random_part = secrets.token_hex(16)
     signature = hmac.new(
         JWT_SECRET.encode(),
@@ -63,12 +76,35 @@ def verify_token(token: Optional[str]) -> bool:
     if token.startswith("Bearer "):
         token = token[7:].strip()
 
+    # 1. Fast in-memory check
     expiry = active_tokens.get(token)
-    if not expiry or time.time() > expiry:
-        # Cleanup expired token
+    if expiry:
+        if time.time() <= expiry:
+            return True
         active_tokens.pop(token, None)
         return False
-    return True
+
+    # 2. Stateless cryptographic verification (survives bot restarts!)
+    try:
+        parts = token.split(".")
+        if len(parts) == 3:
+            ts_str, random_part, signature = parts
+            ts = float(ts_str)
+            # Valid for 7 days
+            if time.time() - ts <= 7 * 86400:
+                expected_sig = hmac.new(
+                    JWT_SECRET.encode(),
+                    f"{ts_str}:{random_part}".encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+                if hmac.compare_digest(signature, expected_sig):
+                    # Cache valid token in memory
+                    active_tokens[token] = ts + 7 * 86400
+                    return True
+    except Exception:
+        pass
+
+    return False
 
 
 def require_auth(handler):
@@ -192,7 +228,65 @@ async def bot_control_action(request: web.Request):
             "maintenance_message": m_msg,
         })
 
+    elif action == "restart":
+        logger.info("[Admin Control] Bot restart requested via /api/admin/control.")
+        async def _do_restart():
+            await asyncio.sleep(1)
+            try:
+                cancel_all_active_tasks()
+            except Exception as e:
+                logger.warning(f"Error cancelling tasks on restart: {e}")
+            logger.info("[Admin Control] Exiting process to trigger restart...")
+            os._exit(0)
+
+        asyncio.create_task(_do_restart())
+        return web.json_response({
+            "success": True,
+            "message": "Bot restart initiated. The bot process is restarting."
+        })
+
+    elif action == "backfill_zip_sizes":
+        logger.info("[Admin Control] ZIP size backfill requested via /api/admin/control.")
+        import crud
+        asyncio.create_task(crud.backfill_missing_zip_sizes(bot_control.bot_instance))
+        return web.json_response({
+            "success": True,
+            "message": "ZIP file size backfill initiated in background."
+        })
+
     return web.json_response({"error": f"Unknown action: {action}"}, status=400)
+
+
+@admin_routes.post("/api/admin/restart")
+@require_auth
+async def restart_bot_endpoint(request: web.Request):
+    logger.info("[Admin Control] Bot restart requested via /api/admin/restart.")
+    async def _do_restart():
+        await asyncio.sleep(1)
+        try:
+            cancel_all_active_tasks()
+        except Exception as e:
+            logger.warning(f"Error cancelling tasks on restart: {e}")
+        logger.info("[Admin Control] Exiting process to trigger restart...")
+        os._exit(0)
+
+    asyncio.create_task(_do_restart())
+    return web.json_response({
+        "success": True,
+        "message": "Bot restart initiated. The bot process is restarting."
+    })
+
+
+@admin_routes.post("/api/admin/backfill-zip-sizes")
+@require_auth
+async def backfill_zip_sizes_endpoint(request: web.Request):
+    logger.info("[Admin Control] ZIP size backfill requested via /api/admin/backfill-zip-sizes.")
+    import crud
+    asyncio.create_task(crud.backfill_missing_zip_sizes(bot_control.bot_instance))
+    return web.json_response({
+        "success": True,
+        "message": "ZIP file size backfill initiated in background."
+    })
 
 
 # -------------------------------------------------------------
@@ -266,12 +360,32 @@ async def cancel_task_endpoint(request: web.Request):
         except Exception as e:
             logger.warning(f"[Admin Control] Could not kill process for task {task_id}: {e}")
 
-    # Clear user in-queue lock
+    # Notify Telegram status message if available
+    status_msg = task.get("status_msg")
+    if status_msg:
+        try:
+            await status_msg.edit_text("❌ <b>Task was cancelled by administrator.</b>", parse_mode="HTML")
+        except Exception:
+            pass
+
+    # Clear user in-queue locks across all formats
     user_id = task.get("user_id")
     if user_id:
         user_in_queue.discard(user_id)
         user_pending_jobs.pop(user_id, None)
         user_locks.pop(user_id, None)
+        aac_in_queue.discard(user_id)
+        aac_pending_jobs.pop(user_id, None)
+        aac_locks.pop(user_id, None)
+        atmos_in_queue.discard(user_id)
+        atmos_pending_jobs.pop(user_id, None)
+        atmos_locks.pop(user_id, None)
+        lossless_in_queue.discard(user_id)
+        lossless_pending_jobs.pop(user_id, None)
+        lossless_locks.pop(user_id, None)
+        mv_in_queue.discard(user_id)
+        mv_pending_jobs.pop(user_id, None)
+        mv_locks.pop(user_id, None)
 
     active_tasks.pop(task_id, None)
     return web.json_response({"success": True, "message": f"Task {task_id} cancelled and terminated."})
@@ -289,13 +403,16 @@ async def clear_queue_endpoint(request: web.Request):
         data = {}
 
     queue_type = data.get("queue_type", "all").lower()
-    removed_count = clear_queue(queue_type)
+    result = clear_queue(queue_type, cancel_active=cancel_active)
+    removed_jobs = result["removed_jobs"] if isinstance(result, dict) else result
+    cancelled_active = result.get("cancelled_active", 0) if isinstance(result, dict) else 0
 
-    logger.info(f"[Admin Control] Cleared queue '{queue_type}', removed {removed_count} jobs.")
+    logger.info(f"[Admin Control] Cleared queue '{queue_type}', removed {removed_jobs} jobs, cancelled {cancelled_active} active (cancel_active={cancel_active}).")
     return web.json_response({
         "success": True,
         "queue_type": queue_type,
-        "removed_jobs": removed_count,
+        "removed_jobs": removed_jobs,
+        "cancelled_active": cancelled_active,
         "new_queue_stats": get_queue_stats(),
     })
 

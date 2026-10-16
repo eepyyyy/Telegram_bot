@@ -190,13 +190,28 @@ export const App: React.FC = () => {
   const handleClearQueue = async (queueType: string) => {
     setIsClearingQueue(true);
     try {
-      const res = await api.clearQueue(queueType);
-      alert(`Successfully purged ${res.removed_jobs} pending download job(s).`);
+      const res = await api.clearQueue(queueType, true);
+      alert(`Successfully purged ${res.removed_jobs} download job(s) and cancelled active tasks.`);
       refreshData();
     } catch (err) {
       alert(`Failed to clear queue: ${err}`);
     } finally {
       setIsClearingQueue(false);
+    }
+  };
+
+  const handleRestartBot = async () => {
+    if (!window.confirm("Are you sure you want to restart the Telegram bot? All active and stuck tasks will be cancelled, and the bot process will restart.")) {
+      return;
+    }
+    try {
+      const res = await api.restartBot();
+      alert(res.message || "Bot restart initiated. The bot is restarting...");
+      setTimeout(() => {
+        refreshData();
+      }, 3000);
+    } catch (err) {
+      alert(`Failed to restart bot: ${err}`);
     }
   };
 
@@ -218,6 +233,7 @@ export const App: React.FC = () => {
         onTabChange={handleTabChange}
         onTogglePause={handleTogglePause}
         onToggleMaintenance={handleToggleMaintenance}
+        onRestartBot={handleRestartBot}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenApiSettings={() => setIsApiSettingsOpen(true)}
         onLogout={handleLogout}
@@ -276,6 +292,7 @@ export const App: React.FC = () => {
         onSelectTab={handleTabChange}
         onTogglePause={handleTogglePause}
         onToggleMaintenance={handleToggleMaintenance}
+        onRestartBot={handleRestartBot}
         onClearQueue={handleClearQueue}
         onThemeChange={setTheme}
         onOpenApiSettings={() => setIsApiSettingsOpen(true)}

@@ -275,13 +275,14 @@ async def process_atmos_download(task: dict) -> None:
     album_id = album_id_task or (songs[0].album_id if songs else None)
     if download_mode == "zip" and album_id:
         async with async_session() as session:
-            cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="atmos")
+            cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="atmos")
+            size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
             if cached_zip_fid:
                 if msg:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                            caption=f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n👤 <i>{songs[0].artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
                             parse_mode="HTML"
                         )
                     except Exception as e:
@@ -297,7 +298,7 @@ async def process_atmos_download(task: dict) -> None:
                     try:
                         await msg.answer(
                             f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n"
-                            f"👤 <i>{songs[0].artist}</i>\n\n"
+                            f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
                             f"⚡ <i>Delivered from cache:</i>\n"
                             f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                             parse_mode="HTML"
@@ -334,6 +335,7 @@ async def process_atmos_download(task: dict) -> None:
             "--temp-path", temp_dir,
             "--song-codec-priority", "atmos",
             *dl_targets,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=10 * 1024 * 1024,
@@ -345,10 +347,38 @@ async def process_atmos_download(task: dict) -> None:
         uploaded_files = set()
         completed_atmos_count = 0
         total_atmos_tracks = len(songs) if songs else 1
+        timeout_seconds = 1800
+        start_dl_time = asyncio.get_event_loop().time()
 
         while True:
+            if active_tasks.get(unique_task_id, {}).get("cancelled"):
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                return
+
+            if (asyncio.get_event_loop().time() - start_dl_time) > timeout_seconds:
+                print(f"Task {unique_task_id} exceeded maximum timeout of {timeout_seconds}s. Terminating process.")
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception:
+                    pass
+                if status_msg:
+                    try:
+                        await status_msg.edit_text("❌ Download timed out after 30 minutes. Please try again.")
+                    except Exception:
+                        pass
+                return
+
             try:
-                line_bytes = await process.stdout.readline()
+                line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
+            except asyncio.TimeoutError:
+                if process.returncode is not None:
+                    break
+                continue
             except (ValueError, asyncio.LimitOverrunError):
                 try:
                     line_bytes = await process.stdout.read(8192)
@@ -369,15 +399,17 @@ async def process_atmos_download(task: dict) -> None:
                         await process.wait()
                     except ProcessLookupError:
                         pass
-                    try:
-                        await status_msg.edit_text(
-                            "⚠️ <b>Dolby Atmos format is not available</b> for this track/album.\n\n"
-                            "👉 Send the link directly for Lossless ALAC or use <code>/aac &lt;link&gt;</code> for AAC 256kbps.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                    if status_msg:
+                        try:
+                            await status_msg.edit_text(
+                                "⚠️ <b>Dolby Atmos format is not available</b> for this track/album.\n\n"
+                                "👉 Send the link directly for Lossless ALAC or use <code>/aac &lt;link&gt;</code> for AAC 256kbps.",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
                     return
+
 
             # Check for new finalized files
             downloaded_files = await asyncio.to_thread(
@@ -403,98 +435,101 @@ async def process_atmos_download(task: dict) -> None:
                     # Fetch user before uploading
                     async with async_session() as session:
                         result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.one()
+                        user = result.first()
 
                         # Extract metadata
                         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
                             utils.extract_track_metadata, file_path
                         )
 
-                        sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
-                            bot=msg.bot,
-                            user_chat_id=msg.chat.id,
-                            file_path=file_path,
-                            title=track_title,
-                            performer=artist,
-                            thumbnail=thumbnail,
-                            duration=duration
-                        )
+                        if msg:
+                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                                bot=msg.bot,
+                                user_chat_id=msg.chat.id,
+                                file_path=file_path,
+                                title=track_title,
+                                performer=artist,
+                                thumbnail=thumbnail,
+                                duration=duration
+                            )
+                        else:
+                            sent_msg, saved_chat_id, saved_message_id = None, None, None
 
-                        if sent_msg:
+                        if sent_msg and user:
                             user.download_count += 1
                             session.add(user)
                             await session.commit()
 
-                            media_obj = sent_msg.audio or sent_msg.document
-                            file_id_val = media_obj.file_id if media_obj else None
-                            file_uniq_val = media_obj.file_unique_id if media_obj else None
-                            file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else 0
+                        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
+                        file_id_val = media_obj.file_id if media_obj else None
+                        file_uniq_val = media_obj.file_unique_id if media_obj else None
+                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
 
-                            tbot = schema.TrackInputSchema(
-                                file_id=file_id_val,
-                                file_unique_id=file_uniq_val,
-                                title=track_title,
-                                size=file_sz_val,
-                                isrc=isrc,
-                                chat_id=saved_chat_id,
-                                message_id=saved_message_id
-                            )
+                        tbot = schema.TrackInputSchema(
+                            file_id=file_id_val,
+                            file_unique_id=file_uniq_val,
+                            title=track_title,
+                            size=file_sz_val,
+                            isrc=isrc,
+                            chat_id=saved_chat_id,
+                            message_id=saved_message_id
+                        )
 
-                            matched = False
-                            if isrc:
-                                for original_track in songs:
-                                    if original_track.isrc == isrc:
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
+                        matched = False
+                        if isrc and songs:
+                            for original_track in songs:
+                                if original_track.isrc == isrc:
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="atmos",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log Atmos download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="atmos",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log Atmos download history: {le}")
-                                            
-                                        matched = True
-                                        break
+                                    matched = True
+                                    break
 
-                            if not matched:
-                                for original_track in songs:
-                                    if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                        track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                        track_input.file_id = tbot.file_id
-                                        track_input.file_unique_id = tbot.file_unique_id
-                                        track_input.size = tbot.size
-                                        track_input.chat_id = tbot.chat_id
-                                        track_input.message_id = tbot.message_id
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
+                        if not matched and songs:
+                            for original_track in songs:
+                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                                    track_input.file_id = tbot.file_id
+                                    track_input.file_unique_id = tbot.file_unique_id
+                                    track_input.size = tbot.size
+                                    track_input.chat_id = tbot.chat_id
+                                    track_input.message_id = tbot.message_id
+                                    await crud.save_single_track(session=session, track_data=track_input, format_type="atmos")
+                                    await session.commit()
+                                    
+                                    try:
+                                        await crud.log_download(
+                                            session=session,
+                                            user_id=user_id_local,
+                                            song_id=track_input.song_id,
+                                            format_type="atmos",
+                                            size=tbot.size,
+                                            is_cached=False
+                                        )
                                         await session.commit()
+                                    except Exception as le:
+                                        print(f"Failed to log Atmos download history: {le}")
                                         
-                                        try:
-                                            await crud.log_download(
-                                                session=session,
-                                                user_id=user_id_local,
-                                                song_id=track_input.song_id,
-                                                format_type="atmos",
-                                                size=tbot.size,
-                                                is_cached=False
-                                            )
-                                            await session.commit()
-                                        except Exception as le:
-                                            print(f"Failed to log Atmos download history: {le}")
-                                            
-                                        break
+                                    break
 
                         if download_mode == "tracks":
                             try:
@@ -508,10 +543,11 @@ async def process_atmos_download(task: dict) -> None:
 
         # Handle ZIP packaging for 'zip' and 'both' modes
         if not active_tasks.get(unique_task_id, {}).get("cancelled") and download_mode in ("zip", "both") and songs:
-            try:
-                await status_msg.edit_text("📦 Packaging Dolby Atmos album into ZIP with max-res cover and lyrics (.lrc)...")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("📦 Packaging Dolby Atmos album into ZIP with max-res cover and lyrics (.lrc)...")
+                except Exception:
+                    pass
 
             await utils.save_album_cover_and_lyrics(songs, output_dir)
 
@@ -523,10 +559,12 @@ async def process_atmos_download(task: dict) -> None:
             zip_path = os.path.join(os.path.dirname(output_dir), zip_filename)
 
             await utils.create_album_zip(output_dir, zip_path)
+            zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
 
             caption = (
                 f"📦 <b>{album_title}</b> (Dolby Atmos)\n"
                 f"👤 <i>{artist}</i>\n"
+                f"💾 <b>Size:</b> {utils.human_size(zip_size)}\n"
                 f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
             )
 
@@ -539,13 +577,17 @@ async def process_atmos_download(task: dict) -> None:
                 except Exception:
                     pass
 
-            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url = await utils.upload_and_deliver_zip_document(
-                bot=msg.bot,
-                user_chat_id=msg.chat.id,
-                file_path=zip_path,
-                caption=caption,
-                thumbnail=thumb_data
-            )
+            if msg:
+                sent_doc, saved_cid, saved_mid, zip_fid, gofile_url, uploaded_zip_size = await utils.upload_and_deliver_zip_document(
+                    bot=msg.bot,
+                    user_chat_id=msg.chat.id,
+                    file_path=zip_path,
+                    caption=caption,
+                    thumbnail=thumb_data
+                )
+            else:
+                sent_doc, saved_cid, saved_mid, zip_fid, gofile_url, uploaded_zip_size = None, None, None, None, None, zip_size
+            final_zip_size = uploaded_zip_size or zip_size
 
             alb_id_save = album_id or (songs[0].album_id if songs else None)
             if alb_id_save:
@@ -557,13 +599,15 @@ async def process_atmos_download(task: dict) -> None:
                         artist=artist,
                         format_type="atmos",
                         zip_file_id=zip_fid,
-                        gofile_url=gofile_url
+                        gofile_url=gofile_url,
+                        zip_size=final_zip_size
                     )
 
-            if gofile_url and not zip_fid:
+            if gofile_url and not zip_fid and msg:
                 await msg.answer(
                     f"📦 <b>{album_title}</b> (Dolby Atmos)\n"
-                    f"👤 <i>{artist}</i>\n\n"
+                    f"👤 <i>{artist}</i>\n"
+                    f"💾 <b>Size:</b> {utils.human_size(final_zip_size)}\n\n"
                     f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
                     f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                     parse_mode="HTML"
@@ -575,29 +619,33 @@ async def process_atmos_download(task: dict) -> None:
                 except Exception:
                     pass
 
-            try:
-                await status_msg.edit_text("✅ Dolby Atmos Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("✅ Dolby Atmos Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
             return
 
         if return_code == 0:
-            try:
-                await status_msg.edit_text("✅ Dolby Atmos download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("✅ Dolby Atmos download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
         else:
-            try:
-                await status_msg.edit_text("⚠ Dolby Atmos download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("⚠ Dolby Atmos download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                except Exception:
+                    pass
 
     except Exception as error:
         print(f"Dolby Atmos download error: {error}")
-        try:
-            await status_msg.edit_text(f"Dolby Atmos download failed: {error}")
-        except Exception:
-            pass
+        if status_msg:
+            try:
+                await status_msg.edit_text(f"Dolby Atmos download failed: {error}")
+            except Exception:
+                pass
     finally:
         active_tasks.pop(unique_task_id, None)
         if process and process.returncode is None:
@@ -620,23 +668,38 @@ async def atmos_worker() -> None:
     Worker function to process the atmos download queue. Up to 10 run concurrently.
     """
     while True:
-        task = await atmos_queue.get()
-        user_id = task["user_id"]
-        msg = task["msg"]
+        try:
+            task = await atmos_queue.get()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Error fetching from atmos_queue: {e}")
+            await asyncio.sleep(1)
+            continue
+
+        user_id = task.get("user_id", 999999999)
+        msg = task.get("msg")
 
         user_lock = atmos_locks.setdefault(user_id, asyncio.Lock())
 
-        async with user_lock:
+        try:
+            async with user_lock:
+                try:
+                    await process_atmos_download(task)
+                except Exception as e:
+                    print(f"Atmos worker caught execution exception: {e}")
+                finally:
+                    remaining = atmos_pending_jobs.get(user_id, 1) - 1
+                    if remaining <= 0:
+                        atmos_pending_jobs.pop(user_id, None)
+                        atmos_in_queue.discard(user_id)
+                        atmos_locks.pop(user_id, None)
+                    else:
+                        atmos_pending_jobs[user_id] = remaining
+        except Exception as lock_err:
+            print(f"Error handling user lock in atmos_worker: {lock_err}")
+        finally:
             try:
-                await process_atmos_download(task)
-            except Exception as e:
-                print(f"Atmos worker caught execution exception: {e}")
-            finally:
-                remaining = atmos_pending_jobs.get(user_id, 1) - 1
-                if remaining <= 0:
-                    atmos_pending_jobs.pop(user_id, None)
-                    atmos_in_queue.discard(user_id)
-                    atmos_locks.pop(user_id, None)
-                else:
-                    atmos_pending_jobs[user_id] = remaining
                 atmos_queue.task_done()
+            except Exception:
+                pass

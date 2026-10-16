@@ -64,7 +64,7 @@ def get_queue_stats() -> dict[str, int]:
     }
 
 
-def cancel_all_active_tasks(format_filter: str = "all") -> int:
+def cancel_all_active_tasks(format_filter: str = "all", remove: bool = False) -> int:
     """Cancels running active tasks matching format_filter, terminating subprocesses."""
     cancelled_count = 0
     norm_filter = format_filter.lower()
@@ -102,6 +102,9 @@ def cancel_all_active_tasks(format_filter: str = "all") -> int:
             except Exception:
                 pass
 
+        if remove:
+            active_tasks.pop(task_id, None)
+
         cancelled_count += 1
 
     return cancelled_count
@@ -131,17 +134,102 @@ def clear_queue(queue_type: str = "all", cancel_active: bool = True) -> dict[str
                 removed += 1
             except (asyncio.QueueEmpty, ValueError):
                 break
+            except Exception:
+                break
         in_q.clear()
         pending.clear()
         locks.clear()
 
     cancelled_active = 0
     if cancel_active:
-        cancelled_active = cancel_all_active_tasks(queue_type)
+        cancelled_active = cancel_all_active_tasks(queue_type, remove=True)
 
     return {
         "removed_jobs": removed,
         "cancelled_active": cancelled_active,
+    }
+
+
+def cancel_user_queue(user_id: int) -> dict[str, int]:
+    """
+    Cancels active tasks and removes pending queued tasks for a specific user_id.
+    Returns {'active_cancelled': count, 'queued_removed': count}.
+    """
+    active_cancelled = 0
+    queued_removed = 0
+
+    # 1. Cancel active running tasks for this user
+    for task_id, task in list(active_tasks.items()):
+        if task.get("user_id") == user_id:
+            task["cancelled"] = True
+            proc = task.get("process")
+            if proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            status_msg = task.get("status_msg")
+            if status_msg:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(
+                            status_msg.edit_text("🚫 Download cancelled by user.")
+                        )
+                except Exception:
+                    pass
+            active_tasks.pop(task_id, None)
+            active_cancelled += 1
+
+    # 2. Filter out pending queue items belonging to this user
+    queue_tuples = [
+        (download_queue, user_in_queue, user_pending_jobs, user_locks),
+        (lossless_queue, lossless_in_queue, lossless_pending_jobs, lossless_locks),
+        (aac_queue, aac_in_queue, aac_pending_jobs, aac_locks),
+        (atmos_queue, atmos_in_queue, atmos_pending_jobs, atmos_locks),
+        (mv_queue, mv_in_queue, mv_pending_jobs, mv_locks),
+    ]
+
+    for q, in_q, pending, locks in queue_tuples:
+        items = []
+        while not q.empty():
+            try:
+                item = q.get_nowait()
+                q.task_done()
+                items.append(item)
+            except Exception:
+                break
+
+        for item in items:
+            item_user_id = None
+            if isinstance(item, dict):
+                item_user_id = item.get("user_id")
+                if not item_user_id and "msg" in item:
+                    m = item["msg"]
+                    item_user_id = getattr(getattr(m, "from_user", None), "id", None) or getattr(m, "chat_id", None) or getattr(getattr(m, "chat", None), "id", None)
+            elif isinstance(item, (list, tuple)) and len(item) > 0:
+                m = item[0]
+                item_user_id = getattr(getattr(m, "from_user", None), "id", None) or getattr(m, "chat_id", None) or getattr(getattr(m, "chat", None), "id", None)
+            else:
+                item_user_id = getattr(item, "user_id", None)
+
+            if item_user_id == user_id:
+                queued_removed += 1
+                if isinstance(item, dict) and item.get("status_msg"):
+                    try:
+                        asyncio.create_task(item["status_msg"].edit_text("🚫 Download cancelled by user."))
+                    except Exception:
+                        pass
+            else:
+                q.put_nowait(item)
+
+        in_q.discard(user_id)
+        pending.pop(user_id, None)
+        locks.pop(user_id, None)
+
+    return {
+        "active_cancelled": active_cancelled,
+        "queued_removed": queued_removed,
     }
 
 

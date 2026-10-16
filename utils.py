@@ -373,21 +373,41 @@ async def save_album_cover_and_lyrics(songs: list, target_dir: str) -> None:
         print(f"Failed to fetch lyrics batch: {e}")
 
 
+def human_size(num_bytes: float) -> str:
+    """Format bytes to human readable string (KB, MB, GB, etc.)."""
+    if not num_bytes or num_bytes <= 0:
+        return "0 B"
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.2f} {unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.2f} TB"
+
+
 async def upload_and_deliver_zip_document(
     bot,
     user_chat_id: int,
     file_path: str,
     caption: str,
     thumbnail=None
-) -> Tuple[Optional[any], int, int, Optional[str], Optional[str]]:
+) -> Tuple[Optional[any], int, int, Optional[str], Optional[str], int]:
     """
     Sends the album ZIP document directly to STORAGE_CHANNEL_ID and user_chat_id.
     If file size > 2 GB or if Telegram upload fails, uploads to GoFile as fallback.
-    Returns (sent_user_msg, saved_chat_id, saved_message_id, file_id, gofile_url).
+    Returns (sent_user_msg, saved_chat_id, saved_message_id, file_id, gofile_url, file_size).
     """
     from aiogram.types import FSInputFile
     abs_path = os.path.abspath(file_path)
     file_size = os.path.getsize(abs_path) if os.path.exists(abs_path) else 0
+
+    # Ensure size is displayed in caption if not already present
+    if file_size > 0 and "Size:" not in caption and "💾" not in caption:
+        caption_lines = caption.split("\n")
+        if len(caption_lines) >= 2:
+            caption_lines.insert(2, f"💾 <b>Size:</b> {human_size(file_size)}")
+            caption = "\n".join(caption_lines)
+        else:
+            caption = f"{caption}\n💾 <b>Size:</b> {human_size(file_size)}"
 
     # 2GB Telegram limit (2000 MB)
     max_tg_size = 2000 * 1024 * 1024
@@ -395,7 +415,7 @@ async def upload_and_deliver_zip_document(
     if file_size > max_tg_size:
         print(f"Album ZIP {file_path} ({file_size} bytes) exceeds 2GB Telegram limit. Uploading to GoFile...")
         gofile_url = await upload_to_gofile(abs_path)
-        return None, 0, 0, None, gofile_url
+        return None, 0, 0, None, gofile_url, file_size
 
     # Attempt Telegram Document Upload
     if STORAGE_CHANNEL_ID:
@@ -420,7 +440,7 @@ async def upload_and_deliver_zip_document(
                     caption=caption,
                     parse_mode="HTML"
                 )
-            return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, None
+            return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, None, file_size
         except Exception as e:
             print(f"Storage channel ZIP upload failed: {e}. Trying direct or GoFile...")
 
@@ -433,11 +453,11 @@ async def upload_and_deliver_zip_document(
             thumbnail=thumbnail
         )
         file_id = user_msg.document.file_id if user_msg.document else None
-        return user_msg, user_msg.chat.id, user_msg.message_id, file_id, None
+        return user_msg, user_msg.chat.id, user_msg.message_id, file_id, None, file_size
     except Exception as e:
         print(f"Direct Telegram ZIP upload failed: {e}. Falling back to GoFile upload...")
         gofile_url = await upload_to_gofile(abs_path)
-        return None, 0, 0, None, gofile_url
+        return None, 0, 0, None, gofile_url, file_size
 
 
 

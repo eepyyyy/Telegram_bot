@@ -47,11 +47,11 @@ export const QueueInspector: React.FC<QueueInspectorProps> = ({
         <button
           className="mt-btn danger"
           onClick={() => onClearQueue(selectedTab)}
-          disabled={isClearing || selectedCount === 0}
-          title={`Purge pending items in ${selectedTab.toUpperCase()}`}
+          disabled={isClearing || (selectedCount === 0 && queues.total === 0)}
+          title={`Purge pending items and cancel running subprocesses in ${selectedTab.toUpperCase()}`}
         >
           <Trash2 size={14} />
-          <span>{isClearing ? 'Clearing...' : `Clear ${selectedTab.toUpperCase()} (${selectedCount})`}</span>
+          <span>{isClearing ? 'Purging & Stopping...' : `Purge & Stop ${selectedTab.toUpperCase()} (${selectedCount})`}</span>
         </button>
       </div>
 

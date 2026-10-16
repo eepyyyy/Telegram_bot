@@ -13,6 +13,7 @@ is_bot_paused: bool = False
 maintenance_mode: bool = False
 maintenance_message: str = "🚧 The bot is currently under maintenance. Please try again shortly."
 bot_start_time: float = time.time()
+bot_instance: Optional[Any] = None
 
 # Concurrency overrides (if set via dashboard)
 custom_worker_concurrency: dict[str, int] = {}

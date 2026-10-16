@@ -306,6 +306,9 @@ async def auto_fix_album_zip_columns():
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_gofile_url VARCHAR;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_gofile_url VARCHAR;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_size BIGINT;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_size BIGINT;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_size BIGINT;",
     ]
     for s in stmts:
         try:
@@ -315,13 +318,17 @@ async def auto_fix_album_zip_columns():
             pass
 
 
-async def get_cached_album_zip(session: Optional[Any] = None, album_id: Any = None, format_type: str = "alac") -> Tuple[Optional[str], Optional[str]]:
+async def get_cached_album_zip(
+    session: Optional[Any] = None,
+    album_id: Any = None,
+    format_type: str = "alac"
+) -> Tuple[Optional[str], Optional[str], Optional[int]]:
     """
-    Returns (zip_file_id, gofile_url) for a cached album ZIP archive.
+    Returns (zip_file_id, gofile_url, zip_size) for a cached album ZIP archive.
     Uses an independent clean session per attempt.
     """
     if not album_id:
-        return None, None
+        return None, None, None
 
     fmt = (format_type or "alac").lower()
     alb_id_str = str(album_id)
@@ -333,23 +340,23 @@ async def get_cached_album_zip(session: Optional[Any] = None, album_id: Any = No
                 result = await local_sess.exec(stmt)
                 album = result.first()
                 if not album:
-                    return None, None
+                    return None, None, None
 
                 if fmt == "aac":
-                    return getattr(album, "aac_zip_file_id", None), getattr(album, "aac_gofile_url", None)
+                    return getattr(album, "aac_zip_file_id", None), getattr(album, "aac_gofile_url", None), getattr(album, "aac_zip_size", None)
                 elif fmt == "atmos":
-                    return getattr(album, "atmos_zip_file_id", None), getattr(album, "atmos_gofile_url", None)
+                    return getattr(album, "atmos_zip_file_id", None), getattr(album, "atmos_gofile_url", None), getattr(album, "atmos_zip_size", None)
                 else:
-                    return getattr(album, "alac_zip_file_id", None), getattr(album, "alac_gofile_url", None)
+                    return getattr(album, "alac_zip_file_id", None), getattr(album, "alac_gofile_url", None), getattr(album, "alac_zip_size", None)
         except Exception as e:
             if attempt == 0:
                 print("Missing album columns or DB error in get_cached_album_zip. Auto-applying migration...")
                 await auto_fix_album_zip_columns()
                 continue
             print(f"Error fetching cached album zip for {album_id}: {e}")
-            return None, None
+            return None, None, None
 
-    return None, None
+    return None, None, None
 
 
 async def save_cached_album_zip(
@@ -360,10 +367,11 @@ async def save_cached_album_zip(
     artwork: Optional[str] = None,
     format_type: str = "alac",
     zip_file_id: Optional[str] = None,
-    gofile_url: Optional[str] = None
+    gofile_url: Optional[str] = None,
+    zip_size: Optional[int] = None,
 ) -> None:
     """
-    Saves or updates cached album ZIP file_id and/or Gofile URL in the database.
+    Saves or updates cached album ZIP file_id, Gofile URL, and file size in the database.
     Uses an independent clean session to prevent any transaction pollution.
     """
     if not album_id:
@@ -399,20 +407,26 @@ async def save_cached_album_zip(
                         album.aac_zip_file_id = zip_file_id
                     if gofile_url:
                         album.aac_gofile_url = gofile_url
+                    if zip_size is not None:
+                        album.aac_zip_size = zip_size
                 elif fmt == "atmos":
                     if zip_file_id:
                         album.atmos_zip_file_id = zip_file_id
                     if gofile_url:
                         album.atmos_gofile_url = gofile_url
+                    if zip_size is not None:
+                        album.atmos_zip_size = zip_size
                 else:
                     if zip_file_id:
                         album.alac_zip_file_id = zip_file_id
                     if gofile_url:
                         album.alac_gofile_url = gofile_url
+                    if zip_size is not None:
+                        album.alac_zip_size = zip_size
 
                 local_sess.add(album)
                 await local_sess.commit()
-                print(f"💾 Successfully saved cached {fmt.upper()} ZIP for album {alb_id_str} (zip_fid={zip_file_id})")
+                print(f"💾 Successfully saved cached {fmt.upper()} ZIP for album {alb_id_str} (zip_fid={zip_file_id}, size={zip_size})")
                 return
         except Exception as e:
             if attempt == 0:
@@ -420,6 +434,144 @@ async def save_cached_album_zip(
                 await auto_fix_album_zip_columns()
                 continue
             print(f"Error saving cached album zip for {album_id}: {e}")
+
+
+async def backfill_missing_zip_sizes(bot: Optional[Any] = None) -> dict:
+    """
+    Backfills missing zip file sizes for existing albums in the database
+    by querying the Telegram Bot API via bot.get_file(file_id).
+    """
+    import os
+    import bot_control
+    created_temp_bot = False
+
+    if bot is None:
+        bot = getattr(bot_control, "bot_instance", None)
+
+    if bot is None:
+        token = os.getenv("TOKEN_API")
+        if token:
+            from aiogram import Bot
+            from aiogram.client.default import DefaultBotProperties
+            from aiogram.enums import ParseMode
+            from aiogram.client.session.aiohttp import AiohttpSession
+            from aiogram.client.telegram import TelegramAPIServer
+
+            local_url = os.getenv("LOCAL_SERVER_URL")
+            if local_url:
+                try:
+                    server = TelegramAPIServer.from_base(local_url)
+                    session = AiohttpSession(api=server, timeout=60)
+                    bot = Bot(token=token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+                except Exception:
+                    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+            else:
+                bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+            created_temp_bot = True
+
+    stats = {"total_found": 0, "updated": 0, "failed": 0, "skipped": 0}
+    if not bot:
+        print("❌ Cannot backfill zip sizes: Bot instance/token not available.")
+        return stats
+
+    try:
+        from sqlmodel import or_
+
+        # Make sure migrations are applied
+        await auto_fix_album_zip_columns()
+
+        async with database.async_session() as session:
+            stmt = select(database.Albums).where(
+                or_(
+                    (database.Albums.alac_zip_file_id.isnot(None)) & (database.Albums.alac_zip_size.is_(None)),
+                    (database.Albums.aac_zip_file_id.isnot(None)) & (database.Albums.aac_zip_size.is_(None)),
+                    (database.Albums.atmos_zip_file_id.isnot(None)) & (database.Albums.atmos_zip_size.is_(None)),
+                )
+            )
+            res = await session.exec(stmt)
+            albums_to_backfill = res.all()
+
+        stats["total_found"] = len(albums_to_backfill)
+        if not albums_to_backfill:
+            print("✨ No albums needing zip size backfill.")
+            return stats
+
+        print(f"🔍 Found {len(albums_to_backfill)} albums missing zip sizes. Starting backfill...")
+
+        for album in albums_to_backfill:
+            updated = False
+            alac_size = None
+            aac_size = None
+            atmos_size = None
+
+            # ALAC
+            if album.alac_zip_file_id and album.alac_zip_size is None:
+                try:
+                    tg_file = await bot.get_file(album.alac_zip_file_id)
+                    if tg_file and tg_file.file_size:
+                        alac_size = tg_file.file_size
+                        updated = True
+                except Exception as e:
+                    stats["failed"] += 1
+                    print(f"⚠️ Failed getting ALAC zip size for album {album.album_id}: {e}")
+
+            # AAC
+            if album.aac_zip_file_id and album.aac_zip_size is None:
+                try:
+                    tg_file = await bot.get_file(album.aac_zip_file_id)
+                    if tg_file and tg_file.file_size:
+                        aac_size = tg_file.file_size
+                        updated = True
+                except Exception as e:
+                    stats["failed"] += 1
+                    print(f"⚠️ Failed getting AAC zip size for album {album.album_id}: {e}")
+
+            # Atmos
+            if album.atmos_zip_file_id and album.atmos_zip_size is None:
+                try:
+                    tg_file = await bot.get_file(album.atmos_zip_file_id)
+                    if tg_file and tg_file.file_size:
+                        atmos_size = tg_file.file_size
+                        updated = True
+                except Exception as e:
+                    stats["failed"] += 1
+                    print(f"⚠️ Failed getting Atmos zip size for album {album.album_id}: {e}")
+
+            if updated:
+                try:
+                    async with database.async_session() as session:
+                        stmt = select(database.Albums).where(database.Albums.album_id == album.album_id)
+                        res = await session.exec(stmt)
+                        db_album = res.first()
+                        if db_album:
+                            if alac_size is not None:
+                                db_album.alac_zip_size = alac_size
+                            if aac_size is not None:
+                                db_album.aac_zip_size = aac_size
+                            if atmos_size is not None:
+                                db_album.atmos_zip_size = atmos_size
+                            session.add(db_album)
+                            await session.commit()
+                            stats["updated"] += 1
+                            print(f"💾 Backfilled sizes for album {album.album_id} ({album.album}): alac={alac_size}, aac={aac_size}, atmos={atmos_size}")
+                except Exception as e:
+                    print(f"⚠️ DB error updating album {album.album_id}: {e}")
+            else:
+                stats["skipped"] += 1
+
+            await asyncio.sleep(0.05)
+
+        print(f"✅ ZIP size backfill finished: {stats['updated']} updated, {stats['failed']} failed, {stats['skipped']} skipped.")
+    except Exception as e:
+        print(f"❌ Error during ZIP size backfill: {e}")
+    finally:
+        if created_temp_bot and bot:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
+
+    return stats
 
 
 

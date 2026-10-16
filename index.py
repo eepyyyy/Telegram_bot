@@ -35,7 +35,7 @@ from gamdl.interface import AppleMusicInterface
 from queues import (
     download_queue, user_in_queue, user_locks, user_pending_jobs, active_tasks,
     is_user_busy, pending_album_prompts, aac_queue, aac_in_queue, aac_pending_jobs,
-    atmos_queue, atmos_in_queue, atmos_pending_jobs
+    atmos_queue, atmos_in_queue, atmos_pending_jobs, cancel_user_queue
 )
 
 import aiohttp
@@ -178,6 +178,54 @@ async def handle_cancel_download(call: types.CallbackQuery) -> None:
         await call.answer("Task is no longer active.", show_alert=True)
 
 
+@dp.message(Command("cancel", "quit", "clear"))
+async def handle_user_cancel_command(msg: types.Message) -> None:
+    """Cancels active downloads and purges pending queue for the user so they can start fresh."""
+    user_id = msg.from_user.id if msg.from_user else msg.chat.id
+    res = cancel_user_queue(user_id)
+    total = res["active_cancelled"] + res["queued_removed"]
+    if total > 0:
+        await msg.answer(
+            f"🚫 <b>Queue Cleared & Stopped!</b>\n\n"
+            f"• Active downloads stopped: <code>{res['active_cancelled']}</code>\n"
+            f"• Queued items removed: <code>{res['queued_removed']}</code>\n\n"
+            f"✨ You can now start fresh!",
+            parse_mode="HTML"
+        )
+    else:
+        await msg.answer(
+            "ℹ️ You don't have any active or queued downloads at the moment. You're ready to start fresh!",
+            parse_mode="HTML"
+        )
+
+
+@dp.callback_query(F.data.startswith("quit_queue:"))
+async def handle_quit_queue_callback(call: types.CallbackQuery) -> None:
+    """Cancels active downloads and purges pending queue for the user when they click the quit queue button."""
+    try:
+        user_id_str = call.data.split(":", 1)[1]
+        target_user_id = int(user_id_str)
+    except Exception:
+        target_user_id = call.from_user.id
+
+    if call.from_user.id != target_user_id:
+        await call.answer("❌ You can only quit your own queue.", show_alert=True)
+        return
+
+    res = cancel_user_queue(target_user_id)
+    await call.answer("🚫 Queue quit! Starting fresh.")
+    try:
+        await call.message.edit_text(
+            f"🚫 <b>Queue Quit & Reset!</b>\n\n"
+            f"• Active downloads stopped: <code>{res['active_cancelled']}</code>\n"
+            f"• Queued items removed: <code>{res['queued_removed']}</code>\n\n"
+            f"✨ You can now start fresh!",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
 import base64
 
 def decode_deeplink_url(start_param: str) -> str:
@@ -232,7 +280,13 @@ async def cmd_start(msg: types.Message) -> None:
                 "user_id": user_id_local,
                 "format_type": "alac"
             })
-            await msg.answer(f"✅ Queued at position #{position + 1}. Live download progress will update below:")
+            quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+            ])
+            await msg.answer(
+                f"✅ Queued at position #{position + 1}. Live download progress will update below:",
+                reply_markup=quit_kb
+            )
             return
 
     welcome_text = (
@@ -363,7 +417,10 @@ async def download_handle(msg: types.Message) -> None:
     user_in_queue.add(user_id_local)
     user_pending_jobs[user_id_local] = len(links)
     position = download_queue.qsize()
-    await msg.answer(f"Queued {len(links)} link(s) (starting at position {position + 1}).")
+    quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id}")]
+    ])
+    await msg.answer(f"Queued {len(links)} link(s) (starting at position {position + 1}).", reply_markup=quit_kb)
 
     for u in links:
         await download_queue.put({
@@ -425,13 +482,14 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
     # If ZIP only mode selected, check DB cache first!
     if mode == "zip":
         async with async_session() as session:
-            cached_zip_id, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type=fmt)
+            cached_zip_id, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type=fmt)
+            size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
             if cached_zip_id:
                 try:
                     await call.message.edit_text("⚡ Delivering cached album ZIP...")
                     await orig_msg.answer_document(
                         document=cached_zip_id,
-                        caption=f"📦 <b>{album_title}</b> ({fmt.upper()})\n👤 <i>{artist}</i>\n⚡ <i>Delivered from cache</i>",
+                        caption=f"📦 <b>{album_title}</b> ({fmt.upper()})\n👤 <i>{artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
                         parse_mode="HTML"
                     )
                     await call.message.edit_text("✅ Album ZIP delivered from cache!")
@@ -442,7 +500,7 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
                 try:
                     await call.message.edit_text(
                         f"✅ <b>{album_title}</b> ({fmt.upper()})\n"
-                        f"👤 <i>{artist}</i>\n\n"
+                        f"👤 <i>{artist}</i>{size_line}\n\n"
                         f"⚡ <i>Delivered from cache:</i>\n"
                         f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                         parse_mode="HTML"
@@ -615,12 +673,13 @@ async def process_download(task: dict) -> None:
         album_id = album_id_task or (songs[0].album_id if songs else None)
         if download_mode == "zip" and album_id:
             async with async_session() as session:
-                cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="alac")
+                cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="alac")
+                size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
                 if cached_zip_fid:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                            caption=f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n👤 <i>{songs[0].artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
                             parse_mode="HTML"
                         )
                         await status_msg.edit_text("✅ Album ZIP delivered from cache!")
@@ -630,7 +689,7 @@ async def process_download(task: dict) -> None:
                 elif cached_gofile_url:
                     await msg.answer(
                         f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n"
-                        f"👤 <i>{songs[0].artist}</i>\n\n"
+                        f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
                         f"⚡ <i>Delivered from cache:</i>\n"
                         f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                         parse_mode="HTML"
@@ -1031,10 +1090,12 @@ async def process_download(task: dict) -> None:
             zip_path = os.path.join(os.path.dirname(task_output_dir), zip_filename)
 
             await utils.create_album_zip(task_output_dir, zip_path)
+            zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
 
             caption = (
                 f"📦 <b>{album_title}</b> (Lossless ALAC)\n"
                 f"👤 <i>{artist}</i>\n"
+                f"💾 <b>Size:</b> {utils.human_size(zip_size)}\n"
                 f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
             )
 
@@ -1052,15 +1113,16 @@ async def process_download(task: dict) -> None:
             except Exception:
                 pass
 
-            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url = await utils.upload_and_deliver_zip_document(
+            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url, uploaded_zip_size = await utils.upload_and_deliver_zip_document(
                 bot=msg.bot,
                 user_chat_id=msg.chat.id,
                 file_path=zip_path,
                 caption=caption,
                 thumbnail=thumb_data
             )
+            final_zip_size = uploaded_zip_size or zip_size
 
-            # Save cached ZIP file_id and/or gofile_url
+            # Save cached ZIP file_id, gofile_url, and file size
             alb_id_save = album_id or (songs[0].album_id if songs else None)
             if alb_id_save:
                 async with async_session() as session:
@@ -1071,18 +1133,22 @@ async def process_download(task: dict) -> None:
                         artist=artist,
                         format_type="alac",
                         zip_file_id=zip_fid,
-                        gofile_url=gofile_url
+                        gofile_url=gofile_url,
+                        zip_size=final_zip_size
                     )
 
             if gofile_url and not zip_fid and msg:
                 try:
                     await msg.answer(
                         f"📦 <b>{album_title}</b> (Lossless ALAC)\n"
-                        f"👤 <i>{artist}</i>\n\n"
+                        f"👤 <i>{artist}</i>\n"
+                        f"💾 <b>Size:</b> {utils.human_size(final_zip_size)}\n\n"
                         f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
                         f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                         parse_mode="HTML"
                     )
+                except Exception:
+                    pass
                 except Exception:
                     pass
 
@@ -1245,6 +1311,9 @@ async def on_startup(bot: Bot) -> None:
     # Start periodic database backup task (runs daily)
     asyncio.create_task(scheduled_db_backup_worker())
 
+    # Backfill missing zip file sizes for all previous albums in background
+    asyncio.create_task(crud.backfill_missing_zip_sizes(bot))
+
     # Set webhook on local Telegram API server with backoff retries
     webhook_set = False
     delay = 2
@@ -1269,6 +1338,7 @@ async def on_startup(bot: Bot) -> None:
     try:
         await bot.set_my_commands([
             types.BotCommand(command="start", description="Start the bot & landing dashboard"),
+            types.BotCommand(command="cancel", description="Quit/clear your queue & start fresh"),
             types.BotCommand(command="lossless", description="Download in regular Lossless (up to 48kHz)"),
             types.BotCommand(command="artist", description="Download artist top tracks or catalog"),
             types.BotCommand(command="aac", description="Download track/album in AAC 256kbps"),
@@ -1308,6 +1378,7 @@ def main() -> None:
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+    bot_control.bot_instance = bot
 
     dp.include_router(test_router)
     dp.include_router(lossless)

@@ -138,10 +138,18 @@ export const api = {
   },
 
   // 6. Clear Queue
-  async clearQueue(queueType: string = 'all'): Promise<{ success: boolean; removed_jobs: number }> {
+  async clearQueue(queueType: string = 'all', cancelActive = true): Promise<{ success: boolean; removed_jobs: number }> {
     return request<{ success: boolean; removed_jobs: number }>('/api/admin/clear-queue', {
       method: 'POST',
-      body: JSON.stringify({ queue_type: queueType }),
+      body: JSON.stringify({ queue_type: queueType, cancel_active: cancelActive }),
+    });
+  },
+
+  // 6b. Restart Bot
+  async restartBot(): Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>('/api/admin/restart', {
+      method: 'POST',
+      body: JSON.stringify({}),
     });
   },
 

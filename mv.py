@@ -298,7 +298,13 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     try:
         res_str = f" {resolution.upper()}" if resolution else " 4K"
         codec_str = f" ({codec.upper()})" if codec else " (H.265)"
-        await status_msg.edit_text(f"🎬 Queued Music Video{res_str}{codec_str} at position #{position + 1}. Download starting...")
+        quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
+        ])
+        await status_msg.edit_text(
+            f"🎬 Queued Music Video{res_str}{codec_str} at position #{position + 1}. Download starting...",
+            reply_markup=quit_kb
+        )
     except Exception:
         pass
 
@@ -342,6 +348,7 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         limit=10 * 1024 * 1024,
@@ -352,7 +359,11 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
 
     while True:
         try:
-            line_bytes = await process.stdout.readline()
+            line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
+        except asyncio.TimeoutError:
+            if process.returncode is not None:
+                break
+            continue
         except (ValueError, asyncio.LimitOverrunError):
             try:
                 line_bytes = await process.stdout.read(8192)
@@ -378,15 +389,20 @@ async def process_mv_download(task: dict) -> None:
     """
     Executes gamdl for Music Videos using native gamdl format selection (or requested codec).
     """
-    track_url = task["url"]
-    songs = task["songs"]
-    msg: Message = task["msg"]
-    user_id_local = task["user_id"]
-    status_msg = task["status_msg"]
+    import secrets
+    track_url = task.get("url")
+    songs = task.get("songs")
+    msg: Optional[Message] = task.get("msg")
+    user_id_local = task.get("user_id", 999999999)
+    status_msg = task.get("status_msg")
     requested_codec = task.get("codec")
     requested_resolution = task.get("resolution")
 
-    unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    if msg and hasattr(msg, "message_id"):
+        unique_task_id = f"mv_{msg.message_id}_{int(asyncio.get_event_loop().time() * 1000)}"
+    else:
+        unique_task_id = f"mv_cache_{int(asyncio.get_event_loop().time() * 1000)}_{secrets.token_hex(4)}"
+
     output_dir = os.path.abspath(os.path.join("downloads", unique_task_id))
     temp_dir = f"{output_dir}_temp"
 
@@ -413,10 +429,11 @@ async def process_mv_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
         await asyncio.to_thread(os.makedirs, temp_dir, exist_ok=True)
 
-        try:
-            await status_msg.edit_text("🎬 Downloading Music Video...")
-        except Exception:
-            pass
+        if status_msg:
+            try:
+                await status_msg.edit_text("🎬 Downloading Music Video...")
+            except Exception:
+                pass
 
         return_code, format_unavailable = await run_gamdl_mv_subprocess(output_dir, temp_dir, track_url, requested_codec, requested_resolution)
 
@@ -436,10 +453,11 @@ async def process_mv_download(task: dict) -> None:
         # Automatic fallback to yt-dlp if gamdl fails or format is unavailable
         if not valid_files or format_unavailable:
             print(f"[mv] Music Video format unavailable or no files produced for {track_url}. Initiating yt-dlp fallback...")
-            try:
-                await status_msg.edit_text("🎬 Music Video format unavailable. Trying yt-dlp fallback...")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("🎬 Music Video format unavailable. Trying yt-dlp fallback...")
+                except Exception:
+                    pass
 
             ytdlp_cmd = [
                 "yt-dlp",
@@ -450,6 +468,7 @@ async def process_mv_download(task: dict) -> None:
             try:
                 yt_proc = await asyncio.create_subprocess_exec(
                     *ytdlp_cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                 )
@@ -477,20 +496,21 @@ async def process_mv_download(task: dict) -> None:
                 # Check limit before uploading
                 async with async_session() as session:
                     result = await session.exec(select(User).where(User.user_id == user_id_local))
-                    user = result.one()
+                    user = result.first()
 
                     current_date = datetime.now(timezone.utc).date()
-                    if not user.is_premium and user.last_download != current_date:
+                    if user and not user.is_premium and user.last_download != current_date:
                         user.downloaded_today = 0
                         user.last_download = current_date
                         session.add(user)
                         await session.commit()
 
-                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                        try:
-                            await msg.answer("Quota exhausted! Halting further downloads.")
-                        except Exception:
-                            pass
+                    if user and not user.is_premium and user.downloaded_today >= user.daily_limit:
+                        if msg:
+                            try:
+                                await msg.answer("Quota exhausted! Halting further downloads.")
+                            except Exception:
+                                pass
                         return
 
                     # Extract video metadata
@@ -498,10 +518,11 @@ async def process_mv_download(task: dict) -> None:
                         utils.extract_track_metadata, file_path
                     )
 
-                    try:
-                        await status_msg.edit_text(f"🚀 <b>Uploading to gofile.io</b>\n{html.escape(human_size(os.path.getsize(file_path)))}")
-                    except Exception:
-                        pass
+                    if status_msg:
+                        try:
+                            await status_msg.edit_text(f"🚀 <b>Uploading to gofile.io</b>\n{html.escape(human_size(os.path.getsize(file_path)))}")
+                        except Exception:
+                            pass
 
                     try:
                         gofile_data, meta = await asyncio.gather(
@@ -529,29 +550,33 @@ async def process_mv_download(task: dict) -> None:
                             f"<b>Link:</b> {gofile_data['link']}"
                         )
 
-                        sent_msg = await msg.answer(
-                            msg_text,
-                            link_preview_options=types.LinkPreviewOptions(is_disabled=True),
-                        )
+                        if msg:
+                            sent_msg = await msg.answer(
+                                msg_text,
+                                link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+                            )
+                        else:
+                            sent_msg = None
                     else:
                         sent_msg = None
 
-                    if sent_msg and gofile_data:
-                        user.download_count += 1
-                        if not user.is_premium:
-                            user.downloaded_today += 1
-                        session.add(user)
-                        await session.commit()
+                    if gofile_data:
+                        if user:
+                            user.download_count += 1
+                            if not user.is_premium:
+                                user.downloaded_today += 1
+                            session.add(user)
+                            await session.commit()
 
                         # Log download history
                         try:
                             matched_song_id = None
-                            if isrc:
+                            if isrc and songs:
                                 for s in songs:
                                     if s.isrc == isrc:
                                         matched_song_id = s.song_id
                                         break
-                            if not matched_song_id:
+                            if not matched_song_id and songs:
                                 for s in songs:
                                     if utils.convert_text(s.title) == utils.convert_text(track_title):
                                         matched_song_id = s.song_id
@@ -576,22 +601,25 @@ async def process_mv_download(task: dict) -> None:
                     except Exception as e:
                         print(f"Failed to remove video file {file_path}: {e}")
 
-            try:
-                await status_msg.edit_text("✅ Music Video download and delivery completed!\n\n🌐 Streaming Link: https://stream.eepy.in/")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("✅ Music Video download and delivery completed!\n\n🌐 Streaming Link: https://stream.eepy.in/")
+                except Exception:
+                    pass
         else:
-            try:
-                await status_msg.edit_text("⚠️ <b>Requested video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
-            except Exception:
-                pass
+            if status_msg:
+                try:
+                    await status_msg.edit_text("⚠️ <b>Requested video format is not available</b> on Apple Music for this item.", parse_mode="HTML")
+                except Exception:
+                    pass
 
     except Exception as error:
         print(f"Music Video download error: {error}")
-        try:
-            await status_msg.edit_text(f"Music Video download failed: {error}")
-        except Exception:
-            pass
+        if status_msg:
+            try:
+                await status_msg.edit_text(f"Music Video download failed: {error}")
+            except Exception:
+                pass
     finally:
         active_tasks.pop(unique_task_id, None)
         for d_clean in (output_dir, temp_dir):
@@ -607,51 +635,67 @@ async def mv_worker() -> None:
     Worker function to process the Music Video download queue.
     """
     while True:
-        task = await mv_queue.get()
-        user_id = task["user_id"]
+        try:
+            task = await mv_queue.get()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Error fetching from mv_queue: {e}")
+            await asyncio.sleep(1)
+            continue
+
+        user_id = task.get("user_id", 999999999)
 
         user_lock = mv_locks.setdefault(user_id, asyncio.Lock())
 
-        async with user_lock:
-            # Check database limit before starting download subprocess
-            async with async_session() as session:
-                result = await session.exec(select(User).where(User.user_id == user_id))
-                user = result.first()
-                current_date = datetime.now(timezone.utc).date()
-                if user:
-                    if user.last_download != current_date:
-                        user.downloaded_today = 0
-                        user.last_download = current_date
-                        session.add(user)
-                        await session.commit()
-                        await session.refresh(user)
+        try:
+            async with user_lock:
+                # Check database limit before starting download subprocess
+                async with async_session() as session:
+                    result = await session.exec(select(User).where(User.user_id == user_id))
+                    user = result.first()
+                    current_date = datetime.now(timezone.utc).date()
+                    if user:
+                        if user.last_download != current_date:
+                            user.downloaded_today = 0
+                            user.last_download = current_date
+                            session.add(user)
+                            await session.commit()
+                            await session.refresh(user)
 
-                    if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                        try:
-                            msg = task["msg"]
-                            await msg.answer("❌ Daily limit reached. Skipping queued Music Video.")
-                        except Exception:
-                            pass
-                        remaining = mv_pending_jobs.get(user_id, 1) - 1
-                        if remaining <= 0:
-                            mv_pending_jobs.pop(user_id, None)
-                            mv_in_queue.discard(user_id)
-                            mv_locks.pop(user_id, None)
-                        else:
-                            mv_pending_jobs[user_id] = remaining
-                        mv_queue.task_done()
-                        continue
+                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                            msg = task.get("msg")
+                            if msg:
+                                try:
+                                    await msg.answer("❌ Daily limit reached. Skipping queued Music Video.")
+                                except Exception:
+                                    pass
+                            remaining = mv_pending_jobs.get(user_id, 1) - 1
+                            if remaining <= 0:
+                                mv_pending_jobs.pop(user_id, None)
+                                mv_in_queue.discard(user_id)
+                                mv_locks.pop(user_id, None)
+                            else:
+                                mv_pending_jobs[user_id] = remaining
+                            mv_queue.task_done()
+                            continue
 
+                try:
+                    await process_mv_download(task)
+                except Exception as e:
+                    print(f"Error processing Music Video download: {e}")
+                finally:
+                    remaining = mv_pending_jobs.get(user_id, 1) - 1
+                    if remaining <= 0:
+                        mv_pending_jobs.pop(user_id, None)
+                        mv_in_queue.discard(user_id)
+                        mv_locks.pop(user_id, None)
+                    else:
+                        mv_pending_jobs[user_id] = remaining
+        except Exception as lock_err:
+            print(f"Error handling user lock in mv_worker: {lock_err}")
+        finally:
             try:
-                await process_mv_download(task)
-            except Exception as e:
-                print(f"Error processing Music Video download: {e}")
-            finally:
-                remaining = mv_pending_jobs.get(user_id, 1) - 1
-                if remaining <= 0:
-                    mv_pending_jobs.pop(user_id, None)
-                    mv_in_queue.discard(user_id)
-                    mv_locks.pop(user_id, None)
-                else:
-                    mv_pending_jobs[user_id] = remaining
                 mv_queue.task_done()
+            except Exception:
+                pass

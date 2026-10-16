@@ -15,6 +15,7 @@ import {
   Sparkles,
   Users,
   ScrollText,
+  RotateCw,
 } from 'lucide-react';
 
 export type NavTabId = 'overview' | 'downloads' | 'artist_cache' | 'database' | 'logs';
@@ -25,6 +26,7 @@ interface NavbarProps {
   onTabChange: (tab: NavTabId) => void;
   onTogglePause: () => void;
   onToggleMaintenance: () => void;
+  onRestartBot?: () => void;
   onOpenCommandPalette: () => void;
   onOpenApiSettings: () => void;
   onLogout: () => void;
@@ -54,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTabChange,
   onTogglePause,
   onToggleMaintenance,
+  onRestartBot,
   onOpenCommandPalette,
   onOpenApiSettings,
   onLogout,
@@ -121,6 +124,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <AlertTriangle size={15} />
             <span>{isMaintenance ? 'MAINTENANCE: ON' : 'MAINTENANCE'}</span>
           </button>
+
+          {/* Bot Restart Button */}
+          {onRestartBot && (
+            <button
+              className="mt-btn danger"
+              onClick={onRestartBot}
+              title="Restart bot process to recover from stuck queues"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
+            >
+              <RotateCw size={15} />
+              <span>RESTART BOT</span>
+            </button>
+          )}
 
           {/* Command Palette Trigger */}
           <button className="mt-btn" onClick={onOpenCommandPalette} title="Command Palette">

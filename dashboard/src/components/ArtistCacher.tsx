@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  ArtistSearchResult,
   ArtistDetailsResponse,
   CacheArtistPayload,
   ActiveDownloadItem,
@@ -8,7 +7,6 @@ import {
 } from '../types';
 import { api } from '../api';
 import {
-  Search,
   Music,
   Disc,
   Layers,
@@ -39,8 +37,6 @@ export const ArtistCacher: React.FC<ArtistCacherProps> = ({
   onRefreshData,
 }) => {
   const [query, setQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<ArtistSearchResult[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<ArtistDetailsResponse | null>(null);
   const [isLoadingArtist, setIsLoadingArtist] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('Full Albums');
@@ -112,35 +108,11 @@ export const ArtistCacher: React.FC<ArtistCacherProps> = ({
     return () => clearInterval(timer);
   }, [pollLiveProgress, localActiveDownloads.length, localQueues?.total, isCaching]);
 
-  // Debounced artist search
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed || trimmed.startsWith('http')) {
-      setSearchResults([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const res = await api.searchArtist(trimmed);
-        setSearchResults(res.artists || []);
-      } catch (err) {
-        console.error('Artist search failed:', err);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 350);
-
-    return () => clearTimeout(timer);
-  }, [query]);
-
   const loadArtistDetails = async (artistUrlOrId: string, isSilent = false) => {
     if (!isSilent) {
       setIsLoadingArtist(true);
       setCacheResultMsg(null);
       setSelectedUrls(new Set());
-      setSearchResults([]);
     }
 
     try {
@@ -339,28 +311,51 @@ export const ArtistCacher: React.FC<ArtistCacherProps> = ({
         </div>
       </div>
 
-      {/* 2. Search & URL Bar */}
+      {/* 2. Direct Apple Music Link Input */}
       <form onSubmit={handleSearchSubmit} style={{ position: 'relative' }}>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <div style={{ position: 'relative', flex: 1 }}>
-            <Search
+            <ExternalLink
               size={15}
               style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--sub-color)' }}
             />
             <input
               type="text"
               className="mt-input"
-              style={{ paddingLeft: '36px', width: '100%' }}
-              placeholder="Paste Apple Music Artist Link (e.g. https://music.apple.com/us/artist/...) or search artist name..."
+              style={{ paddingLeft: '36px', paddingRight: query ? '36px' : '12px', width: '100%' }}
+              placeholder="Paste Apple Music Artist Link (e.g. https://music.apple.com/us/artist/...)..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData('text').trim();
+                if (pasted.startsWith('http') || pasted.includes('music.apple.com')) {
+                  setQuery(pasted);
+                  loadArtistDetails(pasted);
+                }
+              }}
             />
-            {isSearching && (
-              <RefreshCw
-                size={14}
-                className="animate-spin"
-                style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--main-color)' }}
-              />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  setSelectedArtist(null);
+                  setSelectedUrls(new Set());
+                }}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '10px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--sub-color)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                }}
+                title="Clear link"
+              >
+                <X size={15} />
+              </button>
             )}
           </div>
           <button
@@ -376,65 +371,12 @@ export const ArtistCacher: React.FC<ArtistCacherProps> = ({
               </>
             ) : (
               <>
-                <Search size={14} />
-                <span>Fetch Artist</span>
+                <ArrowRight size={14} />
+                <span>Load Link</span>
               </>
             )}
           </button>
         </div>
-
-        {/* Autocomplete Search Dropdown */}
-        {searchResults.length > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '105%',
-              left: 0,
-              right: '140px',
-              backgroundColor: 'var(--bg-color)',
-              border: '1px solid var(--sub-color)',
-              borderRadius: 'var(--border-radius)',
-              boxShadow: 'var(--shadow-sm)',
-              zIndex: 50,
-              maxHeight: '280px',
-              overflowY: 'auto',
-              padding: '0.4rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.2rem',
-            }}
-          >
-            {searchResults.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 'var(--border-radius)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  transition: 'background-color 0.15s ease',
-                }}
-                className="hover-highlight"
-                onClick={() => {
-                  setQuery(item.name);
-                  loadArtistDetails(item.url || item.id);
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <Disc size={15} color="var(--main-color)" />
-                  <span style={{ fontWeight: 600, color: 'var(--text-color)' }}>{item.name}</span>
-                </div>
-                {item.genres && item.genres.length > 0 && (
-                  <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)' }}>
-                    {item.genres.join(', ')}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </form>
 
       {/* 3. Feedback Banner */}

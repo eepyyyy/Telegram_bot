@@ -28,6 +28,9 @@ class Albums(SQLModel, table=True):
     alac_gofile_url: Optional[str] = None
     aac_gofile_url: Optional[str] = None
     atmos_gofile_url: Optional[str] = None
+    alac_zip_size: Optional[int] = Field(default=None, sa_type=BigInteger)
+    aac_zip_size: Optional[int] = Field(default=None, sa_type=BigInteger)
+    atmos_zip_size: Optional[int] = Field(default=None, sa_type=BigInteger)
 
 
 class Tracks(SQLModel, table=True):
@@ -195,6 +198,9 @@ async def init_db():
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_gofile_url VARCHAR;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_gofile_url VARCHAR;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_gofile_url VARCHAR;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_size BIGINT;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_size BIGINT;",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_size BIGINT;",
         "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
         "CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
         "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",

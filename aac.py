@@ -243,13 +243,14 @@ async def process_aac_download(task: dict) -> None:
     album_id = album_id_task or (songs[0].album_id if songs else None)
     if download_mode == "zip" and album_id:
         async with async_session() as session:
-            cached_zip_fid, cached_gofile_url = await crud.get_cached_album_zip(session, album_id, format_type="aac")
+            cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="aac")
+            size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
             if cached_zip_fid:
                 if msg:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>\n⚡ <i>Delivered from cache</i>",
+                            caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
                             parse_mode="HTML"
                         )
                     except Exception as e:
@@ -265,7 +266,7 @@ async def process_aac_download(task: dict) -> None:
                     try:
                         await msg.answer(
                             f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n"
-                            f"👤 <i>{songs[0].artist}</i>\n\n"
+                            f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
                             f"⚡ <i>Delivered from cache:</i>\n"
                             f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                             parse_mode="HTML"
@@ -528,10 +529,12 @@ async def process_aac_download(task: dict) -> None:
             zip_path = os.path.join(os.path.dirname(output_dir), zip_filename)
 
             await utils.create_album_zip(output_dir, zip_path)
+            zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
 
             caption = (
                 f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
                 f"👤 <i>{artist}</i>\n"
+                f"💾 <b>Size:</b> {utils.human_size(zip_size)}\n"
                 f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
             )
 
@@ -544,13 +547,14 @@ async def process_aac_download(task: dict) -> None:
                 except Exception:
                     pass
 
-            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url = await utils.upload_and_deliver_zip_document(
+            sent_doc, saved_cid, saved_mid, zip_fid, gofile_url, uploaded_zip_size = await utils.upload_and_deliver_zip_document(
                 bot=msg.bot,
                 user_chat_id=msg.chat.id,
                 file_path=zip_path,
                 caption=caption,
                 thumbnail=thumb_data
             )
+            final_zip_size = uploaded_zip_size or zip_size
 
             alb_id_save = album_id or (songs[0].album_id if songs else None)
             if alb_id_save:
@@ -562,14 +566,16 @@ async def process_aac_download(task: dict) -> None:
                         artist=artist,
                         format_type="aac",
                         zip_file_id=zip_fid,
-                        gofile_url=gofile_url
+                        gofile_url=gofile_url,
+                        zip_size=final_zip_size
                     )
 
             if gofile_url and not zip_fid and msg:
                 try:
                     await msg.answer(
                         f"📦 <b>{album_title}</b> (AAC 256kbps)\n"
-                        f"👤 <i>{artist}</i>\n\n"
+                        f"👤 <i>{artist}</i>\n"
+                        f"💾 <b>Size:</b> {utils.human_size(final_zip_size)}\n\n"
                         f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
                         f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                         parse_mode="HTML"
