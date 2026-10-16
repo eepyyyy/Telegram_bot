@@ -418,7 +418,7 @@ async def download_handle(msg: types.Message) -> None:
     user_pending_jobs[user_id_local] = len(links)
     position = download_queue.qsize()
     quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id}")]
+        [types.InlineKeyboardButton(text="🚫 Quit Queue & Start Fresh", callback_data=f"quit_queue:{user_id_local}")]
     ])
     await msg.answer(f"Queued {len(links)} link(s) (starting at position {position + 1}).", reply_markup=quit_kb)
 
