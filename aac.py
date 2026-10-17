@@ -247,23 +247,28 @@ async def process_aac_download(task: dict) -> None:
         async with async_session() as session:
             cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="aac")
             size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
+            gf_line = f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{cached_gofile_url}'>High-Speed Link</a>" if cached_gofile_url else ""
+            gf_markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_gofile_url)]]) if cached_gofile_url else None
+            delivered = False
             if cached_zip_fid:
                 if msg:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
-                            parse_mode="HTML"
+                            caption=f"📦 <b>{songs[0].album}</b> (AAC 256kbps)\n👤 <i>{songs[0].artist}</i>{size_line}{gf_line}\n⚡ <i>Delivered from cache</i>",
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
                         )
+                        delivered = True
                     except Exception as e:
                         print(f"Failed to deliver cached AAC zip document: {e}")
-                if status_msg:
+                if status_msg and delivered:
                     try:
                         await status_msg.edit_text("✅ AAC Album ZIP delivered from cache!")
                     except Exception:
                         pass
-                return
-            elif cached_gofile_url:
+
+            if not delivered and cached_gofile_url:
                 if msg:
                     try:
                         await msg.answer(
@@ -271,15 +276,19 @@ async def process_aac_download(task: dict) -> None:
                             f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
                             f"⚡ <i>Delivered from cache:</i>\n"
                             f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                            parse_mode="HTML"
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
                         )
+                        delivered = True
                     except Exception:
                         pass
-                if status_msg:
+                if status_msg and delivered:
                     try:
                         await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
                     except Exception:
                         pass
+
+            if delivered:
                 return
 
 

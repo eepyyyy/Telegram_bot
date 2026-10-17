@@ -113,6 +113,8 @@ async def save_single_track(session: async_session, track_data: schema.TrackInpu
             extra_kwargs["resolution"] = track_data.resolution
         if track_data.codec:
             extra_kwargs["codec"] = track_data.codec
+        if getattr(track_data, "gofile_url", None):
+            extra_kwargs["gofile_url"] = track_data.gofile_url
 
     track_obj = model_cls(
         artist=track_data.artist,
@@ -142,6 +144,107 @@ async def get_mv_tracks_by_song_id(session: async_session, song_id: str) -> List
     statement = select(MVTracks).where(MVTracks.song_id == song_id)
     result = await session.exec(statement)
     return result.all()
+
+
+async def get_cached_mv_track(
+    song_id: str,
+    resolution: Optional[str] = None,
+    codec: Optional[str] = None
+) -> Optional[MVTracks]:
+    """
+    Returns a cached MVTracks record for a song_id (matching requested resolution/codec if provided).
+    Verifies that the GoFile link is alive; if expired, clears it from the database.
+    If neither Telegram file_id/chat_id nor a working GoFile link exists, returns None.
+    """
+    if not song_id:
+        return None
+
+    import utils
+    async with database.async_session() as local_sess:
+        stmt = select(MVTracks).where(MVTracks.song_id == str(song_id))
+        result = await local_sess.exec(stmt)
+        candidates = result.all()
+        if not candidates:
+            return None
+
+        # If resolution or codec requested, look for match first
+        selected = None
+        if resolution or codec:
+            for c in candidates:
+                res_match = (not resolution) or (c.resolution and resolution.lower() in c.resolution.lower())
+                codec_match = (not codec) or (c.codec and codec.lower() in c.codec.lower())
+                if res_match and codec_match:
+                    selected = c
+                    break
+        if not selected:
+            selected = candidates[0]
+
+        # Verify GoFile link aliveness if present
+        if selected.gofile_url:
+            is_alive = await utils.is_gofile_link_alive(selected.gofile_url)
+            if not is_alive:
+                print(f"GoFile link for MV {song_id} has expired. Invalidating in DB.")
+                selected.gofile_url = None
+                local_sess.add(selected)
+                await local_sess.commit()
+
+        has_tg = bool(selected.file_id or (selected.chat_id and selected.message_id))
+        has_gf = bool(selected.gofile_url)
+
+        if not has_tg and not has_gf:
+            return None
+
+        return selected
+
+
+async def save_cached_mv_track(
+    song_id: str,
+    title: Optional[str] = None,
+    artist: Optional[str] = None,
+    album: Optional[str] = None,
+    album_id: Optional[str] = None,
+    url: Optional[str] = None,
+    isrc: Optional[str] = None,
+    size: Optional[int] = None,
+    resolution: Optional[str] = None,
+    codec: Optional[str] = None,
+    chat_id: Optional[int] = None,
+    message_id: Optional[int] = None,
+    file_id: Optional[str] = None,
+    gofile_url: Optional[str] = None,
+    artwork: Optional[str] = None,
+) -> None:
+    """
+    Saves or updates a Music Video cached record in mv_tracks.
+    """
+    if not song_id:
+        return
+
+    async with database.async_session() as session:
+        stmt = select(MVTracks).where(MVTracks.song_id == str(song_id))
+        result = await session.exec(stmt)
+        track = result.first()
+        if not track:
+            track = MVTracks(song_id=str(song_id))
+
+        if title: track.title = title
+        if artist: track.artist = artist
+        if album: track.album = album
+        if album_id: track.album_id = str(album_id)
+        if url: track.url = str(url)
+        if isrc: track.isrc = isrc
+        if size is not None: track.size = size
+        if resolution: track.resolution = resolution
+        if codec: track.codec = codec
+        if chat_id: track.chat_id = chat_id
+        if message_id: track.message_id = message_id
+        if file_id: track.file_id = file_id
+        if gofile_url: track.gofile_url = gofile_url
+        if artwork: track.artwork = artwork
+        track.updated_at = datetime.now(timezone.utc)
+
+        session.add(track)
+        await session.commit()
 
 
 
@@ -343,11 +446,36 @@ async def get_cached_album_zip(
                     return None, None, None
 
                 if fmt == "aac":
-                    return getattr(album, "aac_zip_file_id", None), getattr(album, "aac_gofile_url", None), getattr(album, "aac_zip_size", None)
+                    zip_fid = getattr(album, "aac_zip_file_id", None)
+                    gofile_url = getattr(album, "aac_gofile_url", None)
+                    zip_size = getattr(album, "aac_zip_size", None)
                 elif fmt == "atmos":
-                    return getattr(album, "atmos_zip_file_id", None), getattr(album, "atmos_gofile_url", None), getattr(album, "atmos_zip_size", None)
+                    zip_fid = getattr(album, "atmos_zip_file_id", None)
+                    gofile_url = getattr(album, "atmos_gofile_url", None)
+                    zip_size = getattr(album, "atmos_zip_size", None)
                 else:
-                    return getattr(album, "alac_zip_file_id", None), getattr(album, "alac_gofile_url", None), getattr(album, "alac_zip_size", None)
+                    zip_fid = getattr(album, "alac_zip_file_id", None)
+                    gofile_url = getattr(album, "alac_gofile_url", None)
+                    zip_size = getattr(album, "alac_zip_size", None)
+
+                # Verify GoFile link aliveness; invalidate if expired
+                if gofile_url:
+                    import utils
+                    is_alive = await utils.is_gofile_link_alive(gofile_url)
+                    if not is_alive:
+                        print(f"GoFile link for album {alb_id_str} ({fmt}) has expired. Invalidating in DB.")
+                        setattr(album, f"{fmt}_gofile_url", None)
+                        if not zip_fid:
+                            setattr(album, f"{fmt}_zip_size", None)
+                        local_sess.add(album)
+                        await local_sess.commit()
+                        gofile_url = None
+
+                # If neither Telegram zip_fid nor working gofile_url exists, treat as uncached
+                if not zip_fid and not gofile_url:
+                    return None, None, None
+
+                return zip_fid, gofile_url, zip_size
         except Exception as e:
             if attempt == 0:
                 print("Missing album columns or DB error in get_cached_album_zip. Auto-applying migration...")
@@ -621,6 +749,40 @@ async def backfill_missing_zip_sizes(bot: Optional[Any] = None) -> dict:
 
     return stats
 
+
+async def get_or_create_user(session: async_session, user_id: int) -> User:
+    """
+    Retrieves user from database or creates a new entry with default settings.
+    """
+    stmt = select(User).where(User.user_id == user_id)
+    res = await session.exec(stmt)
+    user = res.first()
+    if not user:
+        user = User(user_id=user_id, preferred_format="alac")
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+    return user
+
+
+async def set_user_preferred_format(session: async_session, user_id: int, format_type: str) -> str:
+    """
+    Updates the user's preferred audio download format (e.g., 'alac', 'flac', 'mp3', 'aac', 'atmos').
+    """
+    user = await get_or_create_user(session, user_id)
+    user.preferred_format = format_type.lower().strip()
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user.preferred_format
+
+
+async def get_user_preferred_format(session: async_session, user_id: int) -> str:
+    """
+    Returns user's preferred format, defaulting to 'alac'.
+    """
+    user = await get_or_create_user(session, user_id)
+    return user.preferred_format or "alac"
 
 
 async def main():

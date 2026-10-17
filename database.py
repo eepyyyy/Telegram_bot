@@ -120,6 +120,7 @@ class MVTracks(SQLModel, table=True):
     message_id: Optional[int] = Field(default=None)
     resolution: Optional[str] = Field(default=None)
     codec: Optional[str] = Field(default=None)
+    gofile_url: Optional[str] = Field(default=None)
     updated_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
 
 
@@ -135,6 +136,7 @@ class User(SQLModel, table=True):
     downloaded_today: Optional[int] = Field(default=0)
     last_download: date = Field(default_factory=date.today)
     download_count: Optional[int] = Field(default=0)
+    preferred_format: Optional[str] = Field(default="alac")
 
 
 class DownloadHistory(SQLModel, table=True):
@@ -191,6 +193,7 @@ async def init_db():
         "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS message_id INT;",
         "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS resolution VARCHAR;",
         "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS codec VARCHAR;",
+        "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS gofile_url VARCHAR;",
         "ALTER TABLE mv_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_file_id VARCHAR;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_file_id VARCHAR;",
@@ -201,6 +204,7 @@ async def init_db():
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS alac_zip_size BIGINT;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS aac_zip_size BIGINT;",
         "ALTER TABLE albums ADD COLUMN IF NOT EXISTS atmos_zip_size BIGINT;",
+        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS preferred_format VARCHAR DEFAULT 'alac';",
         "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
         "CREATE INDEX IF NOT EXISTS idx_tracks_combined_search ON tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
         "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",

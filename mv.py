@@ -40,40 +40,11 @@ def human_size(num_bytes: float) -> str:
 
 
 async def upload_to_gofile(file_path: str) -> dict:
-    """Upload a file to gofile.io using the account token (via requests in a thread, to avoid
-    an aiohttp streaming quirk against gofile's upload servers)."""
-    headers = {"Authorization": f"Bearer {GOFILE_TOKEN}"} if GOFILE_TOKEN else {}
-    loop = asyncio.get_running_loop()
-
-    def _do_upload():
-        with open(file_path, "rb") as f:
-            files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
-            return requests.post(
-                "https://upload.gofile.io/uploadfile",
-                files=files,
-                headers=headers,
-                timeout=600,
-            )
-
-    resp = await loop.run_in_executor(None, _do_upload)
-
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError(
-            f"gofile returned non-JSON response (HTTP {resp.status_code}): {resp.text[:500]}"
-        )
-
-    if resp.status_code != 200 or data.get("status") != "ok":
-        raise RuntimeError(f"gofile upload failed (HTTP {resp.status_code}): {data}")
-
-    file_info = data["data"]
-    return {
-        "name": file_info.get("name", os.path.basename(file_path)),
-        "size": file_info.get("size", os.path.getsize(file_path)),
-        "mimeType": file_info.get("mimetype", "unknown"),
-        "link": file_info.get("downloadPage"),
-    }
+    """Upload a file to gofile.io using the account token and return file info dict."""
+    res = await utils.upload_to_gofile_full(file_path)
+    if not res:
+        raise RuntimeError(f"GoFile upload failed for {file_path}")
+    return res
 
 
 async def get_video_metadata(file_path: str) -> dict:
@@ -291,6 +262,103 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         except Exception:
             pass
         return
+
+    # Check cache for video (checks GoFile aliveness and Telegram cache)
+    if len(songs) == 1:
+        song = songs[0]
+        cached_mv = await crud.get_cached_mv_track(
+            song_id=song.song_id,
+            resolution=resolution,
+            codec=codec
+        )
+        if cached_mv:
+            delivered = False
+            title_str = cached_mv.title or song.title or "Music Video"
+            artist_str = cached_mv.artist or song.artist or "Unknown Artist"
+            size_str = f"\n💾 <b>Size:</b> {human_size(cached_mv.size)}" if cached_mv.size else ""
+            res_val = cached_mv.resolution or (resolution.upper() if resolution else "Auto")
+
+            caption = (
+                f"🎬 <b>{html.escape(title_str)} - {html.escape(artist_str)}</b>\n"
+                f"{size_str}\n"
+                f"📺 <b>Resolution:</b> {res_val}\n"
+                f"⚡ <i>Delivered from cache</i>"
+            )
+            reply_markup = None
+            if cached_mv.gofile_url:
+                caption += f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{cached_mv.gofile_url}'>High-Speed Link</a>"
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_mv.gofile_url)]
+                ])
+
+            from utils import bot
+            if cached_mv.chat_id and cached_mv.message_id:
+                try:
+                    await bot.copy_message(
+                        chat_id=user_id_local,
+                        from_chat_id=cached_mv.chat_id,
+                        message_id=cached_mv.message_id,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                    delivered = True
+                except Exception as e:
+                    print(f"Failed to copy cached MV message: {e}")
+
+            if not delivered and cached_mv.file_id:
+                try:
+                    await bot.send_video(
+                        chat_id=user_id_local,
+                        video=cached_mv.file_id,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                    delivered = True
+                except Exception as e:
+                    print(f"Failed to send cached MV file_id: {e}")
+
+            if not delivered and cached_mv.gofile_url:
+                try:
+                    await msg.answer(
+                        f"🎬 <b>{html.escape(title_str)} - {html.escape(artist_str)}</b>\n"
+                        f"{size_str}\n"
+                        f"📺 <b>Resolution:</b> {res_val}\n\n"
+                        f"⚡ <i>Delivered from cache:</i>\n"
+                        f"🌐 <a href='{cached_mv.gofile_url}'><b>Download Video on GoFile</b></a>",
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                    delivered = True
+                except Exception as e:
+                    print(f"Failed to answer with GoFile cached link: {e}")
+
+            if delivered:
+                mv_in_queue.discard(user_id_local)
+                try:
+                    await status_msg.edit_text("✅ Music Video delivered from cache!\n\n🌐 Streaming Link: https://stream.eepy.in/")
+                except Exception:
+                    pass
+                async with async_session() as session:
+                    u_res = await session.exec(select(User).where(User.user_id == user_id_local))
+                    u_obj = u_res.first()
+                    if u_obj:
+                        u_obj.download_count += 1
+                        if not u_obj.is_premium:
+                            u_obj.downloaded_today += 1
+                        session.add(u_obj)
+                        await session.commit()
+                    await crud.log_download(
+                        session=session,
+                        user_id=user_id_local,
+                        song_id=song.song_id,
+                        format_type="mv",
+                        size=cached_mv.size or 0,
+                        is_cached=True
+                    )
+                    await session.commit()
+                return
 
     # Queue the missing video tracks
     mv_pending_jobs[user_id_local] = len(tracks_to_download)
@@ -542,9 +610,12 @@ async def process_mv_download(task: dict) -> None:
                         utils.extract_track_metadata, file_path
                     )
 
+                    file_size = os.path.getsize(file_path)
+                    max_tg_size = 2000 * 1024 * 1024  # 2GB
+
                     if status_msg:
                         try:
-                            await status_msg.edit_text(f"🚀 <b>Uploading to gofile.io</b>\n{html.escape(human_size(os.path.getsize(file_path)))}")
+                            await status_msg.edit_text(f"🚀 <b>Processing & Uploading Music Video</b>\n{html.escape(human_size(file_size))}")
                         except Exception:
                             pass
 
@@ -554,15 +625,66 @@ async def process_mv_download(task: dict) -> None:
                             get_video_metadata(file_path),
                         )
                     except Exception as e:
-                        print(f"Failed to upload or get metadata: {e}")
+                        print(f"Failed to upload to GoFile or probe metadata: {e}")
                         gofile_data = None
                         meta = {}
 
-                    if gofile_data:
-                        resolution = f"{meta['width']}x{meta['height']}" if meta.get("width") else "unknown"
-                        fps_str = f" @ {meta['fps']:.0f}fps" if meta.get("fps") else ""
-                        name_str = f"{track_title} - {artist}" if track_title else gofile_data['name']
+                    gofile_url = gofile_data.get("link") if gofile_data else None
+                    resolution = f"{meta['width']}x{meta['height']}" if meta.get("width") else (requested_resolution or "unknown")
+                    fps_str = f" @ {meta['fps']:.0f}fps" if meta.get("fps") else ""
+                    name_str = f"{track_title} - {artist}" if track_title else (gofile_data.get('name') if gofile_data else os.path.basename(file_path))
 
+                    reply_markup = None
+                    if gofile_url:
+                        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=gofile_url)]
+                        ])
+
+                    sent_msg = None
+                    saved_chat_id = None
+                    saved_message_id = None
+                    file_id = None
+
+                    # If file size <= 2GB: DUAL UPLOAD to Telegram
+                    if file_size <= max_tg_size:
+                        tg_caption = (
+                            f"🎬 <b>{html.escape(name_str)}</b>\n\n"
+                            f"💾 <b>Size:</b> {human_size(file_size)}\n"
+                            f"📺 <b>Resolution:</b> {resolution}{fps_str}\n"
+                            f"⏱ <b>Duration:</b> {meta.get('duration', 'unknown')}\n"
+                            f"🎞 <b>Codec:</b> {html.escape(meta.get('codec', requested_codec or 'unknown'))}"
+                        )
+                        if gofile_url:
+                            tg_caption += f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{gofile_url}'>High-Speed Link</a>"
+
+                        duration_sec = 0
+                        if "duration" in meta and ":" in meta["duration"]:
+                            try:
+                                d_parts = meta["duration"].split(":")
+                                duration_sec = int(d_parts[0]) * 60 + int(d_parts[1])
+                            except Exception:
+                                duration_sec = 0
+
+                        from utils import bot
+                        try:
+                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_video(
+                                bot=bot,
+                                user_chat_id=user_id_local,
+                                file_path=file_path,
+                                caption=tg_caption,
+                                thumbnail=thumbnail,
+                                duration=duration_sec,
+                                width=meta.get("width"),
+                                height=meta.get("height"),
+                                supports_streaming=True
+                            )
+                            if sent_msg and getattr(sent_msg, "video", None):
+                                file_id = sent_msg.video.file_id
+                        except Exception as te:
+                            print(f"Telegram video upload failed: {te}")
+
+                    # If > 2GB or Telegram upload failed, deliver via GoFile message
+                    if not sent_msg and gofile_data:
                         msg_text = (
                             f"🎬 <b>Music Video Downloaded</b>\n\n"
                             f"<b>Name:</b> <code>{html.escape(name_str)}</code>\n"
@@ -570,21 +692,18 @@ async def process_mv_download(task: dict) -> None:
                             f"<b>Resolution:</b> {resolution}{fps_str}\n"
                             f"<b>Duration:</b> {meta.get('duration', 'unknown')}\n"
                             f"<b>Codec:</b> {html.escape(meta.get('codec', 'unknown'))}\n"
-                            f"<b>Type:</b> <code>{html.escape(gofile_data['mimeType'])}</code>\n"
-                            f"<b>Link:</b> {gofile_data['link']}"
+                            f"<b>Type:</b> <code>{html.escape(gofile_data['mimeType'])}</code>\n\n"
+                            f"🌐 <b>Fast Download:</b> <a href='{gofile_url}'>GoFile Link</a>"
                         )
-
                         if msg:
                             sent_msg = await msg.answer(
                                 msg_text,
                                 link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+                                reply_markup=reply_markup,
                             )
-                        else:
-                            sent_msg = None
-                    else:
-                        sent_msg = None
 
-                    if gofile_data:
+                    # Update user quota and stats if either upload succeeded
+                    if sent_msg or gofile_data:
                         if user:
                             user.download_count += 1
                             if not user.is_premium:
@@ -592,28 +711,51 @@ async def process_mv_download(task: dict) -> None:
                             session.add(user)
                             await session.commit()
 
+                        # Match song id for logging and DB caching
+                        matched_song_id = None
+                        if isrc and songs:
+                            for s in songs:
+                                if s.isrc == isrc:
+                                    matched_song_id = s.song_id
+                                    break
+                        if not matched_song_id and songs:
+                            for s in songs:
+                                if utils.convert_text(s.title) == utils.convert_text(track_title):
+                                    matched_song_id = s.song_id
+                                    break
+                        if not matched_song_id and songs:
+                            matched_song_id = songs[0].song_id
+
+                        # Cache in MVTracks database
+                        try:
+                            if matched_song_id:
+                                await crud.save_cached_mv_track(
+                                    song_id=matched_song_id,
+                                    title=track_title or name_str,
+                                    artist=artist or "Unknown",
+                                    album=songs[0].album if songs else None,
+                                    album_id=songs[0].album_id if songs else None,
+                                    url=track_url,
+                                    isrc=isrc,
+                                    size=file_size,
+                                    resolution=resolution,
+                                    codec=meta.get("codec") or requested_codec,
+                                    chat_id=saved_chat_id,
+                                    message_id=saved_message_id,
+                                    file_id=file_id,
+                                    gofile_url=gofile_url,
+                                )
+                        except Exception as ce:
+                            print(f"Failed to cache MV track in DB: {ce}")
+
                         # Log download history
                         try:
-                            matched_song_id = None
-                            if isrc and songs:
-                                for s in songs:
-                                    if s.isrc == isrc:
-                                        matched_song_id = s.song_id
-                                        break
-                            if not matched_song_id and songs:
-                                for s in songs:
-                                    if utils.convert_text(s.title) == utils.convert_text(track_title):
-                                        matched_song_id = s.song_id
-                                        break
-                            if not matched_song_id and songs:
-                                matched_song_id = songs[0].song_id
-
                             await crud.log_download(
                                 session=session,
                                 user_id=user_id_local,
                                 song_id=matched_song_id,
                                 format_type="mv",
-                                size=gofile_data.get('size', 0),
+                                size=file_size,
                                 is_cached=False
                             )
                             await session.commit()

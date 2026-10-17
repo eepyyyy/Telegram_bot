@@ -18,18 +18,23 @@ from atmos import atmos, atmos_worker
 from lossless import lossless, lossless_worker
 from mv import mv, mv_worker, process_mv_enqueue
 from artist import test_router
-
 from help import help_router
+import converters
+import gamdlHelpUrl
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart, Command
-from aiogram.types import FSInputFile, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart, Command, CommandObject
+from aiogram.types import (
+    FSInputFile, Message, InlineKeyboardMarkup, InlineKeyboardButton,
+    InlineQuery, InlineQueryResultAudio, InlineQueryResultArticle, InputTextMessageContent
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.markdown import hbold, hcode, hunderline
-from sqlmodel import select
+from sqlmodel import select, or_, desc
 from dotenv import load_dotenv
-from database import User, get_session_maker
+from database import User, Tracks, AACTracks, AtmosTracks, get_session_maker
 from gamdlUrl import get_any_url, normalize_apple_music_url
 from gamdl.interface import AppleMusicInterface
 from queues import (
@@ -345,6 +350,14 @@ def decode_deeplink_url(start_param: str) -> str:
         return ""
 
 
+def encode_deeplink_url(url: str) -> str:
+    """Encodes Apple Music URL into Telegram start parameter (dl_base64)."""
+    if not url:
+        return ""
+    b64 = base64.urlsafe_b64encode(url.encode('utf-8')).decode('utf-8').rstrip('=')
+    return f"dl_{b64}"
+
+
 # Queue management for concurrent downloads
 
 def get_start_keyboard() -> InlineKeyboardMarkup:
@@ -429,18 +442,54 @@ async def cmd_start(msg: types.Message) -> None:
 @dp.message(lambda msg: bool(msg.text and not msg.text.startswith("/") and re.search(r"https?://", msg.text)))
 async def download_handle(msg: types.Message) -> None:
     """
-    Handles incoming messages: prompts user with delivery options for full albums,
-    or immediately queues single tracks/videos.
+    Handles incoming messages: resolves Spotify/YouTube/Tidal links to Apple Music,
+    prompts user with delivery options for full albums, or queues single tracks.
     """
     links = re.findall(r"https?://[^\s<>]+", msg.text)
     if not links:
         return
 
     if len(links) != 1:
-        await msg.answer("Please send exactly one Apple Music link.")
+        await msg.answer("Please send exactly one media link.")
         return
 
     url = links[0]
+
+    # 1. Cross-Platform Link Resolver (Spotify / YouTube / Tidal -> Apple Music)
+    cross_info = converters.is_cross_platform_url(url)
+    if cross_info:
+        platform, m_type = cross_info
+        status_msg = await msg.answer(
+            f"🔄 <b>Resolving {platform.capitalize()} link...</b>\n"
+            f"Searching Apple Music for high-resolution lossless match...",
+            parse_mode="HTML"
+        )
+        resolved_url, meta = await converters.resolve_cross_platform_link(url)
+        if not resolved_url:
+            try:
+                await status_msg.edit_text(
+                    f"❌ Could not find an exact Apple Music match for this {platform.capitalize()} link.\n"
+                    f"<i>Tip: Try sending the Apple Music link directly or searching via inline query.</i>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            return
+
+        matched_title = (meta or {}).get("matched_title") or (meta or {}).get("title") or "Track"
+        matched_artist = (meta or {}).get("matched_artist") or (meta or {}).get("artist") or "Artist"
+        try:
+            await status_msg.edit_text(
+                f"✨ <b>Matched on Apple Music:</b>\n"
+                f"🎵 <b>{html.escape(matched_title)}</b> — {html.escape(matched_artist)}\n"
+                f"⚡ Processing download...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        url = resolved_url
+        links = [resolved_url]
+
     if "music-video" in url:
         await process_mv_enqueue(msg, url)
         return
@@ -450,6 +499,14 @@ async def download_handle(msg: types.Message) -> None:
     if is_user_busy(user_id_local):
         await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
         return
+
+    # Check user preferred format
+    user_pref_fmt = "alac"
+    try:
+        async with async_session() as session:
+            user_pref_fmt = await crud.get_user_preferred_format(session, user_id_local)
+    except Exception:
+        pass
 
     norm_url = normalize_apple_music_url(url)
     try:
@@ -481,13 +538,13 @@ async def download_handle(msg: types.Message) -> None:
         artist = songs[0].artist or "Unknown Artist"
         track_count = len(songs)
 
-        prompt_key = f"{user_id_local}_{album_id}_alac"
+        prompt_key = f"{user_id_local}_{album_id}_{user_pref_fmt}"
         pending_album_prompts[prompt_key] = {
             "url": norm_url,
             "songs": songs,
             "msg": msg,
             "user_id": user_id_local,
-            "format": "alac",
+            "format": user_pref_fmt,
             "album_id": album_id,
             "album_title": album_title,
             "artist": artist
@@ -503,11 +560,19 @@ async def download_handle(msg: types.Message) -> None:
             types.InlineKeyboardButton(text="✖ Cancel", callback_data=f"alb_mode:cancel:{prompt_key}")
         )
 
+        fmt_display = {
+            "alac": "Lossless (ALAC)",
+            "flac": "Uncompressed FLAC",
+            "mp3": "MP3 320kbps",
+            "aac": "AAC 256kbps",
+            "atmos": "Dolby Atmos"
+        }.get(user_pref_fmt, user_pref_fmt.upper())
+
         prompt_text = (
             f"💿 <b>Album:</b> {hcode(album_title)}\n"
             f"👤 <b>Artist:</b> {hcode(artist)}\n"
             f"🎵 <b>Tracks:</b> {track_count} track(s)\n"
-            f"🎛 <b>Format:</b> Lossless (ALAC)\n\n"
+            f"🎛 <b>Format:</b> {fmt_display}\n\n"
             f"<b>Please choose delivery option:</b>"
         )
         try:
@@ -530,8 +595,549 @@ async def download_handle(msg: types.Message) -> None:
             "url": u,
             "msg": msg,
             "user_id": user_id_local,
-            "download_mode": "tracks"
+            "download_mode": "tracks",
+            "format_type": user_pref_fmt
         })
+
+
+@dp.message(Command("flac"))
+async def flac_download_command(msg: types.Message, command: CommandObject) -> None:
+    """
+    Handles /flac command: downloads ALAC master and transcodes on-the-fly to uncompressed FLAC container.
+    Supports Apple Music, Spotify, YouTube, and Tidal links.
+    """
+    raw_url = (command.args or "").strip()
+    if not raw_url:
+        usage_text = (
+            "<b>Apple Music FLAC Lossless Downloader</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/flac &lt;Apple Music / Spotify / YouTube URL&gt;</code>\n\n"
+            "• <b>Audio Quality:</b> 100% Bit-Perfect FLAC (Free Lossless Audio Codec)\n"
+            "• <b>Features:</b> Full Vorbis comments + embedded high-resolution album cover art\n"
+            "• <b>Compatibility:</b> Native playback on Android, Foobar2000, Linux, DAPs, and car stereos."
+        )
+        try:
+            await msg.answer(usage_text, parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
+    # Check cross-platform URL
+    url = raw_url
+    cross_info = converters.is_cross_platform_url(url)
+    if cross_info:
+        platform, _ = cross_info
+        status_msg = await msg.answer(f"🔄 <b>Resolving {platform.capitalize()} link...</b>", parse_mode="HTML")
+        resolved_url, meta = await converters.resolve_cross_platform_link(url)
+        if not resolved_url:
+            await status_msg.edit_text(f"❌ Could not match this {platform.capitalize()} link on Apple Music.", parse_mode="HTML")
+            return
+        matched_title = (meta or {}).get("matched_title") or (meta or {}).get("title") or "Track"
+        matched_artist = (meta or {}).get("matched_artist") or (meta or {}).get("artist") or "Artist"
+        try:
+            await status_msg.edit_text(
+                f"✨ <b>Matched on Apple Music:</b>\n🎵 <b>{html.escape(matched_title)}</b> — {html.escape(matched_artist)}\n⚡ Fetching FLAC audio...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        url = resolved_url
+
+    user_id_local = msg.from_user.id
+    if is_user_busy(user_id_local):
+        await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
+        return
+
+    user_in_queue.add(user_id_local)
+    user_pending_jobs[user_id_local] = 1
+    position = download_queue.qsize()
+    quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
+    ])
+    await msg.answer(f"🎼 Queued in FLAC mode (position #{position + 1}).", reply_markup=quit_kb)
+
+    await download_queue.put({
+        "url": url,
+        "msg": msg,
+        "user_id": user_id_local,
+        "download_mode": "tracks",
+        "format_type": "flac"
+    })
+
+
+@dp.message(Command("mp3"))
+async def mp3_download_command(msg: types.Message, command: CommandObject) -> None:
+    """
+    Handles /mp3 command: downloads studio master and transcodes on-the-fly to 320kbps MP3.
+    Supports Apple Music, Spotify, YouTube, and Tidal links.
+    """
+    raw_url = (command.args or "").strip()
+    if not raw_url:
+        usage_text = (
+            "<b>Apple Music MP3 Downloader</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/mp3 &lt;Apple Music / Spotify / YouTube URL&gt;</code>\n\n"
+            "• <b>Audio Quality:</b> Pristine 320kbps MP3 (LAME CBR)\n"
+            "• <b>Features:</b> Full ID3v2.3 tags + embedded album cover art (APIC)\n"
+            "• <b>Universal Compatibility:</b> Plays on virtually all devices, car stereos, and media players."
+        )
+        try:
+            await msg.answer(usage_text, parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
+    # Check cross-platform URL
+    url = raw_url
+    cross_info = converters.is_cross_platform_url(url)
+    if cross_info:
+        platform, _ = cross_info
+        status_msg = await msg.answer(f"🔄 <b>Resolving {platform.capitalize()} link...</b>", parse_mode="HTML")
+        resolved_url, meta = await converters.resolve_cross_platform_link(url)
+        if not resolved_url:
+            await status_msg.edit_text(f"❌ Could not match this {platform.capitalize()} link on Apple Music.", parse_mode="HTML")
+            return
+        matched_title = (meta or {}).get("matched_title") or (meta or {}).get("title") or "Track"
+        matched_artist = (meta or {}).get("matched_artist") or (meta or {}).get("artist") or "Artist"
+        try:
+            await status_msg.edit_text(
+                f"✨ <b>Matched on Apple Music:</b>\n🎵 <b>{html.escape(matched_title)}</b> — {html.escape(matched_artist)}\n⚡ Fetching MP3 audio...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        url = resolved_url
+
+    user_id_local = msg.from_user.id
+    if is_user_busy(user_id_local):
+        await msg.answer("⏳ You already have a download in progress. Please wait until it's finished.")
+        return
+
+    user_in_queue.add(user_id_local)
+    user_pending_jobs[user_id_local] = 1
+    position = download_queue.qsize()
+    quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
+    ])
+    await msg.answer(f"🎵 Queued in MP3 (320k) mode (position #{position + 1}).", reply_markup=quit_kb)
+
+    await download_queue.put({
+        "url": url,
+        "msg": msg,
+        "user_id": user_id_local,
+        "download_mode": "tracks",
+        "format_type": "mp3"
+    })
+
+
+@dp.message(Command("settings"))
+async def settings_command(msg: types.Message) -> None:
+    """
+    Displays user quality preference options.
+    """
+    user_id = msg.from_user.id
+    current_fmt = "alac"
+    try:
+        async with async_session() as session:
+            current_fmt = await crud.get_user_preferred_format(session, user_id)
+    except Exception:
+        pass
+
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if current_fmt == 'alac' else ''}🎛 ALAC Lossless", callback_data="set_fmt:alac"),
+        InlineKeyboardButton(text=f"{'✅ ' if current_fmt == 'flac' else ''}🎼 FLAC Lossless", callback_data="set_fmt:flac"),
+    )
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if current_fmt == 'mp3' else ''}🎵 MP3 320k", callback_data="set_fmt:mp3"),
+        InlineKeyboardButton(text=f"{'✅ ' if current_fmt == 'aac' else ''}🎧 AAC 256k", callback_data="set_fmt:aac"),
+    )
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if current_fmt == 'atmos' else ''}🌌 Dolby Atmos", callback_data="set_fmt:atmos"),
+    )
+
+    text = (
+        "⚙️ <b>Download & Audio Quality Settings</b>\n\n"
+        f"Current default format: <b>{current_fmt.upper()}</b>\n\n"
+        "Choose your preferred audio format. When you send any link directly to the bot, it will automatically download in this format:"
+    )
+    await msg.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@dp.callback_query(F.data.startswith("set_fmt:"))
+async def handle_set_format(call: types.CallbackQuery) -> None:
+    """
+    Saves user quality preference.
+    """
+    new_fmt = call.data.split(":")[1]
+    user_id = call.from_user.id
+    try:
+        async with async_session() as session:
+            saved_fmt = await crud.set_user_preferred_format(session, user_id, new_fmt)
+    except Exception:
+        saved_fmt = new_fmt
+
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if saved_fmt == 'alac' else ''}🎛 ALAC Lossless", callback_data="set_fmt:alac"),
+        InlineKeyboardButton(text=f"{'✅ ' if saved_fmt == 'flac' else ''}🎼 FLAC Lossless", callback_data="set_fmt:flac"),
+    )
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if saved_fmt == 'mp3' else ''}🎵 MP3 320k", callback_data="set_fmt:mp3"),
+        InlineKeyboardButton(text=f"{'✅ ' if saved_fmt == 'aac' else ''}🎧 AAC 256k", callback_data="set_fmt:aac"),
+    )
+    kb.row(
+        InlineKeyboardButton(text=f"{'✅ ' if saved_fmt == 'atmos' else ''}🌌 Dolby Atmos", callback_data="set_fmt:atmos"),
+    )
+
+    text = (
+        "⚙️ <b>Download & Audio Quality Settings</b>\n\n"
+        f"Default format updated to: <b>{saved_fmt.upper()}</b>\n\n"
+        "All future direct link downloads will use this format."
+    )
+    try:
+        await call.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await call.answer(f"✅ Preferred format set to {saved_fmt.upper()}!", show_alert=False)
+    except Exception:
+        pass
+
+
+@dp.message(Command("search", "s"))
+async def search_command(msg: types.Message, command: CommandObject) -> None:
+    """
+    Handles /search <query> and /s <query> command:
+    Searches both PostgreSQL cached tracks and the live Apple Music catalog,
+    presenting interactive 1-tap download/play buttons.
+    """
+    raw_query = (command.args or "").strip()
+    if not raw_query:
+        usage_text = (
+            "🔍 <b>Apple Music & Library Search</b>\n\n"
+            "Search across cached tracks and the full Apple Music catalog directly in this chat!\n\n"
+            "<b>Usage:</b>\n"
+            "• <code>/search &lt;song title, artist, or album&gt;</code>\n"
+            "• <code>/s &lt;query&gt;</code>\n\n"
+            "<b>Examples:</b>\n"
+            "• <code>/search Starboy</code>\n"
+            "• <code>/s Cruel Summer Taylor Swift</code>\n"
+            "• <code>/search After Hours The Weeknd</code>\n\n"
+            "<i>💡 Tip: You can also search live from any chat by typing <code>@applemusicdw_bot &lt;song&gt;</code></i>"
+        )
+        await msg.answer(usage_text, parse_mode="HTML")
+        return
+
+    status_msg = await msg.answer(f"🔍 <i>Searching for '<b>{html.escape(raw_query)}</b>'...</i>", parse_mode="HTML")
+
+    search_items = []
+    seen_song_ids = set()
+
+    # 1. Search PostgreSQL cached database tracks
+    try:
+        async with async_session() as session:
+            search_pat = f"%{raw_query.lower()}%"
+            stmt = (
+                select(Tracks)
+                .where(
+                    Tracks.file_id.is_not(None),
+                    or_(
+                        Tracks.title.ilike(search_pat),
+                        Tracks.artist.ilike(search_pat),
+                        Tracks.album.ilike(search_pat),
+                    )
+                )
+                .order_by(desc(Tracks.updated_at))
+                .limit(5)
+            )
+            cached_tracks = (await session.exec(stmt)).all()
+            for t in cached_tracks:
+                if t.song_id and t.song_id not in seen_song_ids:
+                    seen_song_ids.add(t.song_id)
+                    search_items.append({
+                        "id": t.song_id,
+                        "title": t.title or "Unknown Track",
+                        "artist": t.artist or "Unknown Artist",
+                        "album": t.album or "Unknown Album",
+                        "is_cached": True,
+                    })
+    except Exception as dbe:
+        print(f"Error querying DB in /search: {dbe}")
+
+    # 2. Search live Apple Music catalog via API
+    try:
+        api = await gamdlHelpUrl.get_api()
+        raw_res = await api.get_search_results(raw_query, limit=8)
+        songs_data = (raw_res.get("results", {}) if isinstance(raw_res, dict) else {}).get("songs", {}).get("data", [])
+        for s in songs_data:
+            sid = s.get("id")
+            if sid and sid not in seen_song_ids:
+                seen_song_ids.add(sid)
+                attrs = s.get("attributes", {})
+                search_items.append({
+                    "id": sid,
+                    "title": attrs.get("name", "Unknown Song"),
+                    "artist": attrs.get("artistName", "Unknown Artist"),
+                    "album": attrs.get("albumName", "Unknown Album"),
+                    "is_cached": False,
+                })
+    except Exception as ame:
+        print(f"Error querying Apple Music in /search: {ame}")
+
+    if not search_items:
+        try:
+            await status_msg.edit_text(
+                f"❌ No matching tracks found for '<b>{html.escape(raw_query)}</b>'.\n\n"
+                f"<i>Try searching with different keywords, artist name, or song title.</i>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+    # 3. Format response message & buttons
+    res_lines = [
+        f"🔍 <b>Search Results for:</b> <code>{html.escape(raw_query)}</code>\n",
+        "Tap a button below to download or play instantly:\n"
+    ]
+    buttons = []
+    for idx, item in enumerate(search_items[:8], 1):
+        badge = "⚡" if item["is_cached"] else "🎵"
+        clean_t = item['title'][:26] + ("…" if len(item['title']) > 26 else "")
+        clean_a = item['artist'][:18] + ("…" if len(item['artist']) > 18 else "")
+        btn_label = f"{badge} {idx}. {clean_t} — {clean_a}"
+
+        status_tag = " [Cached]" if item["is_cached"] else ""
+        res_lines.append(f"<b>{idx}.</b> {badge} <b>{html.escape(item['title'])}</b> — <i>{html.escape(item['artist'])}</i>{status_tag}")
+        buttons.append([InlineKeyboardButton(text=btn_label, callback_data=f"sdl:{item['id']}")])
+
+    buttons.append([
+        InlineKeyboardButton(text="🌐 Web Vault", url="https://stream.eepy.in/"),
+        InlineKeyboardButton(text="🗑 Close", callback_data="search_close")
+    ])
+
+    try:
+        await status_msg.edit_text(
+            "\n".join(res_lines),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"Failed to edit search status message: {e}")
+
+
+@dp.callback_query(F.data.startswith("sdl:"))
+async def handle_search_download_callback(call: types.CallbackQuery) -> None:
+    """
+    Handles clicking a song in /search results:
+    Delivers immediately from cache if available, or queues clean download.
+    """
+    song_id = call.data.split(":", 1)[1].strip()
+    await call.answer("⏳ Processing track selection...", show_alert=False)
+    user_id_local = call.from_user.id
+
+    if is_user_busy(user_id_local):
+        await call.message.answer("⏳ You already have an active download task in progress. Please wait until it completes.")
+        return
+
+    # 1. Instant delivery if already cached in Tracks DB!
+    async with async_session() as session:
+        stmt = select(Tracks).where(Tracks.song_id == str(song_id), Tracks.file_id.is_not(None))
+        track = (await session.exec(stmt)).first()
+        if track and track.file_id:
+            try:
+                caption_text = (
+                    f"🎵 <b>{html.escape(track.title or 'Unknown')}</b>\n"
+                    f"👤 <b>{html.escape(track.artist or 'Unknown Artist')}</b>\n"
+                    f"💿 <i>{html.escape(track.album or '')}</i>\n"
+                    f"⚡ <i>Delivered from cache (ALAC Lossless)</i>"
+                )
+                from utils import bot
+                await bot.send_audio(
+                    chat_id=user_id_local,
+                    audio=track.file_id,
+                    caption=caption_text,
+                    parse_mode="HTML"
+                )
+                await crud.log_download(
+                    session=session,
+                    user_id=user_id_local,
+                    song_id=str(song_id),
+                    format_type="alac",
+                    size=track.size or 0,
+                    is_cached=True
+                )
+                await session.commit()
+                return
+            except Exception as e:
+                print(f"Failed to deliver cached search audio {song_id}: {e}")
+
+    # 2. Not cached: queue download using Apple Music song URL
+    target_url = f"https://music.apple.com/song/{song_id}"
+    user_in_queue.add(user_id_local)
+    user_pending_jobs[user_id_local] = 1
+    position = download_queue.qsize()
+
+    async with async_session() as session:
+        pref_fmt = await crud.get_user_preferred_format(session, user_id_local)
+
+    await download_queue.put({
+        "url": target_url,
+        "msg": call.message,
+        "user_id": user_id_local,
+        "format_type": "alac"
+    })
+    quit_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🛑 Cancel / Manage Queue", callback_data=f"manage_cancel:{user_id_local}")]
+    ])
+    await call.message.answer(
+        f"✅ Queued download in <b>{pref_fmt.upper()}</b> at position #{position + 1}. Live progress will update below:",
+        reply_markup=quit_kb,
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data == "search_close")
+async def handle_search_close(call: types.CallbackQuery) -> None:
+    """Closes / removes search results widget."""
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+
+@dp.inline_query()
+async def handle_inline_query(inline_query: types.InlineQuery) -> None:
+    """
+    Handles Telegram inline search queries (@your_bot <query>).
+    1. If query is empty: returns recent cached tracks from PostgreSQL.
+    2. If query is provided:
+       - Searches PostgreSQL cached tracks (instant 1-tap playback via audio_file_id)
+       - Searches Apple Music API catalog for uncached tracks (provides 1-tap download deep link)
+    """
+    query_str = (inline_query.query or "").strip()
+    results = []
+    seen_song_ids = set()
+
+    try:
+        # 1. Search cached tracks in PostgreSQL
+        async with async_session() as session:
+            if not query_str or len(query_str) < 2:
+                stmt = (
+                    select(Tracks)
+                    .where(Tracks.file_id.is_not(None))
+                    .order_by(desc(Tracks.updated_at))
+                    .limit(15)
+                )
+            else:
+                search_pattern = f"%{query_str.lower()}%"
+                stmt = (
+                    select(Tracks)
+                    .where(
+                        Tracks.file_id.is_not(None),
+                        or_(
+                            Tracks.title.ilike(search_pattern),
+                            Tracks.artist.ilike(search_pattern),
+                            Tracks.album.ilike(search_pattern),
+                            Tracks.isrc.ilike(search_pattern),
+                        )
+                    )
+                    .order_by(desc(Tracks.updated_at))
+                    .limit(10)
+                )
+
+            cached_tracks = (await session.exec(stmt)).all()
+
+            for t in cached_tracks:
+                if not t.file_id or t.song_id in seen_song_ids:
+                    continue
+                seen_song_ids.add(t.song_id)
+
+                clean_title = t.title or "Unknown Track"
+                clean_artist = t.artist or "Unknown Artist"
+                clean_album = t.album or "Unknown Album"
+
+                caption_text = (
+                    f"🎵 <b>{html.escape(clean_title)}</b>\n"
+                    f"👤 <b>{html.escape(clean_artist)}</b>\n"
+                    f"💿 <i>{html.escape(clean_album)}</i>\n"
+                    f"⚡ <i>Lossless Audio (ALAC)</i>"
+                )
+
+                results.append(
+                    InlineQueryResultAudio(
+                        id=f"cached_{t.song_id}",
+                        audio_file_id=t.file_id,
+                        title=f"⚡ [CACHED] {clean_title}",
+                        performer=clean_artist,
+                        caption=caption_text,
+                        parse_mode="HTML"
+                    )
+                )
+
+        # 2. If query provided, search Apple Music catalog for uncached tracks
+        if query_str and len(query_str) >= 2 and len(results) < 15:
+            try:
+                api = await gamdlHelpUrl.get_api()
+                raw_res = await api.get_search_results(query_str, limit=10)
+                songs_data = (raw_res.get("results", {}) if isinstance(raw_res, dict) else {}).get("songs", {}).get("data", [])
+
+                bot_info = await inline_query.bot.get_me()
+                bot_username = bot_info.username or "applemusicdw_bot"
+
+                for s in songs_data:
+                    sid = s.get("id")
+                    if not sid or sid in seen_song_ids:
+                        continue
+                    seen_song_ids.add(sid)
+
+                    attrs = s.get("attributes", {})
+                    s_name = attrs.get("name", "Unknown Song")
+                    s_artist = attrs.get("artistName", "Unknown Artist")
+                    s_album = attrs.get("albumName", "Unknown Album")
+                    s_url = attrs.get("url", "")
+                    artwork_url = gamdlHelpUrl.get_artwork_url(attrs.get("artwork"), size=300)
+
+                    deeplink_param = encode_deeplink_url(s_url)
+                    download_url = f"https://t.me/{bot_username}?start={deeplink_param}"
+
+                    msg_text = (
+                        f"🎵 <b>{html.escape(s_name)}</b>\n"
+                        f"👤 <b>{html.escape(s_artist)}</b>\n"
+                        f"💿 <b>{html.escape(s_album)}</b>\n\n"
+                        f"🔗 {s_url}"
+                    )
+
+                    article_kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📥 Download via Bot", url=download_url)],
+                        [InlineKeyboardButton(text="🌐 Web Vault", url="https://stream.eepy.in/")]
+                    ])
+
+                    results.append(
+                        InlineQueryResultArticle(
+                            id=f"am_{sid}",
+                            title=f"📥 {s_name}",
+                            description=f"{s_artist} • {s_album} (Tap to download)",
+                            thumbnail_url=artwork_url,
+                            input_message_content=InputTextMessageContent(
+                                message_text=msg_text,
+                                parse_mode="HTML"
+                            ),
+                            reply_markup=article_kb
+                        )
+                    )
+            except Exception as am_err:
+                print(f"Error querying Apple Music catalog in inline query: {am_err}")
+
+        await inline_query.answer(
+            results=results,
+            cache_time=30,
+            is_personal=False
+        )
+    except Exception as e:
+        print(f"Inline query error: {e}")
+        try:
+            await inline_query.answer(results=[], cache_time=5)
+        except Exception:
+            pass
 
 
 @dp.callback_query(F.data.startswith("alb_mode:"))
@@ -587,30 +1193,39 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
         async with async_session() as session:
             cached_zip_id, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type=fmt)
             size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
+            gf_line = f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{cached_gofile_url}'>High-Speed Link</a>" if cached_gofile_url else ""
+            gf_markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_gofile_url)]]) if cached_gofile_url else None
+            delivered = False
             if cached_zip_id:
                 try:
                     await call.message.edit_text("⚡ Delivering cached album ZIP...")
                     await orig_msg.answer_document(
                         document=cached_zip_id,
-                        caption=f"📦 <b>{album_title}</b> ({fmt.upper()})\n👤 <i>{artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
-                        parse_mode="HTML"
+                        caption=f"📦 <b>{album_title}</b> ({fmt.upper()})\n👤 <i>{artist}</i>{size_line}{gf_line}\n⚡ <i>Delivered from cache</i>",
+                        parse_mode="HTML",
+                        reply_markup=gf_markup
                     )
                     await call.message.edit_text("✅ Album ZIP delivered from cache!")
-                    return
+                    delivered = True
                 except Exception as e:
                     print(f"Failed to deliver cached zip document {cached_zip_id}: {e}")
-            elif cached_gofile_url:
+
+            if not delivered and cached_gofile_url:
                 try:
                     await call.message.edit_text(
                         f"✅ <b>{album_title}</b> ({fmt.upper()})\n"
                         f"👤 <i>{artist}</i>{size_line}\n\n"
                         f"⚡ <i>Delivered from cache:</i>\n"
                         f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        reply_markup=gf_markup
                     )
-                    return
+                    delivered = True
                 except Exception:
                     pass
+
+            if delivered:
+                return
 
     # Enqueue to appropriate queue based on fmt
     if fmt == "aac":
@@ -650,9 +1265,9 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
     else:
         user_in_queue.add(user_id)
         user_pending_jobs[user_id] = 1
-        pos = download_queue.qsize()
+        format_label = fmt.upper()
         try:
-            await call.message.edit_text(f"Queued ALAC album in {mode.upper()} mode (starting at position {pos + 1})...")
+            await call.message.edit_text(f"Queued {format_label} album in {mode.upper()} mode (starting at position {pos + 1})...")
         except Exception:
             pass
         await download_queue.put({
@@ -662,7 +1277,8 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
             "status_msg": call.message,
             "download_mode": mode,
             "album_id": album_id,
-            "songs": songs
+            "songs": songs,
+            "format_type": fmt
         })
 
 
@@ -778,26 +1394,38 @@ async def process_download(task: dict) -> None:
             async with async_session() as session:
                 cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="alac")
                 size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
+                gf_line = f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{cached_gofile_url}'>High-Speed Link</a>" if cached_gofile_url else ""
+                gf_markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_gofile_url)]]) if cached_gofile_url else None
+                delivered = False
                 if cached_zip_fid:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n👤 <i>{songs[0].artist}</i>{size_line}\n⚡ <i>Delivered from cache</i>",
-                            parse_mode="HTML"
+                            caption=f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n👤 <i>{songs[0].artist}</i>{size_line}{gf_line}\n⚡ <i>Delivered from cache</i>",
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
                         )
                         await status_msg.edit_text("✅ Album ZIP delivered from cache!")
-                        return
+                        delivered = True
                     except Exception as e:
                         print(f"Failed to deliver cached ALAC zip document: {e}")
-                elif cached_gofile_url:
-                    await msg.answer(
-                        f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n"
-                        f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
-                        f"⚡ <i>Delivered from cache:</i>\n"
-                        f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                        parse_mode="HTML"
-                    )
-                    await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+
+                if not delivered and cached_gofile_url:
+                    try:
+                        await msg.answer(
+                            f"📦 <b>{songs[0].album}</b> (Lossless ALAC)\n"
+                            f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
+                            f"⚡ <i>Delivered from cache:</i>\n"
+                            f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
+                        )
+                        await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                        delivered = True
+                    except Exception as e:
+                        print(f"Failed to deliver cached ALAC GoFile link: {e}")
+
+                if delivered:
                     return
 
         # 2. Check database for existing file_ids (for tracks/both modes)
@@ -1089,6 +1717,14 @@ async def process_download(task: dict) -> None:
                                     pass
                                 return
 
+                        # Check if transcoding is requested (FLAC or MP3)
+                        requested_fmt = str(task.get("format_type", "alac")).lower().strip()
+                        orig_file_path = file_path
+                        if requested_fmt in ("flac", "mp3"):
+                            transcoded_path = await utils.transcode_audio(file_path, target_format=requested_fmt, remove_source=False)
+                            if transcoded_path and os.path.exists(transcoded_path):
+                                file_path = transcoded_path
+
                         # Extract metadata and upload
                         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
                             utils.extract_track_metadata, file_path
@@ -1205,6 +1841,8 @@ async def process_download(task: dict) -> None:
                         if download_mode == "tracks":
                             try:
                                 await asyncio.to_thread(os.remove, file_path)
+                                if orig_file_path != file_path and os.path.exists(orig_file_path):
+                                    await asyncio.to_thread(os.remove, orig_file_path)
                             except Exception as e:
                                 print(f"Failed to delete {file_path}: {e}")
 
@@ -1226,19 +1864,31 @@ async def process_download(task: dict) -> None:
             # Save cover art and all lyric formats into folder
             await utils.save_album_cover_and_lyrics(songs, task_output_dir)
 
+            # Transcode all album tracks to target format if FLAC or MP3 is requested
+            requested_fmt = str(task.get("format_type", "alac")).lower().strip()
+            if requested_fmt in ("flac", "mp3"):
+                for root, _, files in os.walk(task_output_dir):
+                    for f in files:
+                        if f.endswith(".m4a"):
+                            orig_m4a = os.path.join(root, f)
+                            await utils.transcode_audio(orig_m4a, target_format=requested_fmt, remove_source=True)
+                fmt_label = requested_fmt.upper()
+            else:
+                fmt_label = "Lossless ALAC"
+
             # Build ZIP archive
             album_title = songs[0].album or "Album"
             artist = songs[0].artist or "Unknown Artist"
             clean_album = re.sub(r'[\\/*?:"<>|]', "", album_title)
             clean_artist = re.sub(r'[\\/*?:"<>|]', "", artist)
-            zip_filename = f"{clean_artist} - {clean_album} [Lossless ALAC].zip"
+            zip_filename = f"{clean_artist} - {clean_album} [{fmt_label}].zip"
             zip_path = os.path.join(os.path.dirname(task_output_dir), zip_filename)
 
             await utils.create_album_zip(task_output_dir, zip_path)
             zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
 
             caption = (
-                f"📦 <b>{album_title}</b> (Lossless ALAC)\n"
+                f"📦 <b>{album_title}</b> ({fmt_label})\n"
                 f"👤 <i>{artist}</i>\n"
                 f"💾 <b>Size:</b> {utils.human_size(zip_size)}\n"
                 f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
@@ -1508,6 +2158,10 @@ async def on_startup(bot: Bot) -> None:
     try:
         await bot.set_my_commands([
             types.BotCommand(command="start", description="Start the bot & landing dashboard"),
+            types.BotCommand(command="search", description="Search songs across Apple Music & Database"),
+            types.BotCommand(command="flac", description="Download in bit-perfect FLAC format"),
+            types.BotCommand(command="mp3", description="Download in 320kbps MP3 format"),
+            types.BotCommand(command="settings", description="Configure your preferred audio format"),
             types.BotCommand(command="cancel", description="Quit/clear your queue & start fresh"),
             types.BotCommand(command="lossless", description="Download in regular Lossless (up to 48kHz)"),
             types.BotCommand(command="artist", description="Download artist top tracks or catalog"),

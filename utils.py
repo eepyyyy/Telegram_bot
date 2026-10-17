@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import time
 import unicodedata
 from typing import Tuple, Optional
 
@@ -30,7 +31,7 @@ def convert_text(s: str) -> str:
 
 def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedInputFile], Optional[int], Optional[str]]:
     """
-    Extracts track metadata (title, artist, cover, duration, isrc) directly from an .m4a/.m4v/.mp4 file.
+    Extracts track metadata (title, artist, cover, duration, isrc) from .m4a/.m4v/.mp4/.flac/.mp3.
     
     Args:
         file_path: The path to the media file.
@@ -38,33 +39,65 @@ def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedI
     Returns:
         A tuple containing (title, artist, thumbnail, duration, isrc).
     """
+    fallback_stem = os.path.splitext(os.path.basename(file_path))[0]
+    ext = os.path.splitext(file_path)[1].lower()
+
     try:
-        audio = MP4(file_path)
+        if ext == ".flac":
+            from mutagen.flac import FLAC
+            audio = FLAC(file_path)
+            title = audio.get("title", [fallback_stem])[0]
+            artist = audio.get("artist", ["Unknown Artist"])[0]
+            duration = int(audio.info.length) if audio.info else None
+            isrc = audio.get("isrc", [None])[0]
+            thumbnail = None
+            if audio.pictures:
+                thumbnail = BufferedInputFile(audio.pictures[0].data, filename="thumb.jpg")
+            return title, artist, thumbnail, duration, isrc
 
-        artist = audio.tags.get('\xa9ART', ['Unknown Artist'])[0]
-        fallback_stem = os.path.splitext(os.path.basename(file_path))[0]
-        title = audio.tags.get('\xa9nam', [fallback_stem])[0]
-        duration = int(audio.info.length) if audio.info else None
+        elif ext == ".mp3":
+            from mutagen.mp3 import MP3
+            audio = MP3(file_path)
+            title = fallback_stem
+            artist = "Unknown Artist"
+            isrc = None
+            thumbnail = None
+            if audio.tags:
+                title = str(audio.tags.get("TIT2", fallback_stem))
+                artist = str(audio.tags.get("TPE1", "Unknown Artist"))
+                if "TSRC" in audio.tags:
+                    isrc = str(audio.tags["TSRC"])
+                for frame in audio.tags.values():
+                    if frame.FrameID == "APIC":
+                        thumbnail = BufferedInputFile(frame.data, filename="thumb.jpg")
+                        break
+            duration = int(audio.info.length) if audio.info else None
+            return title, artist, thumbnail, duration, isrc
 
-        isrc = None
-        if '----:com.apple.itunes:ISRC' in audio.tags:
-            isrc_item = audio.tags['----:com.apple.itunes:ISRC'][0]
-            try:
-                isrc = bytes(isrc_item).decode('utf-8', errors='ignore')
-            except Exception:
-                isrc = str(isrc_item)
+        else:
+            audio = MP4(file_path)
+            artist = audio.tags.get('\xa9ART', ['Unknown Artist'])[0]
+            title = audio.tags.get('\xa9nam', [fallback_stem])[0]
+            duration = int(audio.info.length) if audio.info else None
 
-        thumbnail = None
-        if 'covr' in audio.tags:
-            cover_item = audio.tags['covr'][0]
-            cover_data = bytes(cover_item)
-            thumbnail = BufferedInputFile(cover_data, filename='thumb.jpg')
-            
-        return title, artist, thumbnail, duration, isrc
+            isrc = None
+            if '----:com.apple.itunes:ISRC' in audio.tags:
+                isrc_item = audio.tags['----:com.apple.itunes:ISRC'][0]
+                try:
+                    isrc = bytes(isrc_item).decode('utf-8', errors='ignore')
+                except Exception:
+                    isrc = str(isrc_item)
+
+            thumbnail = None
+            if 'covr' in audio.tags:
+                cover_item = audio.tags['covr'][0]
+                cover_data = bytes(cover_item)
+                thumbnail = BufferedInputFile(cover_data, filename='thumb.jpg')
+                
+            return title, artist, thumbnail, duration, isrc
     except Exception as e:
         print(f"Failed to read metadata tags from {file_path}: {e}")
-        fallback_title = os.path.splitext(os.path.basename(file_path))[0]
-        return fallback_title, "Unknown Artist", None, None, None
+        return fallback_stem, "Unknown Artist", None, None, None
 
 
 STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "").strip().strip('"').strip("'")
@@ -213,51 +246,422 @@ async def copy_to_storage_channel(bot, sent_msg) -> Tuple[int, int]:
 
 
 GOFILE_TOKEN = os.getenv("GOFILE_TOKEN", "CR0Kk4oUyhz1I83ygKZWFIjZkxhZ8F9j")
+_GOFILE_SALT = "12af056dacea0b"
 
 
-async def upload_to_gofile(file_path: str, token: str = GOFILE_TOKEN) -> Optional[str]:
+def extract_gofile_content_id(url: str) -> Optional[str]:
+    """Extracts the GoFile folder or file content ID from a link."""
+    if not url:
+        return None
+    match = re.search(r"gofile\.io/d/([a-zA-Z0-9_-]+)", url)
+    if match:
+        return match.group(1)
+    cleaned = url.strip()
+    if re.fullmatch(r"[a-zA-Z0-9_-]{6,36}", cleaned):
+        return cleaned
+    return None
+
+
+def _get_salt_via_node() -> str:
+    """Dynamically extracts current GoFile salt from wt.obf.js if node is available."""
+    try:
+        import subprocess
+        cmd = [
+            "node", "-e",
+            "const https = require('https');"
+            "https.get('https://gofile.io/js/wt.obf.js', res => {"
+            "  let d = ''; res.on('data', c => d += c);"
+            "  res.on('end', () => {"
+            "    global.window = global;"
+            "    global.document = { querySelector: () => null, cookie: '' };"
+            "    global.location = { href: 'https://gofile.io', hostname: 'gofile.io' };"
+            "    global.navigator = { userAgent: 'test', language: 'en-US' };"
+            "    eval(d + ';global.a0_0x4a47 = a0_0x4a47;');"
+            "    console.log(global.a0_0x4a47(0x195, '\\x33\\x62\\x5d\\x25'));"
+            "  });"
+            "});"
+        ]
+        out = subprocess.check_output(cmd, text=True, timeout=8).strip()
+        if out and len(out) >= 8:
+            return out
+    except Exception:
+        pass
+    return "12af056dacea0b"
+
+
+async def is_gofile_link_alive(gofile_url: str, token: str = GOFILE_TOKEN) -> bool:
     """
-    Uploads a file to GoFile.io using the REST API and returns the downloadPage URL.
+    Checks whether a GoFile download link (e.g. https://gofile.io/d/XXXXXX) is still valid/alive.
+    Returns True if content exists and is accessible.
+    Returns False if the link has expired, been deleted, or is not found.
     """
+    global _GOFILE_SALT
+    content_id = extract_gofile_content_id(gofile_url)
+    if not content_id:
+        return False
+
     import aiohttp
+    import hashlib
+
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    lang = "en-US"
+
+    for attempt in range(2):
+        time_slot = int(time.time()) // 14400
+        raw = f"{user_agent}::{lang}::{token}::{time_slot}::{_GOFILE_SALT}"
+        wt = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+        headers = {
+            "User-Agent": user_agent,
+            "Accept-Language": lang,
+            "X-BL": lang,
+            "X-Website-Token": wt,
+            "Authorization": f"Bearer {token}",
+        }
+
+        api_url = f"https://api.gofile.io/contents/{content_id}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        res = await resp.json()
+                        st = res.get("status")
+                        if st == "ok":
+                            data = res.get("data", {})
+                            if data.get("canAccess", True) is not False:
+                                return True
+                            return False
+                        elif st == "error-token" and attempt == 0:
+                            _GOFILE_SALT = await asyncio.to_thread(_get_salt_via_node)
+                            continue
+                        elif st == "error-notFound":
+                            return False
+                    elif resp.status in (404, 410):
+                        return False
+        except Exception as e:
+            print(f"Error checking GoFile link aliveness for {gofile_url}: {e}")
+            return False
+
+    return False
+
+
+async def upload_to_gofile_full(file_path: str, token: str = GOFILE_TOKEN) -> Optional[dict]:
+    """
+    Uploads a file to GoFile.io using the account token (via requests in a thread executor)
+    and returns a file info dict with name, size, mimeType, downloadPage, and direct id.
+    """
     if not os.path.exists(file_path):
         return None
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            # 1. Get best upload server
-            async with session.get("https://api.gofile.io/servers", timeout=aiohttp.ClientTimeout(total=15)) as s_resp:
-                s_data = await s_resp.json()
-                if s_data.get("status") != "ok" or not s_data.get("data", {}).get("servers"):
-                    server_name = "store1"
-                else:
-                    server_name = s_data["data"]["servers"][0]["name"]
+    import requests
+    loop = asyncio.get_running_loop()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-            # 2. Upload file via multipart stream
-            upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
-            file_name = os.path.basename(file_path)
-            
-            with open(file_path, "rb") as f_obj:
-                form = aiohttp.FormData()
-                form.add_field("file", f_obj, filename=file_name)
-                headers = {"Authorization": f"Bearer {token}"} if token else {}
-                
-                async with session.post(
-                    upload_url,
-                    data=form,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=1800)  # 30 min for large files
-                ) as up_resp:
-                    result = await up_resp.json()
-                    if result.get("status") == "ok":
-                        download_page = result.get("data", {}).get("downloadPage")
-                        print(f"GoFile upload successful: {download_page}")
-                        return download_page
-                    else:
-                        print(f"GoFile upload error response: {result}")
+    def _do_upload():
+        with open(file_path, "rb") as f:
+            files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
+            return requests.post(
+                "https://upload.gofile.io/uploadfile",
+                files=files,
+                headers=headers,
+                timeout=1800,
+            )
+
+    try:
+        resp = await loop.run_in_executor(None, _do_upload)
+        data = resp.json()
+        if resp.status_code == 200 and data.get("status") == "ok":
+            file_info = data.get("data", {})
+            download_page = file_info.get("downloadPage")
+            print(f"GoFile upload successful: {download_page}")
+            return {
+                "name": file_info.get("name", os.path.basename(file_path)),
+                "size": file_info.get("size", os.path.getsize(file_path)),
+                "mimeType": file_info.get("mimetype", "unknown"),
+                "link": download_page,
+                "downloadPage": download_page,
+                "id": file_info.get("id"),
+            }
+        else:
+            print(f"GoFile upload returned error: {data}")
     except Exception as e:
         print(f"Failed to upload {file_path} to GoFile: {e}")
     return None
+
+
+async def upload_to_gofile(file_path: str, token: str = GOFILE_TOKEN) -> Optional[str]:
+    """Uploads file to GoFile and returns downloadPage URL."""
+    info = await upload_to_gofile_full(file_path, token=token)
+    return info.get("downloadPage") if info else None
+
+
+async def transcode_to_flac(input_path: str, remove_source: bool = False) -> Optional[str]:
+    """
+    Transcodes an audio file (e.g. ALAC/AAC .m4a) to lossless .flac using FFmpeg.
+    Preserves all Vorbis tags (TITLE, ARTIST, ALBUM, TRACKNUMBER, DISCNUMBER, DATE, ISRC)
+    and extracts/embeds the high-res album cover art into the FLAC container.
+    Returns the path to the transcoded .flac file or None on failure.
+    """
+    if not os.path.exists(input_path):
+        return None
+
+    base, _ = os.path.splitext(input_path)
+    output_flac = f"{base}.flac"
+
+    # Extract tags and cover art from source .m4a
+    title = None
+    artist = None
+    album = None
+    isrc = None
+    track_num = None
+    disc_num = None
+    date_val = None
+    cover_data = None
+
+    try:
+        from mutagen.mp4 import MP4
+        src = MP4(input_path)
+        if src.tags:
+            title = src.tags.get('\xa9nam', [None])[0]
+            artist = src.tags.get('\xa9ART', [None])[0]
+            album = src.tags.get('\xa9alb', [None])[0]
+            date_val = src.tags.get('\xa9day', [None])[0]
+            if 'trkn' in src.tags and src.tags['trkn']:
+                track_num = str(src.tags['trkn'][0][0])
+            if 'disk' in src.tags and src.tags['disk']:
+                disc_num = str(src.tags['disk'][0][0])
+            if '----:com.apple.itunes:ISRC' in src.tags:
+                try:
+                    isrc = bytes(src.tags['----:com.apple.itunes:ISRC'][0]).decode('utf-8', errors='ignore')
+                except Exception:
+                    isrc = str(src.tags['----:com.apple.itunes:ISRC'][0])
+            if 'covr' in src.tags and src.tags['covr']:
+                cover_data = bytes(src.tags['covr'][0])
+    except Exception as e:
+        print(f"[Transcode FLAC] Error reading source tags from {input_path}: {e}")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-map", "0:a:0",
+        "-c:a", "flac",
+        "-compression_level", "8",
+        output_flac
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            print(f"[Transcode FLAC] FFmpeg failed ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+            if os.path.exists(output_flac):
+                try:
+                    os.remove(output_flac)
+                except Exception:
+                    pass
+            return None
+
+        # Write Vorbis tags and Picture to FLAC
+        def tag_flac():
+            from mutagen.flac import FLAC, Picture
+            audio = FLAC(output_flac)
+            if title:
+                audio["title"] = title
+            if artist:
+                audio["artist"] = artist
+            if album:
+                audio["album"] = album
+            if track_num:
+                audio["tracknumber"] = track_num
+            if disc_num:
+                audio["discnumber"] = disc_num
+            if date_val:
+                audio["date"] = str(date_val)
+            if isrc:
+                audio["isrc"] = isrc
+
+            if cover_data:
+                pic = Picture()
+                pic.type = 3  # front cover
+                pic.mime = "image/jpeg"
+                pic.desc = "Front Cover"
+                pic.data = cover_data
+                audio.add_picture(pic)
+            elif os.path.exists(os.path.join(os.path.dirname(input_path), "Cover.jpg")):
+                try:
+                    with open(os.path.join(os.path.dirname(input_path), "Cover.jpg"), "rb") as cf:
+                        pic = Picture()
+                        pic.type = 3
+                        pic.mime = "image/jpeg"
+                        pic.desc = "Front Cover"
+                        pic.data = cf.read()
+                        audio.add_picture(pic)
+                except Exception:
+                    pass
+            audio.save()
+
+        await asyncio.to_thread(tag_flac)
+
+        if remove_source and os.path.exists(input_path) and input_path != output_flac:
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+
+        print(f"[Transcode FLAC] Successfully transcoded {input_path} -> {output_flac}")
+        return output_flac
+    except Exception as e:
+        print(f"[Transcode FLAC] Exception: {e}")
+        return None
+
+
+async def transcode_to_mp3(input_path: str, bitrate: str = "320k", remove_source: bool = False) -> Optional[str]:
+    """
+    Transcodes an audio file (e.g. ALAC/AAC .m4a) to pristine MP3 (320kbps CBR) using FFmpeg.
+    Preserves all ID3v2.3 tags and embeds album cover art (APIC).
+    Returns the path to the transcoded .mp3 file or None on failure.
+    """
+    if not os.path.exists(input_path):
+        return None
+
+    base, _ = os.path.splitext(input_path)
+    output_mp3 = f"{base}.mp3"
+
+    # Extract tags and cover art from source .m4a
+    title = None
+    artist = None
+    album = None
+    isrc = None
+    track_num = None
+    disc_num = None
+    date_val = None
+    cover_data = None
+
+    try:
+        from mutagen.mp4 import MP4
+        src = MP4(input_path)
+        if src.tags:
+            title = src.tags.get('\xa9nam', [None])[0]
+            artist = src.tags.get('\xa9ART', [None])[0]
+            album = src.tags.get('\xa9alb', [None])[0]
+            date_val = src.tags.get('\xa9day', [None])[0]
+            if 'trkn' in src.tags and src.tags['trkn']:
+                track_num = str(src.tags['trkn'][0][0])
+            if 'disk' in src.tags and src.tags['disk']:
+                disc_num = str(src.tags['disk'][0][0])
+            if '----:com.apple.itunes:ISRC' in src.tags:
+                try:
+                    isrc = bytes(src.tags['----:com.apple.itunes:ISRC'][0]).decode('utf-8', errors='ignore')
+                except Exception:
+                    isrc = str(src.tags['----:com.apple.itunes:ISRC'][0])
+            if 'covr' in src.tags and src.tags['covr']:
+                cover_data = bytes(src.tags['covr'][0])
+    except Exception as e:
+        print(f"[Transcode MP3] Error reading source tags from {input_path}: {e}")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-map", "0:a:0",
+        "-c:a", "libmp3lame",
+        "-b:a", bitrate,
+        "-id3v2_version", "3",
+        output_mp3
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            print(f"[Transcode MP3] FFmpeg failed ({proc.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+            if os.path.exists(output_mp3):
+                try:
+                    os.remove(output_mp3)
+                except Exception:
+                    pass
+            return None
+
+        # Write ID3 tags and APIC picture to MP3
+        def tag_mp3():
+            from mutagen.mp3 import MP3
+            from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TSRC, TRCK, TPOS, APIC, ID3NoHeaderError
+            try:
+                audio = MP3(output_mp3, ID3=ID3)
+            except ID3NoHeaderError:
+                audio = MP3(output_mp3)
+                audio.add_tags()
+
+            if title:
+                audio.tags.add(TIT2(encoding=3, text=title))
+            if artist:
+                audio.tags.add(TPE1(encoding=3, text=artist))
+            if album:
+                audio.tags.add(TALB(encoding=3, text=album))
+            if date_val:
+                audio.tags.add(TDRC(encoding=3, text=str(date_val)))
+            if isrc:
+                audio.tags.add(TSRC(encoding=3, text=isrc))
+            if track_num:
+                audio.tags.add(TRCK(encoding=3, text=track_num))
+            if disc_num:
+                audio.tags.add(TPOS(encoding=3, text=disc_num))
+
+            if cover_data:
+                audio.tags.add(APIC(
+                    encoding=3,
+                    mime="image/jpeg",
+                    type=3,  # Front cover
+                    desc="Front Cover",
+                    data=cover_data
+                ))
+            elif os.path.exists(os.path.join(os.path.dirname(input_path), "Cover.jpg")):
+                try:
+                    with open(os.path.join(os.path.dirname(input_path), "Cover.jpg"), "rb") as cf:
+                        audio.tags.add(APIC(
+                            encoding=3,
+                            mime="image/jpeg",
+                            type=3,
+                            desc="Front Cover",
+                            data=cf.read()
+                        ))
+                except Exception:
+                    pass
+            audio.save(v2_version=3)
+
+        await asyncio.to_thread(tag_mp3)
+
+        if remove_source and os.path.exists(input_path) and input_path != output_mp3:
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+
+        print(f"[Transcode MP3] Successfully transcoded {input_path} -> {output_mp3}")
+        return output_mp3
+    except Exception as e:
+        print(f"[Transcode MP3] Exception: {e}")
+        return None
+
+
+async def transcode_audio(input_path: str, target_format: str = "flac", remove_source: bool = False) -> Optional[str]:
+    """
+    Transcodes input audio to the target format ('flac' or 'mp3').
+    If format is already target or not recognized, returns input_path.
+    """
+    fmt = (target_format or "").lower().strip()
+    if fmt == "flac":
+        return await transcode_to_flac(input_path, remove_source=remove_source)
+    elif fmt in ("mp3", "mp3_320k", "320k"):
+        return await transcode_to_mp3(input_path, bitrate="320k", remove_source=remove_source)
+    return input_path
 
 
 async def create_album_zip(source_dir: str, output_zip_path: str) -> str:
@@ -417,6 +821,22 @@ async def upload_and_deliver_zip_document(
         gofile_url = await upload_to_gofile(abs_path)
         return None, 0, 0, None, gofile_url, file_size
 
+    # Size <= 2GB: Dual upload (both GoFile and Telegram)
+    gofile_url = None
+    try:
+        print(f"Performing dual upload to GoFile for {file_path} ({file_size} bytes)...")
+        gofile_url = await upload_to_gofile(abs_path)
+    except Exception as ge:
+        print(f"Dual GoFile upload failed: {ge}")
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    reply_markup = None
+    if gofile_url:
+        caption = f"{caption}\n🌐 <b>Fast Download (GoFile):</b> <a href='{gofile_url}'>High-Speed Link</a>"
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=gofile_url)]
+        ])
+
     # Attempt Telegram Document Upload
     if STORAGE_CHANNEL_ID:
         try:
@@ -425,7 +845,8 @@ async def upload_and_deliver_zip_document(
                 document=FSInputFile(abs_path),
                 caption=caption,
                 parse_mode="HTML",
-                thumbnail=thumbnail
+                thumbnail=thumbnail,
+                reply_markup=reply_markup
             )
             saved_chat_id = channel_msg.chat.id
             saved_message_id = channel_msg.message_id
@@ -438,11 +859,12 @@ async def upload_and_deliver_zip_document(
                     from_chat_id=STORAGE_CHANNEL_ID,
                     message_id=channel_msg.message_id,
                     caption=caption,
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
                 )
-            return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, None, file_size
+            return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, gofile_url, file_size
         except Exception as e:
-            print(f"Storage channel ZIP upload failed: {e}. Trying direct or GoFile...")
+            print(f"Storage channel ZIP upload failed: {e}. Trying direct Telegram...")
 
     try:
         user_msg = await bot.send_document(
@@ -450,13 +872,15 @@ async def upload_and_deliver_zip_document(
             document=FSInputFile(abs_path),
             caption=caption,
             parse_mode="HTML",
-            thumbnail=thumbnail
+            thumbnail=thumbnail,
+            reply_markup=reply_markup
         )
         file_id = user_msg.document.file_id if user_msg.document else None
-        return user_msg, user_msg.chat.id, user_msg.message_id, file_id, None, file_size
+        return user_msg, user_msg.chat.id, user_msg.message_id, file_id, gofile_url, file_size
     except Exception as e:
         print(f"Direct Telegram ZIP upload failed: {e}. Falling back to GoFile upload...")
-        gofile_url = await upload_to_gofile(abs_path)
+        if not gofile_url:
+            gofile_url = await upload_to_gofile(abs_path)
         return None, 0, 0, None, gofile_url, file_size
 
 

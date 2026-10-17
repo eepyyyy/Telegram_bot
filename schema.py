@@ -35,6 +35,7 @@ class TrackInputSchema(BaseModel):
     message_id: Optional[int] = None
     resolution: Optional[str] = None
     codec: Optional[str] = None
+    gofile_url: Optional[str] = None
     audio_traits: Optional[list[str]] = Field(default_factory=list)
     video_traits: Optional[list[str]] = Field(default_factory=list)
 
