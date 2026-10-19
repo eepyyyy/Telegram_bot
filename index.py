@@ -1,4 +1,5 @@
 import asyncio, glob, os, re, shutil, logging, sys, html, crud, database, schema, utils
+import audio_service
 from datetime import date, datetime, timezone
 
 # Ensure stdout/stderr handle UTF-8 symbols safely on Windows
