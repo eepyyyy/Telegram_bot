@@ -32,6 +32,8 @@ _base_interface: Optional[AppleMusicBaseInterface] = None
 _base_api: Optional[AppleMusicApi] = None
 _base_lock: Optional[asyncio.Lock] = None
 _base_loop: Optional[asyncio.AbstractEventLoop] = None
+_cookies_mtime: Optional[float] = None
+_cookies_resolved_path: Optional[str] = None
 
 
 def get_codec_priority(format_type: str) -> List[SongCodec]:
@@ -51,30 +53,55 @@ def get_codec_priority(format_type: str) -> List[SongCodec]:
 def format_gamdl_error(err: Exception) -> str:
     """Translates internal gamdl and HTTP exceptions into user-friendly messages."""
     err_str = str(err)
+    if "-1002" in err_str or "license exchange data" in err_str.lower():
+        return (
+            "Apple Music DRM license error (-1002): Playback license refused by Apple.\n\n"
+            "Possible causes:\n"
+            "1. The cookies.txt on the server has expired or has an inactive subscription.\n"
+            "2. Another device/app is actively streaming on this Apple Music account (1 stream limit).\n"
+            "3. The requested track or codec is restricted for web playback in this storefront."
+        )
     if isinstance(err, GamdlInterfaceFormatNotAvailableError) or "format is not available" in err_str.lower():
         return "Requested audio format is not available for this track/album."
     if isinstance(err, GamdlInterfaceDecryptionNotAvailableError) or "decryption" in err_str.lower():
-        return "Decryption key could not be obtained from Apple Music."
+        return "Decryption key could not be obtained from Apple Music for this format. Try downloading in AAC."
     if isinstance(err, GamdlInterfaceMediaNotStreamableError) or "streamable" in err_str.lower():
         return "This track is not streamable in the current storefront."
     if "502" in err_str or "playback_dispatch_failed" in err_str or "1830087704" in err_str:
         return "Apple Music server error (502 Bad Gateway / Playback error). Please try again shortly."
-    if "subscription" in err_str.lower():
-        return "Apple Music subscription error. Please check your cookies.txt authorization."
+    if "subscription" in err_str.lower() or "no active subscription" in err_str.lower():
+        return "Apple Music subscription error (No Active Subscription). Please check or renew your cookies.txt."
     return f"Download failed: {err_str}"
+
+
+def invalidate_base_interface() -> None:
+    """Explicitly invalidates the cached in-memory base interface."""
+    global _base_interface, _base_api, _cookies_mtime, _cookies_resolved_path
+    _base_interface = None
+    _base_api = None
+    _cookies_mtime = None
+    _cookies_resolved_path = None
+    logger.info("AppleMusicBaseInterface cache invalidated.")
 
 
 async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBaseInterface:
     """
     Returns a shared, persistent AppleMusicBaseInterface instance.
-    Initializes from cookies.txt once and keeps authentication tokens in memory.
+    Initializes from cookies.txt and keeps authentication tokens in memory.
+    Automatically reloads if cookies.txt modification time changes on disk.
     """
-    global _base_interface, _base_api, _base_lock, _base_loop
+    global _base_interface, _base_api, _base_lock, _base_loop, _cookies_mtime, _cookies_resolved_path
 
     current_loop = asyncio.get_running_loop()
+    resolved_cookies = os.path.abspath(cookies_path)
+    current_mtime = os.path.getmtime(resolved_cookies) if os.path.exists(resolved_cookies) else None
 
-    # Reset singleton if running on a new event loop
-    if _base_loop != current_loop:
+    # Reset singleton if running on a new event loop, or if cookies file changed
+    if (
+        _base_loop != current_loop
+        or _cookies_resolved_path != resolved_cookies
+        or _cookies_mtime != current_mtime
+    ):
         _base_interface = None
         _base_api = None
         _base_lock = asyncio.Lock()
@@ -82,7 +109,6 @@ async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBas
 
     async with _base_lock:
         if _base_interface is None:
-            resolved_cookies = os.path.abspath(cookies_path)
             if not os.path.exists(resolved_cookies):
                 raise FileNotFoundError(f"Cookies file not found at: {resolved_cookies}")
 
@@ -95,7 +121,9 @@ async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBas
                 cover_format=CoverFormat.JPG,
                 cover_size=5000,
             )
-            logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.")
+            _cookies_mtime = current_mtime
+            _cookies_resolved_path = resolved_cookies
+            logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.", cookies=resolved_cookies)
 
         return _base_interface
 
@@ -189,6 +217,12 @@ async def download_audio(
                 if on_track_done and final_path:
                     await on_track_done(item, str(final_path))
 
+    except Exception as e:
+        err_str = str(e).lower()
+        if "-1002" in err_str or "license exchange data" in err_str or "subscription" in err_str or "unauthorized" in err_str:
+            logger.warning("License/auth error encountered; invalidating in-memory base interface", error=str(e))
+            invalidate_base_interface()
+        raise
     finally:
         # Cleanup temp directory if it exists
         if os.path.exists(temp_dir):

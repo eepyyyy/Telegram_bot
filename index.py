@@ -1828,16 +1828,11 @@ async def process_download(task: dict) -> None:
 
 
 
+        format_type = str(task.get("format_type", "lossless")).lower().strip()
         try:
-
-
             await audio_service.download_audio(
-
-
                 urls=target_dl_urls,
-
-
-                format_type="lossless",
+                format_type=format_type,
 
 
                 output_dir=task_output_dir,
