@@ -664,16 +664,10 @@ async def process_aac_download(task: dict) -> None:
                     except Exception:
                         pass
                 else:
-                    if return_code == 0:
-                        try:
-                            await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            await status_msg.edit_text("⚠ AAC download finished with errors.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
-                        except Exception:
-                            pass
+                    try:
+                        await status_msg.edit_text("✅ AAC download and upload completed.\n\n🌐 Link can be downloaded at: https://stream.eepy.in/")
+                    except Exception:
+                        pass
 
     except Exception as error:
         print(f"AAC download error: {error}")
@@ -684,13 +678,6 @@ async def process_aac_download(task: dict) -> None:
                 pass
     finally:
         active_tasks.pop(unique_task_id, None)
-        if process and process.returncode is None:
-            try:
-                process.terminate()
-                await process.wait()
-            except ProcessLookupError:
-                pass
-
         for d_clean in (output_dir, temp_dir):
             if await asyncio.to_thread(os.path.exists, d_clean):
                 try:

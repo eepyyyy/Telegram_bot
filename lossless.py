@@ -759,24 +759,14 @@ async def process_lossless_download(task: dict) -> None:
                     except Exception:
                         pass
                 else:
-                    if return_code == 0:
-                        try:
-                            await status_msg.edit_text(
-                                "✅ All regular Lossless tracks processed successfully.\n\n"
-                                "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
-                                "🌐 Link can be downloaded at: https://stream.eepy.in/"
-                            )
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            await status_msg.edit_text(
-                                "⚠ Some tracks might have failed to download.\n\n"
-                                "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
-                                "🌐 Link can be downloaded at: https://stream.eepy.in/"
-                            )
-                        except Exception:
-                            pass
+                    try:
+                        await status_msg.edit_text(
+                            "✅ All regular Lossless tracks processed successfully.\n\n"
+                            "⚠️ <b>Notice:</b> The <code>/lossless</code> command is deprecated. Please use normal download (send link directly to chat) instead.\n\n"
+                            "🌐 Link can be downloaded at: https://stream.eepy.in/"
+                        )
+                    except Exception:
+                        pass
 
     except Exception as e:
         print(f"Error handling regular Lossless download: {e}")
@@ -787,12 +777,6 @@ async def process_lossless_download(task: dict) -> None:
                 pass
     finally:
         active_tasks.pop(unique_task_id, None)
-        if process and process.returncode is None:
-            try:
-                process.terminate()
-                await process.wait()
-            except ProcessLookupError:
-                pass
         for dir_to_clean in (task_output_dir, task_temp_dir):
             if await asyncio.to_thread(os.path.exists, dir_to_clean):
                 try:
