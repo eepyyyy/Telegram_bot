@@ -23,7 +23,7 @@ from gamdl.interface import (
     GamdlInterfaceDecryptionNotAvailableError,
     GamdlInterfaceMediaNotStreamableError,
 )
-from gamdl.interface.enums import SongCodec
+from gamdl.interface.enums import CoverFormat, SongCodec
 
 logger = structlog.get_logger(__name__)
 
@@ -92,7 +92,7 @@ async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBas
             # Initialize base interface
             _base_interface = await AppleMusicBaseInterface.create(
                 apple_music_api=_base_api,
-                cover_format="jpg",
+                cover_format=CoverFormat.JPG,
                 cover_size=5000,
             )
             logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.")
