@@ -4,7 +4,7 @@ import shutil
 import structlog
 from typing import AsyncGenerator, Awaitable, Callable, List, Optional
 
-from gamdl.api import AppleMusicApi
+from gamdl.api import AppleMusicApi, WrapperApi
 from gamdl.downloader import (
     AppleMusicBaseDownloader,
     AppleMusicDownloader,
@@ -12,6 +12,7 @@ from gamdl.downloader import (
     AppleMusicSongDownloader,
     AppleMusicUploadedVideoDownloader,
 )
+from gamdl.downloader.enums import DownloadMode
 from gamdl.downloader.types import DownloadItem
 from gamdl.interface import (
     AppleMusicBaseInterface,
@@ -36,14 +37,65 @@ _cookies_mtime: Optional[float] = None
 _cookies_resolved_path: Optional[str] = None
 
 
+def get_wrapper_config() -> tuple[bool, Optional[str]]:
+    """
+    Checks environment variables and ~/.gamdl/config.ini for wrapper settings.
+    Returns (use_wrapper: bool, wrapper_url: Optional[str]).
+    """
+    env_use_wrapper = os.getenv("USE_WRAPPER")
+    env_wrapper_url = os.getenv("WRAPPER_URL")
+    if env_use_wrapper is not None or env_wrapper_url is not None:
+        use_w = env_use_wrapper.lower() in ("true", "1", "yes") if env_use_wrapper else bool(env_wrapper_url)
+        return use_w, env_wrapper_url
+
+    try:
+        from pathlib import Path
+        import configparser
+        cfg_path = Path.home() / ".gamdl" / "config.ini"
+        if cfg_path.exists():
+            cp = configparser.ConfigParser(interpolation=None)
+            cp.read(cfg_path, encoding="utf-8")
+            if cp.has_section("gamdl"):
+                use_w = cp.getboolean("gamdl", "use_wrapper", fallback=False)
+                w_url = cp.get("gamdl", "wrapper_url", fallback=None)
+                if w_url in ("null", "none", ""):
+                    w_url = None
+                return use_w, w_url
+    except Exception:
+        pass
+
+    return False, None
+
+
+def get_download_mode() -> DownloadMode:
+    """Determines download mode (nm3u8dlre or ytdlp) from env or config.ini."""
+    mode_str = os.getenv("DOWNLOAD_MODE", "").lower().strip()
+    if not mode_str:
+        try:
+            from pathlib import Path
+            import configparser
+            cfg_path = Path.home() / ".gamdl" / "config.ini"
+            if cfg_path.exists():
+                cp = configparser.ConfigParser(interpolation=None)
+                cp.read(cfg_path, encoding="utf-8")
+                if cp.has_section("gamdl"):
+                    mode_str = cp.get("gamdl", "download_mode", fallback="ytdlp").lower().strip()
+        except Exception:
+            pass
+
+    if mode_str == "nm3u8dlre":
+        return DownloadMode.NM3U8DLRE
+    return DownloadMode.YTDLP
+
+
 def get_codec_priority(format_type: str) -> List[SongCodec]:
     """Returns the SongCodec priority list for a given format string."""
     fmt = format_type.lower().strip()
     if fmt in ("aac", "aac-web"):
         return [SongCodec.AAC_WEB]
     elif fmt in ("atmos", "spatial"):
-        return [SongCodec.ATMOS]
-    elif fmt in ("lossless", "alac", "hi-res"):
+        return [SongCodec.ATMOS, SongCodec.ALAC, SongCodec.AAC_WEB]
+    elif fmt in ("lossless", "alac", "hi-res", "flac"):
         return [SongCodec.ALAC, SongCodec.AAC_WEB]
     else:
         # Default fallback
@@ -53,6 +105,8 @@ def get_codec_priority(format_type: str) -> List[SongCodec]:
 def format_gamdl_error(err: Exception) -> str:
     """Translates internal gamdl and HTTP exceptions into user-friendly messages."""
     err_str = str(err)
+    if "wrapper" in err_str.lower():
+        return f"Apple Music Wrapper error: {err_str}"
     if "-1002" in err_str or "license exchange data" in err_str.lower():
         return (
             "Apple Music DRM license error (-1002): Playback license refused by Apple.\n\n"
@@ -87,7 +141,7 @@ def invalidate_base_interface() -> None:
 async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBaseInterface:
     """
     Returns a shared, persistent AppleMusicBaseInterface instance.
-    Initializes from cookies.txt and keeps authentication tokens in memory.
+    Supports both WrapperApi (for ALAC, Atmos, etc.) and netscape cookies.txt (AAC mode).
     Automatically reloads if cookies.txt modification time changes on disk.
     """
     global _base_interface, _base_api, _base_lock, _base_loop, _cookies_mtime, _cookies_resolved_path
@@ -95,6 +149,7 @@ async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBas
     current_loop = asyncio.get_running_loop()
     resolved_cookies = os.path.abspath(cookies_path)
     current_mtime = os.path.getmtime(resolved_cookies) if os.path.exists(resolved_cookies) else None
+    use_wrapper, wrapper_url = get_wrapper_config()
 
     # Reset singleton if running on a new event loop, or if cookies file changed
     if (
@@ -109,21 +164,32 @@ async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBas
 
     async with _base_lock:
         if _base_interface is None:
-            if not os.path.exists(resolved_cookies):
-                raise FileNotFoundError(f"Cookies file not found at: {resolved_cookies}")
+            wrapper_api = None
+            if use_wrapper and wrapper_url:
+                try:
+                    logger.info("Initializing Apple Music WrapperApi", wrapper_url=wrapper_url)
+                    wrapper_api = await WrapperApi.create(base_url=wrapper_url)
+                    _base_api = await AppleMusicApi.create_from_wrapper(wrapper_api=wrapper_api)
+                    logger.info("AppleMusicApi successfully initialized from wrapper.", wrapper_url=wrapper_url)
+                except Exception as we:
+                    logger.warning("Failed to initialize WrapperApi, falling back to cookies", error=str(we), wrapper_url=wrapper_url)
+                    wrapper_api = None
 
-            # Initialize AppleMusicApi from cookies
-            _base_api = await AppleMusicApi.create_from_netscape_cookies(resolved_cookies)
+            if wrapper_api is None:
+                if not os.path.exists(resolved_cookies):
+                    raise FileNotFoundError(f"Cookies file not found at: {resolved_cookies}")
+                _base_api = await AppleMusicApi.create_from_netscape_cookies(resolved_cookies)
 
             # Initialize base interface
             _base_interface = await AppleMusicBaseInterface.create(
                 apple_music_api=_base_api,
+                wrapper_api=wrapper_api,
                 cover_format=CoverFormat.JPG,
                 cover_size=5000,
             )
             _cookies_mtime = current_mtime
             _cookies_resolved_path = resolved_cookies
-            logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.", cookies=resolved_cookies)
+            logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.", cookies=resolved_cookies, has_wrapper=bool(wrapper_api))
 
         return _base_interface
 
@@ -158,6 +224,7 @@ async def create_task_downloader(
         interface=interface,
         output_path=output_dir,
         temp_path=temp_dir,
+        download_mode=get_download_mode(),
         truncate=80,
     )
 
@@ -219,13 +286,14 @@ async def download_audio(
                         await on_track_done(item, str(final_path))
                 except (GamdlInterfaceDecryptionNotAvailableError, Exception) as dl_err:
                     dl_err_str = str(dl_err).lower()
-                    # If requesting lossless and ALAC decryption is unavailable (e.g. FairPlay-only without wrapper), auto fallback to AAC
-                    if format_type.lower() in ("lossless", "alac") and (
+                    has_wrapper = bool(getattr(downloader.interface.base, "wrapper_api", None))
+                    # If requesting lossless/atmos WITHOUT wrapper and decryption is unavailable, auto fallback to AAC
+                    if not has_wrapper and format_type.lower() in ("lossless", "alac", "atmos", "spatial") and (
                         isinstance(dl_err, GamdlInterfaceDecryptionNotAvailableError)
                         or "-1002" in dl_err_str
                         or "decryption is not available" in dl_err_str
                     ):
-                        logger.warning("ALAC decryption unavailable for track; auto-falling back to AAC-web", url=url, error=str(dl_err))
+                        logger.warning("ALAC/Atmos decryption unavailable without wrapper; auto-falling back to AAC-web", url=url, error=str(dl_err))
                         aac_downloader = await create_task_downloader(
                             format_type="aac",
                             output_dir=output_dir,
