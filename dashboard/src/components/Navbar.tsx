@@ -16,9 +16,10 @@ import {
   Users,
   ScrollText,
   RotateCw,
+  FolderArchive,
 } from 'lucide-react';
 
-export type NavTabId = 'overview' | 'downloads' | 'artist_cache' | 'database' | 'logs';
+export type NavTabId = 'overview' | 'downloads' | 'zips' | 'artist_cache' | 'database' | 'logs';
 
 interface NavbarProps {
   status: BotStatus | null;
@@ -73,9 +74,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   const NAV_TABS: { id: NavTabId; label: string; icon: React.ElementType; key: string }[] = [
     { id: 'overview', label: 'Overview', icon: Activity, key: '1' },
     { id: 'downloads', label: 'Recent Downloads', icon: Download, key: '2' },
-    { id: 'artist_cache', label: 'Artist Cacher', icon: Sparkles, key: '3' },
-    { id: 'database', label: 'Users & DB', icon: Users, key: '4' },
-    { id: 'logs', label: 'Logs', icon: ScrollText, key: '5' },
+    { id: 'zips', label: 'Album ZIPs', icon: FolderArchive, key: '3' },
+    { id: 'artist_cache', label: 'Artist Cacher', icon: Sparkles, key: '4' },
+    { id: 'database', label: 'Users & DB', icon: Users, key: '5' },
+    { id: 'logs', label: 'Logs', icon: ScrollText, key: '6' },
   ];
 
   return (

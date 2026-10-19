@@ -68,21 +68,11 @@ def get_wrapper_config() -> tuple[bool, Optional[str]]:
 
 
 def get_download_mode() -> DownloadMode:
-    """Determines download mode (nm3u8dlre or ytdlp) from env or config.ini."""
+    """
+    Determines download mode (ytdlp or nm3u8dlre).
+    Defaults to DownloadMode.YTDLP for bulletproof stability across platforms and Linux VPS.
+    """
     mode_str = os.getenv("DOWNLOAD_MODE", "").lower().strip()
-    if not mode_str:
-        try:
-            from pathlib import Path
-            import configparser
-            cfg_path = Path.home() / ".gamdl" / "config.ini"
-            if cfg_path.exists():
-                cp = configparser.ConfigParser(interpolation=None)
-                cp.read(cfg_path, encoding="utf-8")
-                if cp.has_section("gamdl"):
-                    mode_str = cp.get("gamdl", "download_mode", fallback="ytdlp").lower().strip()
-        except Exception:
-            pass
-
     if mode_str == "nm3u8dlre":
         return DownloadMode.NM3U8DLRE
     return DownloadMode.YTDLP
@@ -227,6 +217,24 @@ async def create_task_downloader(
         download_mode=get_download_mode(),
         truncate=80,
     )
+
+    original_download_stream = base_downloader.download_stream
+
+    async def resilient_download_stream(stream_url: str, download_path: str):
+        try:
+            await original_download_stream(stream_url, download_path)
+        except Exception as e:
+            if base_downloader.download_mode != DownloadMode.YTDLP:
+                logger.warning(
+                    "Primary downloader failed, falling back to yt-dlp",
+                    error=str(e),
+                    stream_url=stream_url,
+                )
+                await base_downloader._download_ytdlp_async(stream_url, download_path)
+            else:
+                raise
+
+    base_downloader.download_stream = resilient_download_stream
 
     song_downloader = AppleMusicSongDownloader(base=base_downloader)
     music_video_downloader = AppleMusicMusicVideoDownloader(base=base_downloader)

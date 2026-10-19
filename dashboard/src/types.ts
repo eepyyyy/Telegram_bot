@@ -165,3 +165,89 @@ export interface CacheArtistResponse {
   message: string;
 }
 
+export interface AlbumItem {
+  album_id: string;
+  album: string;
+  artist: string;
+  artwork: string | null;
+  alac_zip_file_id: string | null;
+  alac_zip_size: number | null;
+  alac_gofile_url: string | null;
+  aac_zip_file_id: string | null;
+  aac_zip_size: number | null;
+  aac_gofile_url: string | null;
+  atmos_zip_file_id: string | null;
+  atmos_zip_size: number | null;
+  atmos_gofile_url: string | null;
+  track_count: number;
+  has_alac_zip: boolean;
+  has_aac_zip: boolean;
+  has_atmos_zip: boolean;
+  has_any_zip: boolean;
+}
+
+export interface AlbumTrackItem {
+  song_id: string | null;
+  title: string;
+  artist: string;
+  url: string | null;
+  isrc: string | null;
+  artwork: string | null;
+  formats: string[];
+  alac_file_id: string | null;
+  alac_size: number | null;
+  aac_file_id: string | null;
+  aac_size: number | null;
+  atmos_file_id: string | null;
+  atmos_size: number | null;
+}
+
+export interface AlbumDetailsResponse {
+  album: AlbumItem;
+  tracks: AlbumTrackItem[];
+}
+
+export interface AlbumsResponse {
+  albums: AlbumItem[];
+  total: number;
+  page: number;
+  limit: number;
+  summary: {
+    total_with_zip: number;
+    alac_zip_count: number;
+    alac_zip_size_bytes: number;
+    aac_zip_count: number;
+    aac_zip_size_bytes: number;
+    atmos_zip_count: number;
+    atmos_zip_size_bytes: number;
+    total_zip_size_bytes: number;
+    total_zip_size_gb: number;
+  };
+}
+
+export interface UpdateAlbumPayload {
+  album?: string;
+  artist?: string;
+  artwork?: string;
+  alac_zip_file_id?: string | null;
+  alac_zip_size?: number | null;
+  alac_gofile_url?: string | null;
+  aac_zip_file_id?: string | null;
+  aac_zip_size?: number | null;
+  aac_gofile_url?: string | null;
+  atmos_zip_file_id?: string | null;
+  atmos_zip_size?: number | null;
+  atmos_gofile_url?: string | null;
+}
+
+export interface VerifyZipResponse {
+  valid: boolean;
+  format?: string;
+  file_id?: string | null;
+  file_size?: number | null;
+  file_path?: string | null;
+  message?: string;
+  error?: string;
+}
+
+

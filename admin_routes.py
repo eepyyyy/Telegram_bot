@@ -11,7 +11,7 @@ from pathlib import Path
 
 import aiohttp
 from aiohttp import web
-from sqlmodel import select, func, or_, col, desc
+from sqlmodel import select, func, or_, and_, col, desc
 
 import bot_control
 import database
@@ -975,3 +975,552 @@ async def bulk_cache_artist_releases(request: web.Request):
         "formats": formats_to_queue,
         "message": f"Successfully queued {len(albums)} release(s) ({queued_jobs} download jobs) for background caching.",
     })
+
+
+# -------------------------------------------------------------
+# 12. Album ZIP Files Catalog & Properties Management
+# -------------------------------------------------------------
+@admin_routes.get("/api/admin/albums")
+@require_auth
+async def get_albums_endpoint(request: web.Request):
+    """
+    Returns paginated list of albums with their cached ZIP properties, file IDs, sizes, and GoFile links.
+    Supports search (title, artist, album_id) and filter ('all', 'has_zip', 'missing_zip', 'alac', 'aac', 'atmos').
+    """
+    try:
+        page = max(1, int(request.query.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = min(100, max(1, int(request.query.get("limit", 20))))
+    except (ValueError, TypeError):
+        limit = 20
+
+    offset = (page - 1) * limit
+    search = request.query.get("search", "").strip()
+    filter_type = request.query.get("filter", "all").strip().lower()
+    sort_by = request.query.get("sort", "recent").strip().lower()
+
+    async with async_session() as session:
+        conditions = []
+        if search:
+            search_clause = or_(
+                Albums.album.ilike(f"%{search}%"),
+                Albums.artist.ilike(f"%{search}%"),
+                Albums.album_id.ilike(f"%{search}%"),
+            )
+            conditions.append(search_clause)
+
+        if filter_type == "has_zip":
+            conditions.append(
+                or_(
+                    Albums.alac_zip_file_id.is_not(None),
+                    Albums.alac_gofile_url.is_not(None),
+                    Albums.aac_zip_file_id.is_not(None),
+                    Albums.aac_gofile_url.is_not(None),
+                    Albums.atmos_zip_file_id.is_not(None),
+                    Albums.atmos_gofile_url.is_not(None),
+                )
+            )
+        elif filter_type == "missing_zip":
+            conditions.append(
+                and_(
+                    Albums.alac_zip_file_id.is_(None),
+                    Albums.alac_gofile_url.is_(None),
+                    Albums.aac_zip_file_id.is_(None),
+                    Albums.aac_gofile_url.is_(None),
+                    Albums.atmos_zip_file_id.is_(None),
+                    Albums.atmos_gofile_url.is_(None),
+                )
+            )
+        elif filter_type in ("alac", "alac_zip"):
+            conditions.append(
+                or_(Albums.alac_zip_file_id.is_not(None), Albums.alac_gofile_url.is_not(None))
+            )
+        elif filter_type in ("aac", "aac_zip"):
+            conditions.append(
+                or_(Albums.aac_zip_file_id.is_not(None), Albums.aac_gofile_url.is_not(None))
+            )
+        elif filter_type in ("atmos", "atmos_zip"):
+            conditions.append(
+                or_(Albums.atmos_zip_file_id.is_not(None), Albums.atmos_gofile_url.is_not(None))
+            )
+
+        # Count total records matching criteria
+        count_stmt = select(func.count()).select_from(Albums)
+        if conditions:
+            count_stmt = count_stmt.where(and_(*conditions))
+        total_records = int((await session.exec(count_stmt)).one() or 0)
+
+        # Query albums page
+        query = select(Albums)
+        if conditions:
+            query = query.where(and_(*conditions))
+
+        if sort_by == "name":
+            query = query.order_by(Albums.album.asc())
+        elif sort_by == "artist":
+            query = query.order_by(Albums.artist.asc())
+        elif sort_by == "size_desc":
+            query = query.order_by(
+                func.coalesce(Albums.alac_zip_size, Albums.aac_zip_size, Albums.atmos_zip_size, 0).desc()
+            )
+        else:
+            query = query.order_by(Albums.album_id.desc())
+
+        query = query.offset(offset).limit(limit)
+        albums_list = (await session.exec(query)).all()
+
+        album_ids = [a.album_id for a in albums_list if a.album_id]
+
+        # Get track counts for these albums
+        track_counts = {}
+        if album_ids:
+            try:
+                t_stmt = select(Tracks.album_id, func.count()).where(col(Tracks.album_id).in_(album_ids)).group_by(Tracks.album_id)
+                for alb_id, cnt in (await session.exec(t_stmt)).all():
+                    track_counts[alb_id] = max(track_counts.get(alb_id, 0), int(cnt))
+
+                aac_t_stmt = select(AACTracks.album_id, func.count()).where(col(AACTracks.album_id).in_(album_ids)).group_by(AACTracks.album_id)
+                for alb_id, cnt in (await session.exec(aac_t_stmt)).all():
+                    track_counts[alb_id] = max(track_counts.get(alb_id, 0), int(cnt))
+
+                atmos_t_stmt = select(AtmosTracks.album_id, func.count()).where(col(AtmosTracks.album_id).in_(album_ids)).group_by(AtmosTracks.album_id)
+                for alb_id, cnt in (await session.exec(atmos_t_stmt)).all():
+                    track_counts[alb_id] = max(track_counts.get(alb_id, 0), int(cnt))
+            except Exception as te:
+                logger.warning(f"Failed to query track counts for albums: {te}")
+
+        # Summary stats across whole database
+        alac_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.alac_zip_file_id.is_not(None)))).one() or 0)
+        aac_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.aac_zip_file_id.is_not(None)))).one() or 0)
+        atmos_zip_cnt = int((await session.exec(select(func.count()).select_from(Albums).where(Albums.atmos_zip_file_id.is_not(None)))).one() or 0)
+        alac_zip_sz = float((await session.exec(select(func.sum(Albums.alac_zip_size)))).one() or 0.0)
+        aac_zip_sz = float((await session.exec(select(func.sum(Albums.aac_zip_size)))).one() or 0.0)
+        atmos_zip_sz = float((await session.exec(select(func.sum(Albums.atmos_zip_size)))).one() or 0.0)
+        total_zip_sz = alac_zip_sz + aac_zip_sz + atmos_zip_sz
+
+    albums_payload = []
+    for alb in albums_list:
+        has_alac = bool(alb.alac_zip_file_id or alb.alac_gofile_url)
+        has_aac = bool(alb.aac_zip_file_id or alb.aac_gofile_url)
+        has_atmos = bool(alb.atmos_zip_file_id or alb.atmos_gofile_url)
+        albums_payload.append({
+            "album_id": alb.album_id,
+            "album": alb.album or "Unknown Album",
+            "artist": alb.artist or "Unknown Artist",
+            "artwork": alb.artwork,
+            "alac_zip_file_id": alb.alac_zip_file_id,
+            "alac_zip_size": alb.alac_zip_size,
+            "alac_gofile_url": alb.alac_gofile_url,
+            "aac_zip_file_id": alb.aac_zip_file_id,
+            "aac_zip_size": alb.aac_zip_size,
+            "aac_gofile_url": alb.aac_gofile_url,
+            "atmos_zip_file_id": alb.atmos_zip_file_id,
+            "atmos_zip_size": alb.atmos_zip_size,
+            "atmos_gofile_url": alb.atmos_gofile_url,
+            "track_count": track_counts.get(alb.album_id, 0),
+            "has_alac_zip": has_alac,
+            "has_aac_zip": has_aac,
+            "has_atmos_zip": has_atmos,
+            "has_any_zip": has_alac or has_aac or has_atmos,
+        })
+
+    return web.json_response({
+        "albums": albums_payload,
+        "total": total_records,
+        "page": page,
+        "limit": limit,
+        "summary": {
+            "total_with_zip": alac_zip_cnt + aac_zip_cnt + atmos_zip_cnt,
+            "alac_zip_count": alac_zip_cnt,
+            "alac_zip_size_bytes": int(alac_zip_sz),
+            "aac_zip_count": aac_zip_cnt,
+            "aac_zip_size_bytes": int(aac_zip_sz),
+            "atmos_zip_count": atmos_zip_cnt,
+            "atmos_zip_size_bytes": int(atmos_zip_sz),
+            "total_zip_size_bytes": int(total_zip_sz),
+            "total_zip_size_gb": round(total_zip_sz / (1024 ** 3), 2),
+        }
+    })
+
+
+@admin_routes.get("/api/admin/albums/{album_id}")
+@require_auth
+async def get_single_album_endpoint(request: web.Request):
+    """
+    Returns full details for a single album, including tracks cached in Tracks, AACTracks, and AtmosTracks.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        return web.json_response({"error": "Album ID required"}, status=400)
+
+    async with async_session() as session:
+        album = (await session.exec(select(Albums).where(Albums.album_id == album_id))).first()
+        if not album:
+            return web.json_response({"error": f"Album {album_id} not found in database"}, status=404)
+
+        # Collect tracks
+        alac_tracks = (await session.exec(select(Tracks).where(Tracks.album_id == album_id))).all()
+        aac_tracks = (await session.exec(select(AACTracks).where(AACTracks.album_id == album_id))).all()
+        atmos_tracks = (await session.exec(select(AtmosTracks).where(AtmosTracks.album_id == album_id))).all()
+
+        track_map = {}
+        for t in alac_tracks:
+            sid = t.song_id or t.title
+            track_map[sid] = {
+                "song_id": t.song_id,
+                "title": t.title,
+                "artist": t.artist,
+                "url": t.url,
+                "isrc": t.isrc,
+                "artwork": t.artwork,
+                "formats": ["ALAC"],
+                "alac_file_id": t.file_id,
+                "alac_size": t.size,
+                "aac_file_id": None,
+                "aac_size": None,
+                "atmos_file_id": None,
+                "atmos_size": None,
+            }
+
+        for t in aac_tracks:
+            sid = t.song_id or t.title
+            if sid in track_map:
+                if "AAC" not in track_map[sid]["formats"]:
+                    track_map[sid]["formats"].append("AAC")
+                track_map[sid]["aac_file_id"] = t.file_id
+                track_map[sid]["aac_size"] = t.size
+            else:
+                track_map[sid] = {
+                    "song_id": t.song_id,
+                    "title": t.title,
+                    "artist": t.artist,
+                    "url": t.url,
+                    "isrc": t.isrc,
+                    "artwork": t.artwork,
+                    "formats": ["AAC"],
+                    "alac_file_id": None,
+                    "alac_size": None,
+                    "aac_file_id": t.file_id,
+                    "aac_size": t.size,
+                    "atmos_file_id": None,
+                    "atmos_size": None,
+                }
+
+        for t in atmos_tracks:
+            sid = t.song_id or t.title
+            if sid in track_map:
+                if "ATMOS" not in track_map[sid]["formats"]:
+                    track_map[sid]["formats"].append("ATMOS")
+                track_map[sid]["atmos_file_id"] = t.file_id
+                track_map[sid]["atmos_size"] = t.size
+            else:
+                track_map[sid] = {
+                    "song_id": t.song_id,
+                    "title": t.title,
+                    "artist": t.artist,
+                    "url": t.url,
+                    "isrc": t.isrc,
+                    "artwork": t.artwork,
+                    "formats": ["ATMOS"],
+                    "alac_file_id": None,
+                    "alac_size": None,
+                    "aac_file_id": None,
+                    "aac_size": None,
+                    "atmos_file_id": t.file_id,
+                    "atmos_size": t.size,
+                }
+
+    return web.json_response({
+        "album": {
+            "album_id": album.album_id,
+            "album": album.album or "Unknown Album",
+            "artist": album.artist or "Unknown Artist",
+            "artwork": album.artwork,
+            "alac_zip_file_id": album.alac_zip_file_id,
+            "alac_zip_size": album.alac_zip_size,
+            "alac_gofile_url": album.alac_gofile_url,
+            "aac_zip_file_id": album.aac_zip_file_id,
+            "aac_zip_size": album.aac_zip_size,
+            "aac_gofile_url": album.aac_gofile_url,
+            "atmos_zip_file_id": album.atmos_zip_file_id,
+            "atmos_zip_size": album.atmos_zip_size,
+            "atmos_gofile_url": album.atmos_gofile_url,
+            "track_count": len(track_map),
+        },
+        "tracks": list(track_map.values()),
+    })
+
+
+@admin_routes.put("/api/admin/albums/{album_id}")
+@require_auth
+async def update_album_properties_endpoint(request: web.Request):
+    """
+    Updates album metadata and ZIP cache properties directly in the database.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        return web.json_response({"error": "Album ID required"}, status=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    async with async_session() as session:
+        album = (await session.exec(select(Albums).where(Albums.album_id == album_id))).first()
+        if not album:
+            return web.json_response({"error": f"Album {album_id} not found in database"}, status=404)
+
+        # Update metadata if present in payload
+        if "album" in data:
+            album.album = data["album"].strip() if data["album"] else None
+        if "artist" in data:
+            album.artist = data["artist"].strip() if data["artist"] else None
+        if "artwork" in data:
+            album.artwork = data["artwork"].strip() if data["artwork"] else None
+
+        # Update ALAC ZIP properties
+        if "alac_zip_file_id" in data:
+            val = data["alac_zip_file_id"]
+            album.alac_zip_file_id = val.strip() if val else None
+        if "alac_zip_size" in data:
+            val = data["alac_zip_size"]
+            album.alac_zip_size = int(val) if val is not None and str(val).isdigit() else None
+        if "alac_gofile_url" in data:
+            val = data["alac_gofile_url"]
+            album.alac_gofile_url = val.strip() if val else None
+
+        # Update AAC ZIP properties
+        if "aac_zip_file_id" in data:
+            val = data["aac_zip_file_id"]
+            album.aac_zip_file_id = val.strip() if val else None
+        if "aac_zip_size" in data:
+            val = data["aac_zip_size"]
+            album.aac_zip_size = int(val) if val is not None and str(val).isdigit() else None
+        if "aac_gofile_url" in data:
+            val = data["aac_gofile_url"]
+            album.aac_gofile_url = val.strip() if val else None
+
+        # Update ATMOS ZIP properties
+        if "atmos_zip_file_id" in data:
+            val = data["atmos_zip_file_id"]
+            album.atmos_zip_file_id = val.strip() if val else None
+        if "atmos_zip_size" in data:
+            val = data["atmos_zip_size"]
+            album.atmos_zip_size = int(val) if val is not None and str(val).isdigit() else None
+        if "atmos_gofile_url" in data:
+            val = data["atmos_gofile_url"]
+            album.atmos_gofile_url = val.strip() if val else None
+
+        session.add(album)
+        await session.commit()
+        await session.refresh(album)
+
+    logger.info(f"[Admin Albums] Updated album properties for album {album_id}.")
+    return web.json_response({
+        "success": True,
+        "message": f"Album {album_id} properties successfully updated.",
+        "album": {
+            "album_id": album.album_id,
+            "album": album.album,
+            "artist": album.artist,
+            "artwork": album.artwork,
+            "alac_zip_file_id": album.alac_zip_file_id,
+            "alac_zip_size": album.alac_zip_size,
+            "alac_gofile_url": album.alac_gofile_url,
+            "aac_zip_file_id": album.aac_zip_file_id,
+            "aac_zip_size": album.aac_zip_size,
+            "aac_gofile_url": album.aac_gofile_url,
+            "atmos_zip_file_id": album.atmos_zip_file_id,
+            "atmos_zip_size": album.atmos_zip_size,
+            "atmos_gofile_url": album.atmos_gofile_url,
+        }
+    })
+
+
+@admin_routes.post("/api/admin/albums/{album_id}/clear-zip")
+@require_auth
+async def clear_album_zip_endpoint(request: web.Request):
+    """
+    Clears the cached ZIP file ID, size, and GoFile URL for a specific format or all formats.
+    This forces the bot to re-download and re-package the album fresh on the next user request.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        return web.json_response({"error": "Album ID required"}, status=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    fmt = data.get("format", "all").strip().lower()
+
+    async with async_session() as session:
+        album = (await session.exec(select(Albums).where(Albums.album_id == album_id))).first()
+        if not album:
+            return web.json_response({"error": f"Album {album_id} not found in database"}, status=404)
+
+        if fmt in ("alac", "all"):
+            album.alac_zip_file_id = None
+            album.alac_zip_size = None
+            album.alac_gofile_url = None
+
+        if fmt in ("aac", "all"):
+            album.aac_zip_file_id = None
+            album.aac_zip_size = None
+            album.aac_gofile_url = None
+
+        if fmt in ("atmos", "all"):
+            album.atmos_zip_file_id = None
+            album.atmos_zip_size = None
+            album.atmos_gofile_url = None
+
+        session.add(album)
+        await session.commit()
+        await session.refresh(album)
+
+    logger.info(f"[Admin Albums] Cleared {fmt.upper()} ZIP cache for album {album_id}.")
+    return web.json_response({
+        "success": True,
+        "message": f"Successfully cleared {fmt.upper()} ZIP cache for album {album_id}.",
+        "album": {
+            "album_id": album.album_id,
+            "album": album.album,
+            "artist": album.artist,
+            "alac_zip_file_id": album.alac_zip_file_id,
+            "alac_zip_size": album.alac_zip_size,
+            "alac_gofile_url": album.alac_gofile_url,
+            "aac_zip_file_id": album.aac_zip_file_id,
+            "aac_zip_size": album.aac_zip_size,
+            "aac_gofile_url": album.aac_gofile_url,
+            "atmos_zip_file_id": album.atmos_zip_file_id,
+            "atmos_zip_size": album.atmos_zip_size,
+            "atmos_gofile_url": album.atmos_gofile_url,
+        }
+    })
+
+
+@admin_routes.delete("/api/admin/albums/{album_id}")
+@require_auth
+async def delete_album_endpoint(request: web.Request):
+    """
+    Deletes the album from the albums database table.
+    If query param ?delete_tracks=true is passed, also deletes associated cached tracks.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        return web.json_response({"error": "Album ID required"}, status=400)
+
+    delete_tracks = request.query.get("delete_tracks", "false").lower() in ("true", "1", "yes")
+
+    async with async_session() as session:
+        album = (await session.exec(select(Albums).where(Albums.album_id == album_id))).first()
+        if not album:
+            return web.json_response({"error": f"Album {album_id} not found in database"}, status=404)
+
+        deleted_tracks_count = 0
+        if delete_tracks:
+            # Delete from Tracks, AACTracks, AtmosTracks
+            alac_trs = (await session.exec(select(Tracks).where(Tracks.album_id == album_id))).all()
+            for t in alac_trs:
+                await session.delete(t)
+                deleted_tracks_count += 1
+
+            aac_trs = (await session.exec(select(AACTracks).where(AACTracks.album_id == album_id))).all()
+            for t in aac_trs:
+                await session.delete(t)
+                deleted_tracks_count += 1
+
+            atmos_trs = (await session.exec(select(AtmosTracks).where(AtmosTracks.album_id == album_id))).all()
+            for t in atmos_trs:
+                await session.delete(t)
+                deleted_tracks_count += 1
+
+        await session.delete(album)
+        await session.commit()
+
+    logger.info(f"[Admin Albums] Deleted album {album_id} (deleted_tracks={delete_tracks}, count={deleted_tracks_count}).")
+    return web.json_response({
+        "success": True,
+        "message": f"Successfully deleted album {album_id}" + (f" and {deleted_tracks_count} track(s)." if delete_tracks else "."),
+    })
+
+
+@admin_routes.post("/api/admin/albums/{album_id}/verify-zip")
+@require_auth
+async def verify_album_zip_endpoint(request: web.Request):
+    """
+    Queries Telegram Bot API to check whether the cached file_id for a given format is still valid.
+    If valid, returns Telegram file metadata and updates the size in the database.
+    """
+    album_id = request.match_info.get("album_id", "").strip()
+    if not album_id:
+        return web.json_response({"error": "Album ID required"}, status=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    fmt = data.get("format", "alac").strip().lower()
+
+    async with async_session() as session:
+        album = (await session.exec(select(Albums).where(Albums.album_id == album_id))).first()
+        if not album:
+            return web.json_response({"error": f"Album {album_id} not found in database"}, status=404)
+
+        if fmt == "aac":
+            file_id = album.aac_zip_file_id
+        elif fmt == "atmos":
+            file_id = album.atmos_zip_file_id
+        else:
+            file_id = album.alac_zip_file_id
+
+        if not file_id:
+            return web.json_response({
+                "valid": False,
+                "error": f"No {fmt.upper()} ZIP file_id is recorded for album {album_id}.",
+                "file_id": None
+            })
+
+        bot = getattr(bot_control, "bot_instance", None)
+        if not bot:
+            return web.json_response({
+                "valid": False,
+                "error": "Telegram Bot instance is not currently active.",
+                "file_id": file_id
+            })
+
+        try:
+            tg_file = await bot.get_file(file_id)
+            if tg_file:
+                # Update size in database if available
+                if tg_file.file_size:
+                    if fmt == "aac":
+                        album.aac_zip_size = tg_file.file_size
+                    elif fmt == "atmos":
+                        album.atmos_zip_size = tg_file.file_size
+                    else:
+                        album.alac_zip_size = tg_file.file_size
+                    session.add(album)
+                    await session.commit()
+
+                return web.json_response({
+                    "valid": True,
+                    "format": fmt,
+                    "file_id": file_id,
+                    "file_size": tg_file.file_size,
+                    "file_path": tg_file.file_path,
+                    "message": "File is valid and accessible on Telegram servers.",
+                })
+        except Exception as e:
+            return web.json_response({
+                "valid": False,
+                "format": fmt,
+                "file_id": file_id,
+                "error": str(e),
+                "message": f"Telegram API error: {str(e)}",
+            })

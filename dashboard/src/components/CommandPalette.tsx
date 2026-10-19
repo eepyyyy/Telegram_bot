@@ -15,6 +15,7 @@ import {
   Users,
   ScrollText,
   RotateCw,
+  FolderArchive,
 } from 'lucide-react';
 
 interface CommandItem {
@@ -77,6 +78,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         icon: <Download size={16} />,
         action: () => {
           onSelectTab('downloads');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-zips',
+        title: 'Switch Tab: Album ZIP Archives & Properties',
+        category: 'Navigation',
+        icon: <FolderArchive size={16} />,
+        action: () => {
+          onSelectTab('zips');
           onClose();
         },
       },

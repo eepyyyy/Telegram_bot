@@ -5,9 +5,10 @@ import { Users, Search, Crown, RefreshCw } from 'lucide-react';
 
 interface DatabaseExplorerProps {
   dbStats: DatabaseStats | null;
+  onNavigateZips?: () => void;
 }
 
-export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) => {
+export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats, onNavigateZips }) => {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -104,8 +105,24 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ dbStats }) =
             </div>
           </div>
 
-          <div style={{ backgroundColor: 'var(--bg-color)', padding: '0.85rem 1rem', borderRadius: 'var(--border-radius)' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)', fontWeight: 600 }}>ALBUM ZIP ARCHIVES</span>
+          <div
+            style={{
+              backgroundColor: 'var(--bg-color)',
+              padding: '0.85rem 1rem',
+              borderRadius: 'var(--border-radius)',
+              cursor: onNavigateZips ? 'pointer' : 'default',
+              border: onNavigateZips ? '1px solid rgba(226, 183, 20, 0.3)' : 'none',
+              transition: 'all var(--transition-fast)',
+            }}
+            onClick={onNavigateZips}
+            title={onNavigateZips ? 'Click to open Album ZIP Archives Manager' : undefined}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--sub-color)', fontWeight: 600 }}>ALBUM ZIP ARCHIVES</span>
+              {onNavigateZips && (
+                <span style={{ fontSize: '0.68rem', color: 'var(--main-color)', fontWeight: 600 }}>Manage →</span>
+              )}
+            </div>
             <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-color)', marginTop: '0.2rem' }}>
               {(dbStats.total_zip_count ?? 0).toLocaleString()} zips
               <span style={{ fontSize: '0.75rem', color: 'var(--sub-color)', marginLeft: '0.35rem' }}>

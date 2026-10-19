@@ -8,6 +8,7 @@ import { QueueInspector } from './components/QueueInspector';
 import { SystemTelemetry } from './components/SystemTelemetry';
 import { DatabaseExplorer } from './components/DatabaseExplorer';
 import { RecentDownloads } from './components/RecentDownloads';
+import { AlbumZipManager } from './components/AlbumZipManager';
 import { ArtistCacher } from './components/ArtistCacher';
 import { LogTerminal } from './components/LogTerminal';
 import { CommandPalette } from './components/CommandPalette';
@@ -136,10 +137,12 @@ export const App: React.FC = () => {
         } else if (e.key === '2') {
           handleTabChange('downloads');
         } else if (e.key === '3') {
-          handleTabChange('artist_cache');
+          handleTabChange('zips');
         } else if (e.key === '4') {
-          handleTabChange('database');
+          handleTabChange('artist_cache');
         } else if (e.key === '5') {
+          handleTabChange('database');
+        } else if (e.key === '6') {
           handleTabChange('logs');
         }
       }
@@ -257,13 +260,17 @@ export const App: React.FC = () => {
             isClearing={isClearingQueue}
           />
           <SystemTelemetry system={status?.system || null} />
-          <DatabaseExplorer dbStats={dbStats} />
+          <DatabaseExplorer dbStats={dbStats} onNavigateZips={() => handleTabChange('zips')} />
           <LogTerminal />
         </>
       )}
 
       {activeTab === 'downloads' && (
         <RecentDownloads />
+      )}
+
+      {activeTab === 'zips' && (
+        <AlbumZipManager />
       )}
 
       {activeTab === 'artist_cache' && (
@@ -277,7 +284,7 @@ export const App: React.FC = () => {
       {activeTab === 'database' && (
         <>
           <StatsCards status={status} dbStats={dbStats} />
-          <DatabaseExplorer dbStats={dbStats} />
+          <DatabaseExplorer dbStats={dbStats} onNavigateZips={() => handleTabChange('zips')} />
         </>
       )}
 

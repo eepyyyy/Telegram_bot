@@ -8,7 +8,12 @@ import {
   ArtistSearchResult,
   ArtistDetailsResponse,
   CacheArtistPayload,
-  CacheArtistResponse
+  CacheArtistResponse,
+  AlbumItem,
+  AlbumsResponse,
+  AlbumDetailsResponse,
+  UpdateAlbumPayload,
+  VerifyZipResponse
 } from './types';
 
 // Detect default backend URL based on environment
@@ -222,4 +227,85 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  // 14. Album ZIP Management & Properties
+  async getAlbums(
+    page = 1,
+    limit = 20,
+    search = '',
+    filter = 'all',
+    sort = 'recent'
+  ): Promise<AlbumsResponse> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      search,
+      filter,
+      sort,
+    });
+    return request<AlbumsResponse>(`/api/admin/albums?${params.toString()}`);
+  },
+
+  async getAlbumDetails(albumId: string): Promise<AlbumDetailsResponse> {
+    return request<AlbumDetailsResponse>(`/api/admin/albums/${encodeURIComponent(albumId)}`);
+  },
+
+  async updateAlbumProperties(
+    albumId: string,
+    payload: UpdateAlbumPayload
+  ): Promise<{ success: boolean; message: string; album: AlbumItem }> {
+    return request<{ success: boolean; message: string; album: AlbumItem }>(
+      `/api/admin/albums/${encodeURIComponent(albumId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  async clearAlbumZip(
+    albumId: string,
+    format: 'alac' | 'aac' | 'atmos' | 'all' = 'all'
+  ): Promise<{ success: boolean; message: string; album: AlbumItem }> {
+    return request<{ success: boolean; message: string; album: AlbumItem }>(
+      `/api/admin/albums/${encodeURIComponent(albumId)}/clear-zip`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ format }),
+      }
+    );
+  },
+
+  async deleteAlbum(
+    albumId: string,
+    deleteTracks = false
+  ): Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>(
+      `/api/admin/albums/${encodeURIComponent(albumId)}?delete_tracks=${deleteTracks}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  },
+
+  async verifyAlbumZip(
+    albumId: string,
+    format: 'alac' | 'aac' | 'atmos' = 'alac'
+  ): Promise<VerifyZipResponse> {
+    return request<VerifyZipResponse>(
+      `/api/admin/albums/${encodeURIComponent(albumId)}/verify-zip`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ format }),
+      }
+    );
+  },
+
+  async backfillZipSizes(): Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>('/api/admin/backfill-zip-sizes', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
 };
+
