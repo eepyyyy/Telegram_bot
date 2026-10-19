@@ -209,13 +209,37 @@ async def download_audio(
                     logger.info("Download cancelled during item iteration", url=url)
                     break
 
-                # Download, decrypt, and apply tags
-                await downloader.download(item)
-                downloaded_items.append(item)
+                try:
+                    # Download, decrypt, and apply tags
+                    await downloader.download(item)
+                    downloaded_items.append(item)
 
-                final_path = getattr(item, "final_path", None)
-                if on_track_done and final_path:
-                    await on_track_done(item, str(final_path))
+                    final_path = getattr(item, "final_path", None)
+                    if on_track_done and final_path:
+                        await on_track_done(item, str(final_path))
+                except (GamdlInterfaceDecryptionNotAvailableError, Exception) as dl_err:
+                    dl_err_str = str(dl_err).lower()
+                    # If requesting lossless and ALAC decryption is unavailable (e.g. FairPlay-only without wrapper), auto fallback to AAC
+                    if format_type.lower() in ("lossless", "alac") and (
+                        isinstance(dl_err, GamdlInterfaceDecryptionNotAvailableError)
+                        or "-1002" in dl_err_str
+                        or "decryption is not available" in dl_err_str
+                    ):
+                        logger.warning("ALAC decryption unavailable for track; auto-falling back to AAC-web", url=url, error=str(dl_err))
+                        aac_downloader = await create_task_downloader(
+                            format_type="aac",
+                            output_dir=output_dir,
+                            temp_dir=temp_dir,
+                            cookies_path=cookies_path,
+                        )
+                        async for aac_item in aac_downloader.get_download_item_from_url(url):
+                            await aac_downloader.download(aac_item)
+                            downloaded_items.append(aac_item)
+                            final_path = getattr(aac_item, "final_path", None)
+                            if on_track_done and final_path:
+                                await on_track_done(aac_item, str(final_path))
+                        continue
+                    raise
 
     except Exception as e:
         err_str = str(e).lower()
