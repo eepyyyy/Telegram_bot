@@ -1,0 +1,200 @@
+import asyncio
+import os
+import shutil
+import structlog
+from typing import AsyncGenerator, Awaitable, Callable, List, Optional
+
+from gamdl.api import AppleMusicApi
+from gamdl.downloader import (
+    AppleMusicBaseDownloader,
+    AppleMusicDownloader,
+    AppleMusicMusicVideoDownloader,
+    AppleMusicSongDownloader,
+    AppleMusicUploadedVideoDownloader,
+)
+from gamdl.downloader.types import DownloadItem
+from gamdl.interface import (
+    AppleMusicBaseInterface,
+    AppleMusicInterface,
+    AppleMusicMusicVideoInterface,
+    AppleMusicSongInterface,
+    AppleMusicUploadedVideoInterface,
+    GamdlInterfaceFormatNotAvailableError,
+    GamdlInterfaceDecryptionNotAvailableError,
+    GamdlInterfaceMediaNotStreamableError,
+)
+from gamdl.interface.enums import SongCodec
+
+logger = structlog.get_logger(__name__)
+
+# Global singleton storage for the AppleMusicBaseInterface
+_base_interface: Optional[AppleMusicBaseInterface] = None
+_base_api: Optional[AppleMusicApi] = None
+_base_lock: Optional[asyncio.Lock] = None
+_base_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def get_codec_priority(format_type: str) -> List[SongCodec]:
+    """Returns the SongCodec priority list for a given format string."""
+    fmt = format_type.lower().strip()
+    if fmt in ("aac", "aac-web"):
+        return [SongCodec.AAC_WEB]
+    elif fmt in ("atmos", "spatial"):
+        return [SongCodec.ATMOS]
+    elif fmt in ("lossless", "alac", "hi-res"):
+        return [SongCodec.ALAC, SongCodec.AAC_WEB]
+    else:
+        # Default fallback
+        return [SongCodec.ALAC, SongCodec.AAC_WEB]
+
+
+def format_gamdl_error(err: Exception) -> str:
+    """Translates internal gamdl and HTTP exceptions into user-friendly messages."""
+    err_str = str(err)
+    if isinstance(err, GamdlInterfaceFormatNotAvailableError) or "format is not available" in err_str.lower():
+        return "Requested audio format is not available for this track/album."
+    if isinstance(err, GamdlInterfaceDecryptionNotAvailableError) or "decryption" in err_str.lower():
+        return "Decryption key could not be obtained from Apple Music."
+    if isinstance(err, GamdlInterfaceMediaNotStreamableError) or "streamable" in err_str.lower():
+        return "This track is not streamable in the current storefront."
+    if "502" in err_str or "playback_dispatch_failed" in err_str or "1830087704" in err_str:
+        return "Apple Music server error (502 Bad Gateway / Playback error). Please try again shortly."
+    if "subscription" in err_str.lower():
+        return "Apple Music subscription error. Please check your cookies.txt authorization."
+    return f"Download failed: {err_str}"
+
+
+async def get_base_interface(cookies_path: str = "cookies.txt") -> AppleMusicBaseInterface:
+    """
+    Returns a shared, persistent AppleMusicBaseInterface instance.
+    Initializes from cookies.txt once and keeps authentication tokens in memory.
+    """
+    global _base_interface, _base_api, _base_lock, _base_loop
+
+    current_loop = asyncio.get_running_loop()
+
+    # Reset singleton if running on a new event loop
+    if _base_loop != current_loop:
+        _base_interface = None
+        _base_api = None
+        _base_lock = asyncio.Lock()
+        _base_loop = current_loop
+
+    async with _base_lock:
+        if _base_interface is None:
+            resolved_cookies = os.path.abspath(cookies_path)
+            if not os.path.exists(resolved_cookies):
+                raise FileNotFoundError(f"Cookies file not found at: {resolved_cookies}")
+
+            # Initialize AppleMusicApi from cookies
+            _base_api = await AppleMusicApi.create_from_netscape_cookies(resolved_cookies)
+
+            # Initialize base interface
+            _base_interface = await AppleMusicBaseInterface.create(
+                apple_music_api=_base_api,
+                cover_format="jpg",
+                cover_size=5000,
+            )
+            logger.info("AppleMusicBaseInterface in-memory singleton successfully initialized.")
+
+        return _base_interface
+
+
+async def create_task_downloader(
+    format_type: str,
+    output_dir: str,
+    temp_dir: str,
+    cookies_path: str = "cookies.txt",
+) -> AppleMusicDownloader:
+    """
+    Creates an AppleMusicDownloader instance configured for a specific task output
+    directory and format, while sharing the persistent AppleMusicBaseInterface.
+    """
+    base_interface = await get_base_interface(cookies_path)
+    codecs = get_codec_priority(format_type)
+
+    song_interface = AppleMusicSongInterface(
+        base=base_interface,
+        codec_priority=codecs,
+    )
+    music_video_interface = AppleMusicMusicVideoInterface(base=base_interface)
+    uploaded_video_interface = AppleMusicUploadedVideoInterface(base=base_interface)
+
+    interface = AppleMusicInterface(
+        song=song_interface,
+        music_video=music_video_interface,
+        uploaded_video=uploaded_video_interface,
+    )
+
+    base_downloader = AppleMusicBaseDownloader(
+        interface=interface,
+        output_path=output_dir,
+        temp_path=temp_dir,
+        truncate=80,
+    )
+
+    song_downloader = AppleMusicSongDownloader(base=base_downloader)
+    music_video_downloader = AppleMusicMusicVideoDownloader(base=base_downloader)
+    uploaded_video_downloader = AppleMusicUploadedVideoDownloader(base=base_downloader)
+
+    downloader = AppleMusicDownloader(
+        song=song_downloader,
+        music_video=music_video_downloader,
+        uploaded_video=uploaded_video_downloader,
+        overwrite=True,
+        save_cover=True,
+    )
+
+    return downloader
+
+
+async def download_audio(
+    urls: List[str],
+    format_type: str,
+    output_dir: str,
+    temp_dir: str,
+    cookies_path: str = "cookies.txt",
+    on_track_done: Optional[Callable[[DownloadItem, str], Awaitable[None]]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+) -> List[DownloadItem]:
+    """
+    Downloads audio tracks using the in-memory gamdl engine.
+    Invokes on_track_done(item, final_path) as each track finishes downloading and tagging.
+    """
+    downloader = await create_task_downloader(
+        format_type=format_type,
+        output_dir=output_dir,
+        temp_dir=temp_dir,
+        cookies_path=cookies_path,
+    )
+
+    downloaded_items: List[DownloadItem] = []
+
+    try:
+        for url in urls:
+            if is_cancelled and is_cancelled():
+                logger.info("Download cancelled before processing URL", url=url)
+                break
+
+            async for item in downloader.get_download_item_from_url(url):
+                if is_cancelled and is_cancelled():
+                    logger.info("Download cancelled during item iteration", url=url)
+                    break
+
+                # Download, decrypt, and apply tags
+                await downloader.download(item)
+                downloaded_items.append(item)
+
+                final_path = getattr(item, "final_path", None)
+                if on_track_done and final_path:
+                    await on_track_done(item, str(final_path))
+
+    finally:
+        # Cleanup temp directory if it exists
+        if os.path.exists(temp_dir):
+            try:
+                await asyncio.to_thread(shutil.rmtree, temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    return downloaded_items

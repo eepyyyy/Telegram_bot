@@ -19,6 +19,7 @@ import crud
 import database
 import schema
 import utils
+import audio_service
 from database import User, async_session
 import time
 from gamdl.interface import AppleMusicInterface
@@ -364,6 +365,153 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     })
 
 
+async def deliver_single_lossless_track(
+    file_path: str,
+    msg,
+    songs: list,
+    user_id_local: int,
+    status_msg,
+    cancel_builder,
+    total_tracks: int,
+    completed_count: int,
+) -> bool:
+    async with async_session() as session:
+        result = await session.exec(select(User).where(User.user_id == user_id_local))
+        user = result.first()
+
+        if user and not user.is_premium:
+            alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
+            if alac_count >= 100:
+                if msg:
+                    try:
+                        await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Stopping further downloads.")
+                    except Exception:
+                        pass
+                return False
+
+        # Check sample rate & remux Hi-Res to 48kHz ALAC if necessary
+        was_remuxed = await remux_to_48k_alac(file_path)
+
+        # Extract metadata & tags
+        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
+            utils.extract_track_metadata, file_path
+        )
+
+        # Upload and deliver audio
+        sent_msg, saved_chat_id, saved_message_id = None, None, None
+        if msg:
+            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                bot=msg.bot,
+                user_chat_id=msg.chat.id,
+                file_path=file_path,
+                title=track_title,
+                performer=artist,
+                thumbnail=thumbnail,
+                duration=duration
+            )
+
+        if sent_msg:
+            if user:
+                user.download_count += 1
+                session.add(user)
+                await session.commit()
+
+            # Progress update
+            if status_msg:
+                progress_text = (
+                    f"🚀 {hbold('PROCESSING REGULAR LOSSLESS')}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{make_progress_bar(completed_count, total_tracks)}\n"
+                    f"🎵 {hbold('Uploaded:')} {hcode(track_title)}"
+                )
+                try:
+                    await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+                except Exception:
+                    pass
+
+        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
+        file_id_val = media_obj.file_id if media_obj else None
+        file_uniq_val = media_obj.file_unique_id if media_obj else None
+        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
+
+        tbot = schema.TrackInputSchema(
+            file_id=file_id_val,
+            file_unique_id=file_uniq_val,
+            title=track_title,
+            size=file_sz_val,
+            isrc=isrc,
+            chat_id=saved_chat_id,
+            message_id=saved_message_id
+        )
+
+        matched = False
+        if isrc and songs:
+            for original_track in songs:
+                if original_track.isrc == isrc:
+                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                    track_input.file_id = tbot.file_id
+                    track_input.file_unique_id = tbot.file_unique_id
+                    track_input.size = tbot.size
+                    track_input.chat_id = tbot.chat_id
+                    track_input.message_id = tbot.message_id
+
+                    if not was_remuxed:
+                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                        await session.commit()
+
+                    try:
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=track_input.song_id,
+                            format_type="alac",
+                            size=tbot.size,
+                            is_cached=False
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log Lossless download history: {le}")
+
+                    matched = True
+                    break
+
+        if not matched and songs:
+            for original_track in songs:
+                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                    track_input.file_id = tbot.file_id
+                    track_input.file_unique_id = tbot.file_unique_id
+                    track_input.size = tbot.size
+                    track_input.chat_id = tbot.chat_id
+                    track_input.message_id = tbot.message_id
+
+                    if not was_remuxed:
+                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                        await session.commit()
+
+                    try:
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=track_input.song_id,
+                            format_type="alac",
+                            size=tbot.size,
+                            is_cached=False
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log Lossless download history: {le}")
+
+                    break
+
+        try:
+            await asyncio.to_thread(os.remove, file_path)
+        except Exception as e:
+            print(f"Failed to remove {file_path}: {e}")
+
+        return True
+
+
 async def process_lossless_download(task: dict) -> None:
     """
     Downloads requested tracks using gamdl, verifies sample rate, remuxes Hi-Res tracks to 48kHz ALAC,
@@ -449,297 +597,142 @@ async def process_lossless_download(task: dict) -> None:
         await asyncio.to_thread(os.makedirs, task_temp_dir, exist_ok=True)
 
         cookies_path = os.path.abspath("cookies.txt")
-        cookies_args = ["--cookies-path", cookies_path] if os.path.exists(cookies_path) else []
 
-        process = await asyncio.create_subprocess_exec(
-            "gamdl",
-            *cookies_args,
-            "--truncate", "80",
-            "--output-path", task_output_dir,
-            "--temp-path", task_temp_dir,
-            *tracks_to_download,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            limit=10 * 1024 * 1024,
-        )
+
         if unique_task_id in active_tasks:
-            active_tasks[unique_task_id]["process"] = process
 
-        ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+            active_tasks[unique_task_id]["async_task"] = asyncio.current_task()
+
+
+
         already_processed = set()
-        has_playback_dispatch_error = False
-        captured_errors = []
 
-        while True:
-            if active_tasks.get(unique_task_id, {}).get("cancelled"):
-                try:
-                    process.terminate()
-                    await process.wait()
-                except ProcessLookupError:
-                    pass
+
+        completed_count = 0
+
+
+
+        async def on_track_downloaded(item, file_path: str):
+
+
+            nonlocal completed_count
+
+
+            if not file_path or not os.path.exists(file_path):
+
+
                 return
 
-            if time.time() - start_time > 1800:
-                print(f"[gamdl Lossless] Download exceeded 30 minute limit. Terminating.")
-                try:
-                    process.terminate()
-                    await process.wait()
-                except Exception:
-                    pass
-                if status_msg:
-                    try:
-                        await status_msg.edit_text("❌ Download timed out after 30 minutes. Please try again.")
-                    except Exception:
-                        pass
+
+            if file_path in already_processed:
+
+
                 return
 
-            try:
-                line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
-            except asyncio.TimeoutError:
-                if process.returncode is not None:
-                    break
-                continue
-            except (ValueError, asyncio.LimitOverrunError):
-                try:
-                    line_bytes = await process.stdout.read(8192)
-                except Exception:
-                    line_bytes = b""
-            except Exception:
-                line_bytes = b""
 
-            if not line_bytes:
-                break
+            already_processed.add(file_path)
 
-            line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
-            if line:
-                print(f"[gamdl Lossless] {line}")
-                if "Requested format is not available" in line:
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except (ProcessLookupError, Exception):
-                        pass
-                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
-                        try:
-                            await status_msg.edit_text(
-                                "❌ Lossless Download Failed\n\n"
-                                "The requested format (Lossless ALAC) is not available for this track/album.\n\n"
-                                "👉 Please use /aac <link> to download in AAC 256kbps format."
-                            )
-                        except Exception:
-                            pass
-                    return
 
-                # Immediately terminate subprocess on any playback/server/fatal errors from Apple Music
-                if any(err in line for err in (
-                    "playback_dispatch_failed",
-                    "1830087704",
-                    "502 Bad Gateway",
-                    "Server error '502'",
-                    "HTTPStatusError",
-                    "GamdlApiResponseError",
-                    "response.raise_for_status",
-                    "raise HTTPStatusError",
-                )):
-                    print(f"🛑 Terminating Lossless download subprocess due to Apple Music error: {line}")
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except (ProcessLookupError, Exception):
-                        pass
 
-                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
-                        try:
-                            if len(already_processed) == 0:
-                                await status_msg.edit_text(
-                                    "❌ Lossless Download Failed\n\n"
-                                    "Apple Music server error (502 Bad Gateway / Playback error).\n"
-                                    "The track could not be streamed or is unavailable in the server's storefront.\n\n"
-                                    "👉 Try downloading in AAC using /aac <link> or try another song."
-                                )
-                            else:
-                                await status_msg.edit_text(
-                                    f"⚠️ Download stopped: {len(already_processed)}/{total_tracks} tracks delivered.\n"
-                                    f"Subsequent tracks failed due to an Apple Music playback error."
-                                )
-                        except Exception:
-                            pass
-                    return
+            completed_count += 1
 
-            # Check for finalized .m4a files in output directory
-            downloaded_files = await asyncio.to_thread(
-                glob.glob, f"{task_output_dir}/**/*.m4a", recursive=True
+
+            can_continue = await deliver_single_lossless_track(
+
+
+                file_path=file_path,
+
+
+                msg=msg,
+
+
+                songs=songs,
+
+
+                user_id_local=user_id_local,
+
+
+                status_msg=status_msg,
+
+
+                cancel_builder=cancel_builder,
+
+
+                total_tracks=total_tracks,
+
+
+                completed_count=completed_count,
+
+
             )
 
-            for file_path in downloaded_files:
-                norm_p = file_path.replace("\\", "/")
-                filename = os.path.basename(norm_p)
-                if "gamdl_temp" in norm_p or "_temp" in norm_p or filename.endswith("_encrypted.m4a") or filename.endswith(".tmp") or filename.endswith(".48k.m4a"):
-                    continue
 
-                if active_tasks.get(unique_task_id, {}).get("cancelled"):
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except ProcessLookupError:
-                        pass
-                    return
+            if not can_continue:
 
-                if file_path not in already_processed:
-                    already_processed.add(file_path)
 
-                    async with async_session() as session:
-                        result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.first()
+                if unique_task_id in active_tasks:
 
-                        if user and not user.is_premium:
-                            alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
-                            if alac_count >= 100:
-                                if msg:
-                                    try:
-                                        await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Stopping further downloads.")
-                                    except Exception:
-                                        pass
-                                try:
-                                    process.terminate()
-                                    await process.wait()
-                                except ProcessLookupError:
-                                    pass
-                                return
 
-                        # Check sample rate & remux Hi-Res to 48kHz ALAC if necessary
-                        was_remuxed = await remux_to_48k_alac(file_path)
+                    active_tasks[unique_task_id]["cancelled"] = True
 
-                        # Extract metadata & tags
-                        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
-                            utils.extract_track_metadata, file_path
-                        )
 
-                        # Upload and deliver audio
-                        if msg:
-                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
-                                bot=msg.bot,
-                                user_chat_id=msg.chat.id,
-                                file_path=file_path,
-                                title=track_title,
-                                performer=artist,
-                                thumbnail=thumbnail,
-                                duration=duration
-                            )
-                        else:
-                            sent_msg, saved_chat_id, saved_message_id = None, None, None
 
-                        if sent_msg:
-                            completed_count += 1
-                            if user:
-                                user.download_count += 1
-                                session.add(user)
-                                await session.commit()
+        try:
 
-                            # Progress update
-                            if status_msg:
-                                progress_text = (
-                                    f"🚀 {hbold('PROCESSING REGULAR LOSSLESS')}\n"
-                                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                    f"{make_progress_bar(completed_count, total_tracks)}\n"
-                                    f"🎵 {hbold('Uploaded:')} {hcode(track_title)}"
-                                )
-                                try:
-                                    await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
-                                except Exception:
-                                    pass
 
-                        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
-                        file_id_val = media_obj.file_id if media_obj else None
-                        file_uniq_val = media_obj.file_unique_id if media_obj else None
-                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
+            await audio_service.download_audio(
 
-                        tbot = schema.TrackInputSchema(
-                            file_id=file_id_val,
-                            file_unique_id=file_uniq_val,
-                            title=track_title,
-                            size=file_sz_val,
-                            isrc=isrc,
-                            chat_id=saved_chat_id,
-                            message_id=saved_message_id
-                        )
 
-                        matched = False
-                        # 1. Match by ISRC
-                        if isrc and songs:
-                            for original_track in songs:
-                                if original_track.isrc == isrc:
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    track_input.chat_id = tbot.chat_id
-                                    track_input.message_id = tbot.message_id
+                urls=tracks_to_download,
 
-                                    # Only store standard original lossless in DB; DO NOT store remuxed tracks!
-                                    if not was_remuxed:
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
-                                        await session.commit()
 
-                                    # Log download history
-                                    try:
-                                        await crud.log_download(
-                                            session=session,
-                                            user_id=user_id_local,
-                                            song_id=track_input.song_id,
-                                            format_type="alac",
-                                            size=tbot.size,
-                                            is_cached=False
-                                        )
-                                        await session.commit()
-                                    except Exception as le:
-                                        print(f"Failed to log Lossless download history: {le}")
+                format_type="lossless",
 
-                                    matched = True
-                                    break
 
-                        # 2. Fallback to title match
-                        if not matched and songs:
-                            for original_track in songs:
-                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    track_input.chat_id = tbot.chat_id
-                                    track_input.message_id = tbot.message_id
+                output_dir=task_output_dir,
 
-                                    # Only store standard original lossless in DB; DO NOT store remuxed tracks!
-                                    if not was_remuxed:
-                                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
-                                        await session.commit()
 
-                                    # Log download history
-                                    try:
-                                        await crud.log_download(
-                                            session=session,
-                                            user_id=user_id_local,
-                                            song_id=track_input.song_id,
-                                            format_type="alac",
-                                            size=tbot.size,
-                                            is_cached=False
-                                        )
-                                        await session.commit()
-                                    except Exception as le:
-                                        print(f"Failed to log Lossless download history: {le}")
+                temp_dir=task_temp_dir,
 
-                                    break
 
-                        # Remove local downloaded/remuxed file
-                        try:
-                            await asyncio.to_thread(os.remove, file_path)
-                        except Exception as e:
-                            print(f"Failed to remove {file_path}: {e}")
+                cookies_path=cookies_path,
 
-            await asyncio.sleep(1)
 
-        return_code = await process.wait()
+                on_track_done=on_track_downloaded,
+
+
+                is_cancelled=lambda: active_tasks.get(unique_task_id, {}).get("cancelled", False),
+
+
+            )
+
+
+        except Exception as e:
+
+
+            err_msg = audio_service.format_gamdl_error(e)
+
+
+            print(f"🛑 In-memory Lossless download failed for {unique_task_id}: {e}")
+
+
+            if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
+
+
+                try:
+
+
+                    await status_msg.edit_text(f"❌ Lossless Download Failed\n\n{err_msg}")
+
+
+                except Exception:
+
+
+                    pass
+
+
+            return
 
         if active_tasks.get(unique_task_id, {}).get("cancelled"):
             return

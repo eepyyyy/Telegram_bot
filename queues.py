@@ -90,6 +90,13 @@ def cancel_all_active_tasks(format_filter: str = "all", remove: bool = False) ->
             except Exception:
                 pass
 
+        async_task = task.get("async_task")
+        if async_task and hasattr(async_task, "cancel") and not async_task.done():
+            try:
+                async_task.cancel()
+            except Exception:
+                pass
+
         # Notify Telegram status message if available
         status_msg = task.get("status_msg")
         if status_msg:
@@ -203,6 +210,12 @@ def cancel_user_active_downloads(user_id: int) -> int:
             if proc:
                 try:
                     proc.kill()
+                except Exception:
+                    pass
+            async_task = task.get("async_task")
+            if async_task and hasattr(async_task, "cancel") and not async_task.done():
+                try:
+                    async_task.cancel()
                 except Exception:
                     pass
             status_msg = task.get("status_msg")

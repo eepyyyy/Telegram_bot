@@ -173,6 +173,12 @@ async def handle_cancel_download(call: types.CallbackQuery) -> None:
                 proc.terminate()
             except Exception:
                 pass
+        async_task = task_info.get("async_task")
+        if async_task and hasattr(async_task, "cancel") and not async_task.done():
+            try:
+                async_task.cancel()
+            except Exception:
+                pass
         await call.answer("🚫 Cancelling download...")
         status_msg = task_info.get("status_msg")
         if status_msg:
@@ -1282,6 +1288,160 @@ async def handle_album_mode_selection(call: types.CallbackQuery) -> None:
         })
 
 
+async def deliver_single_default_track(
+    file_path: str,
+    msg,
+    songs: list,
+    user_id_local: int,
+    status_msg,
+    cancel_builder,
+    total_tracks: int,
+    completed_count: int,
+    download_mode: str,
+    task: dict,
+) -> bool:
+    import secrets
+    async with async_session() as session:
+        result = await session.exec(select(User).where(User.user_id == user_id_local))
+        user = result.first()
+        
+        if user and not user.is_premium and msg:
+            alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
+            if alac_count >= 100:
+                try:
+                    await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Stopping further downloads.")
+                except Exception:
+                    pass
+                return False
+
+        # Check if transcoding is requested (FLAC or MP3)
+        requested_fmt = str(task.get("format_type", "alac")).lower().strip()
+        orig_file_path = file_path
+        if requested_fmt in ("flac", "mp3"):
+            transcoded_path = await utils.transcode_audio(file_path, target_format=requested_fmt, remove_source=False)
+            if transcoded_path and os.path.exists(transcoded_path):
+                file_path = transcoded_path
+
+        # Extract metadata and upload
+        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
+            utils.extract_track_metadata, file_path
+        )
+        
+        sent_msg = None
+        saved_chat_id = utils.STORAGE_CHANNEL_ID
+        saved_message_id = None
+        if msg:
+            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
+                bot=msg.bot,
+                user_chat_id=msg.chat.id,
+                file_path=file_path,
+                title=track_title,
+                performer=artist,
+                thumbnail=thumbnail,
+                duration=duration
+            )
+
+        if user:
+            user.download_count += 1
+            session.add(user)
+            await session.commit()
+
+        # Real-Time Progress Bar Update
+        if status_msg:
+            progress_text = (
+                f"🚀 {hbold('PROCESSING DOWNLOAD')}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{make_progress_bar(completed_count, total_tracks)}\n"
+                f"🎵 {hbold('Uploaded:')} {hcode(track_title)}"
+            )
+            try:
+                await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+            except Exception:
+                pass
+
+        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
+        file_id_val = media_obj.file_id if media_obj else f"cached_{secrets.token_hex(8)}"
+        file_uniq_val = media_obj.file_unique_id if media_obj else f"uniq_{secrets.token_hex(8)}"
+        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
+
+        tbot = schema.TrackInputSchema(
+            file_id=file_id_val,
+            file_unique_id=file_uniq_val,
+            title=track_title,
+            size=file_sz_val,
+            isrc=isrc,
+            chat_id=saved_chat_id,
+            message_id=saved_message_id
+        )
+
+        matched = False
+        if isrc and songs:
+            for original_track in songs:
+                if original_track.isrc == isrc:
+                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                    track_input.file_id = tbot.file_id
+                    track_input.file_unique_id = tbot.file_unique_id
+                    track_input.size = tbot.size
+                    track_input.chat_id = tbot.chat_id
+                    track_input.message_id = tbot.message_id
+                    await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                    await session.commit()
+                    
+                    try:
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=track_input.song_id,
+                            format_type="alac",
+                            size=tbot.size,
+                            is_cached=False
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log download history: {le}")
+                        
+                    matched = True
+                    break
+
+        if not matched and songs:
+            for original_track in songs:
+                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
+                    track_input = schema.TrackInputSchema(**original_track.model_dump())
+                    track_input.file_id = tbot.file_id
+                    track_input.file_unique_id = tbot.file_unique_id
+                    track_input.size = tbot.size
+                    track_input.chat_id = tbot.chat_id
+                    track_input.message_id = tbot.message_id
+                    await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                    await session.commit()
+                    
+                    try:
+                        await crud.log_download(
+                            session=session,
+                            user_id=user_id_local,
+                            song_id=track_input.song_id,
+                            format_type="alac",
+                            size=tbot.size,
+                            is_cached=False
+                        )
+                        await session.commit()
+                    except Exception as le:
+                        print(f"Failed to log download history: {le}")
+                        
+                    break
+
+        # In 'tracks' mode only, delete local file immediately after upload
+        if download_mode == "tracks":
+            try:
+                await asyncio.to_thread(os.remove, file_path)
+                if orig_file_path != file_path and os.path.exists(orig_file_path):
+                    await asyncio.to_thread(os.remove, orig_file_path)
+            except Exception as e:
+                print(f"Failed to delete {file_path}: {e}")
+
+        return True
+
+
 async def process_download(task: dict) -> None:
     """
     Core logic for processing a download request: fetching metadata, checking cache, downloading via gamdl, and uploading to Telegram.
@@ -1542,313 +1702,186 @@ async def process_download(task: dict) -> None:
         # Save max-res cover as separate file
         cover_args = ["--save-cover", "--cover-format", "jpg", "--cover-size", "5000"]
 
-        process = await asyncio.create_subprocess_exec(
-            "gamdl",
-            *cookies_args,
-            *cover_args,
-            "--truncate", "80",
-            "--output-path", task_output_dir,
-            "--temp-path", task_temp_dir,
-            *target_dl_urls,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            limit=10 * 1024 * 1024,
-        )
         if unique_task_id in active_tasks:
-            active_tasks[unique_task_id]["process"] = process
 
-        ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+            active_tasks[unique_task_id]["async_task"] = asyncio.current_task()
+
+
+
         already_processed = set()
-        timeout_seconds = 1800
-        start_dl_time = asyncio.get_event_loop().time()
-        has_playback_dispatch_error = False
-        captured_errors = []
 
-        while True:
-            if active_tasks.get(unique_task_id, {}).get("cancelled"):
-                try:
-                    process.terminate()
-                    await process.wait()
-                except Exception:
-                    pass
+
+
+        async def on_track_downloaded(item, file_path: str):
+
+
+            nonlocal completed_count
+
+
+            if not file_path or not os.path.exists(file_path):
+
+
                 return
 
-            if (asyncio.get_event_loop().time() - start_dl_time) > timeout_seconds:
-                print(f"Task {unique_task_id} exceeded maximum timeout of {timeout_seconds}s. Terminating process.")
-                try:
-                    process.terminate()
-                    await process.wait()
-                except Exception:
-                    pass
+
+            if file_path in already_processed:
+
+
+                return
+
+
+            already_processed.add(file_path)
+
+
+
+            if download_mode == "zip":
+
+
+                completed_count += 1
+
+
                 if status_msg:
+
+
+                    progress_text = (
+
+
+                        f"🚀 {hbold('PACKAGING ALBUM')}\n"
+
+
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+
+                        f"{make_progress_bar(completed_count, total_tracks)}\n"
+
+
+                        f"📥 Downloaded {completed_count}/{total_tracks} tracks..."
+
+
+                    )
+
+
                     try:
-                        await status_msg.edit_text("❌ Download timed out after 30 minutes. Please try again.")
+
+
+                        await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
+
+
                     except Exception:
+
+
                         pass
+
+
                 return
 
-            try:
-                line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
-            except asyncio.TimeoutError:
-                if process.returncode is not None:
-                    break
-                continue
-            except (ValueError, asyncio.LimitOverrunError):
-                try:
-                    line_bytes = await process.stdout.read(8192)
-                except Exception:
-                    line_bytes = b""
-            except Exception:
-                line_bytes = b""
 
-            if not line_bytes:
-                break
-            
-            line = ansi_escapes.sub("", line_bytes.decode("utf-8", errors="ignore")).strip()
-            if line:
-                print(f"[gamdl] {line}")
-                if "Requested format is not available" in line:
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except (ProcessLookupError, Exception):
-                        pass
-                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
-                        try:
-                            await status_msg.edit_text(
-                                "❌ Download Failed\n\n"
-                                "The requested format (Lossless ALAC) is not available for this song/album.\n\n"
-                                "👉 Please use /aac <link> to download in AAC 256kbps format."
-                            )
-                        except Exception:
-                            pass
-                    return
 
-                # Immediately terminate subprocess on any playback/server/fatal errors from Apple Music
-                if any(err in line for err in (
-                    "playback_dispatch_failed",
-                    "1830087704",
-                    "502 Bad Gateway",
-                    "Server error '502'",
-                    "HTTPStatusError",
-                    "GamdlApiResponseError",
-                    "response.raise_for_status",
-                    "raise HTTPStatusError",
-                )):
-                    print(f"🛑 Terminating download subprocess due to Apple Music error: {line}")
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except (ProcessLookupError, Exception):
-                        pass
+            completed_count += 1
 
-                    if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
-                        try:
-                            if len(already_processed) == 0:
-                                await status_msg.edit_text(
-                                    "❌ Download Failed\n\n"
-                                    "Apple Music server error (502 Bad Gateway / Playback error).\n"
-                                    "The track could not be streamed or is unavailable in the server's storefront.\n\n"
-                                    "👉 Try downloading in AAC using /aac <link> or try another song."
-                                )
-                            else:
-                                await status_msg.edit_text(
-                                    f"⚠️ Download stopped: {len(already_processed)}/{total_tracks} tracks delivered.\n"
-                                    f"Subsequent tracks failed due to an Apple Music playback error."
-                                )
-                        except Exception:
-                            pass
-                    return
 
-            # Check for finalized .m4a files in output directory
-            downloaded_files = await asyncio.to_thread(
-                glob.glob, f"{task_output_dir}/**/*.m4a", recursive=True
+            can_continue = await deliver_single_default_track(
+
+
+                file_path=file_path,
+
+
+                msg=msg,
+
+
+                songs=songs,
+
+
+                user_id_local=user_id_local,
+
+
+                status_msg=status_msg,
+
+
+                cancel_builder=cancel_builder,
+
+
+                total_tracks=total_tracks,
+
+
+                completed_count=completed_count,
+
+
+                download_mode=download_mode,
+
+
+                task=task,
+
+
             )
-            for file_path in downloaded_files:
-                norm_p = file_path.replace("\\", "/")
-                filename = os.path.basename(norm_p)
-                if "gamdl_temp" in norm_p or "_temp" in norm_p or filename.endswith("_encrypted.m4a") or filename.endswith(".tmp"):
-                    continue
-
-                if active_tasks.get(unique_task_id, {}).get("cancelled"):
-                    try:
-                        process.terminate()
-                        await process.wait()
-                    except ProcessLookupError:
-                        pass
-                    return
-
-                if file_path not in already_processed:
-                    already_processed.add(file_path)
-                    
-                    if download_mode == "zip":
-                        # In ZIP-only mode, don't send individual audio tracks to PM; just update progress
-                        completed_count += 1
-                        if status_msg:
-                            progress_text = (
-                                f"🚀 {hbold('PACKAGING ALBUM')}\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"{make_progress_bar(completed_count, total_tracks)}\n"
-                                f"📥 Downloaded {completed_count}/{total_tracks} tracks..."
-                            )
-                            try:
-                                await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
-                            except Exception:
-                                pass
-                        continue
-
-                    # For 'tracks' or 'both' mode, deliver audio track
-                    async with async_session() as session:
-                        result = await session.exec(select(User).where(User.user_id == user_id_local))
-                        user = result.first()
-                        
-                        if user and not user.is_premium and msg:
-                            alac_count = await crud.get_alac_download_count_12h(session, user_id_local)
-                            if alac_count >= 100:
-                                try:
-                                    await msg.answer("❌ ALAC download limit reached (100 tracks per 12 hours). Stopping further downloads.")
-                                except Exception:
-                                    pass
-                                try:
-                                    process.terminate()
-                                    await process.wait()
-                                except ProcessLookupError:
-                                    pass
-                                return
-
-                        # Check if transcoding is requested (FLAC or MP3)
-                        requested_fmt = str(task.get("format_type", "alac")).lower().strip()
-                        orig_file_path = file_path
-                        if requested_fmt in ("flac", "mp3"):
-                            transcoded_path = await utils.transcode_audio(file_path, target_format=requested_fmt, remove_source=False)
-                            if transcoded_path and os.path.exists(transcoded_path):
-                                file_path = transcoded_path
-
-                        # Extract metadata and upload
-                        track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
-                            utils.extract_track_metadata, file_path
-                        )
-                        
-                        sent_msg = None
-                        saved_chat_id = utils.STORAGE_CHANNEL_ID
-                        saved_message_id = None
-                        if msg:
-                            sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_audio(
-                                bot=msg.bot,
-                                user_chat_id=msg.chat.id,
-                                file_path=file_path,
-                                title=track_title,
-                                performer=artist,
-                                thumbnail=thumbnail,
-                                duration=duration
-                            )
-
-                        completed_count += 1
-                        if user:
-                            user.download_count += 1
-                            session.add(user)
-                            await session.commit()
-
-                        # Real-Time Progress Bar Update
-                        if status_msg:
-                            progress_text = (
-                                f"🚀 {hbold('PROCESSING DOWNLOAD')}\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"{make_progress_bar(completed_count, total_tracks)}\n"
-                                f"🎵 {hbold('Uploaded:')} {hcode(track_title)}"
-                            )
-                            try:
-                                await status_msg.edit_text(progress_text, reply_markup=cancel_builder.as_markup())
-                            except Exception:
-                                pass
-
-                        media_obj = (sent_msg.audio or sent_msg.document) if sent_msg else None
-                        file_id_val = media_obj.file_id if media_obj else f"cached_{secrets.token_hex(8)}"
-                        file_uniq_val = media_obj.file_unique_id if media_obj else f"uniq_{secrets.token_hex(8)}"
-                        file_sz_val = getattr(media_obj, "file_size", 0) if media_obj else (os.path.getsize(file_path) if os.path.exists(file_path) else 0)
-
-                        tbot = schema.TrackInputSchema(
-                            file_id=file_id_val,
-                            file_unique_id=file_uniq_val,
-                            title=track_title,
-                            size=file_sz_val,
-                            isrc=isrc,
-                            chat_id=saved_chat_id,
-                            message_id=saved_message_id
-                        )
-                            
-                        matched = False
-                        # 1. Match by ISRC
-                        if isrc:
-                            for original_track in songs:
-                                if original_track.isrc == isrc:
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    track_input.chat_id = tbot.chat_id
-                                    track_input.message_id = tbot.message_id
-                                    await crud.save_single_track(session=session, track_data=track_input)
-                                    await session.commit()
-                                    
-                                    try:
-                                        await crud.log_download(
-                                            session=session,
-                                            user_id=user_id_local,
-                                            song_id=track_input.song_id,
-                                            format_type="alac",
-                                            size=tbot.size,
-                                            is_cached=False
-                                        )
-                                        await session.commit()
-                                    except Exception as le:
-                                        print(f"Failed to log download history: {le}")
-                                        
-                                    matched = True
-                                    break
-
-                        # 2. Fallback to normalized title match
-                        if not matched:
-                            for original_track in songs:
-                                if utils.convert_text(original_track.title) == utils.convert_text(tbot.title):
-                                    track_input = schema.TrackInputSchema(**original_track.model_dump())
-                                    track_input.file_id = tbot.file_id
-                                    track_input.file_unique_id = tbot.file_unique_id
-                                    track_input.size = tbot.size
-                                    track_input.chat_id = tbot.chat_id
-                                    track_input.message_id = tbot.message_id
-                                    await crud.save_single_track(session=session, track_data=track_input)
-                                    await session.commit()
-                                    
-                                    try:
-                                        await crud.log_download(
-                                            session=session,
-                                            user_id=user_id_local,
-                                            song_id=track_input.song_id,
-                                            format_type="alac",
-                                            size=tbot.size,
-                                            is_cached=False
-                                        )
-                                        await session.commit()
-                                    except Exception as le:
-                                        print(f"Failed to log download history: {le}")
-                                        
-                                    break
 
 
-                        # In 'tracks' mode only, delete local file immediately after upload
-                        if download_mode == "tracks":
-                            try:
-                                await asyncio.to_thread(os.remove, file_path)
-                                if orig_file_path != file_path and os.path.exists(orig_file_path):
-                                    await asyncio.to_thread(os.remove, orig_file_path)
-                            except Exception as e:
-                                print(f"Failed to delete {file_path}: {e}")
+            if not can_continue:
 
-            await asyncio.sleep(1)
 
-        return_code = await process.wait()
+                if unique_task_id in active_tasks:
+
+
+                    active_tasks[unique_task_id]["cancelled"] = True
+
+
+
+        try:
+
+
+            await audio_service.download_audio(
+
+
+                urls=target_dl_urls,
+
+
+                format_type="lossless",
+
+
+                output_dir=task_output_dir,
+
+
+                temp_dir=task_temp_dir,
+
+
+                cookies_path=cookies_path,
+
+
+                on_track_done=on_track_downloaded,
+
+
+                is_cancelled=lambda: active_tasks.get(unique_task_id, {}).get("cancelled", False),
+
+
+            )
+
+
+        except Exception as e:
+
+
+            err_msg = audio_service.format_gamdl_error(e)
+
+
+            print(f"🛑 In-memory download failed for {unique_task_id}: {e}")
+
+
+            if status_msg and not active_tasks.get(unique_task_id, {}).get("cancelled"):
+
+
+                try:
+
+
+                    await status_msg.edit_text(f"❌ Download Failed\n\n{err_msg}")
+
+
+                except Exception:
+
+
+                    pass
+
+
+            return
 
         # Check if task was cancelled while process was terminating
         if active_tasks.get(unique_task_id, {}).get("cancelled"):
@@ -2133,6 +2166,14 @@ async def on_startup(bot: Bot) -> None:
 
     # Backfill missing zip file sizes for all previous albums in background
     asyncio.create_task(crud.backfill_missing_zip_sizes(bot))
+
+    # Pre-warm in-memory audio engine in background
+    try:
+        import audio_service
+        asyncio.create_task(audio_service.get_base_interface())
+        logging.info("Audio engine pre-warming started.")
+    except Exception as e:
+        logging.warning(f"Failed to pre-warm audio engine: {e}")
 
     # Set webhook on local Telegram API server with backoff retries
     webhook_set = False
