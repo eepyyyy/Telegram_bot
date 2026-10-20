@@ -294,14 +294,29 @@ async def download_audio(
                         await on_track_done(item, str(final_path))
                 except (GamdlInterfaceDecryptionNotAvailableError, Exception) as dl_err:
                     dl_err_str = str(dl_err).lower()
-                    has_wrapper = bool(getattr(downloader.interface.base, "wrapper_api", None))
-                    # If requesting lossless/atmos WITHOUT wrapper and decryption is unavailable, auto fallback to AAC
-                    if not has_wrapper and format_type.lower() in ("lossless", "alac", "atmos", "spatial") and (
+                    has_wrapper = False
+                    try:
+                        base_dl = getattr(downloader, "base", None)
+                        if base_dl and getattr(base_dl, "interface", None):
+                            base_itf = getattr(base_dl.interface, "base", None)
+                            if base_itf and getattr(base_itf, "wrapper_api", None):
+                                has_wrapper = True
+                    except Exception:
+                        pass
+                    if not has_wrapper:
+                        use_w, w_url = get_wrapper_config()
+                        has_wrapper = bool(use_w and w_url)
+
+                    # If requesting lossless/atmos and decryption is unavailable (e.g. without wrapper or key rejected), auto fallback to AAC
+                    if format_type.lower() in ("lossless", "alac", "atmos", "spatial") and (
                         isinstance(dl_err, GamdlInterfaceDecryptionNotAvailableError)
                         or "-1002" in dl_err_str
                         or "decryption is not available" in dl_err_str
+                        or "decryption" in dl_err_str
+                        or "license" in dl_err_str
+                        or not has_wrapper
                     ):
-                        logger.warning("ALAC/Atmos decryption unavailable without wrapper; auto-falling back to AAC-web", url=url, error=str(dl_err))
+                        logger.warning("Decryption unavailable for format; auto-falling back to AAC-web", url=url, error=str(dl_err))
                         aac_downloader = await create_task_downloader(
                             format_type="aac",
                             output_dir=output_dir,
