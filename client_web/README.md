@@ -34,11 +34,19 @@ Or with `uv`:
 ```bash
 uv run python client_web/run.py
 ```
-Access the application at: **`http://localhost:8090`**
+Access the application at: **`http://localhost:3000`**
 
-### 2. Custom Port
+### 2. Running on a Remote VPS (Firewall setup)
+If running on a VPS, ensure port `3000` is allowed through your firewall:
 ```bash
-uv run python client_web/run.py --port 8095
+sudo ufw allow 3000/tcp
+uv run python client_web/run.py
+```
+Then visit: `http://<YOUR_VPS_IP>:3000`
+
+### 3. Custom Port
+```bash
+uv run python client_web/run.py --port 8085
 ```
 
 ---

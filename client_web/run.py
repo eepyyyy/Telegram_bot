@@ -21,7 +21,7 @@ from client_web.server import run_server
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Client-Side Decryption Web App")
     parser.add_argument("--host", default="0.0.0.0", help="Host interface (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8090)), help="Port (default: 8090)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 3000)), help="Port (default: 3000)")
     args = parser.parse_args()
 
     print("=" * 60)

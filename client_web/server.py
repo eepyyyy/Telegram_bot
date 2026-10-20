@@ -39,7 +39,7 @@ def add_cors_headers(response: web.StreamResponse) -> web.StreamResponse:
 
 
 class ClientWebServer:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8090):
+    def __init__(self, host: str = "0.0.0.0", port: int = 3000):
         self.host = host
         self.port = port
         self.app = web.Application(client_max_size=100 * 1024 * 1024)
@@ -237,7 +237,7 @@ class ClientWebServer:
         logger.info(f"Client-Side Decryption Web Server running at http://localhost:{self.port}")
 
 
-def run_server(host="0.0.0.0", port=8090):
+def run_server(host="0.0.0.0", port=3000):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     server = ClientWebServer(host=host, port=port)
@@ -249,5 +249,5 @@ def run_server(host="0.0.0.0", port=8090):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8090))
+    port = int(os.environ.get("PORT", 3000))
     run_server(port=port)
