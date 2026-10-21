@@ -28,6 +28,43 @@ from gamdl.interface.enums import CoverFormat, SongCodec
 
 logger = structlog.get_logger(__name__)
 
+# Monkey patch AppleMusicSongInterface._get_stream_info to handle Apple Music variant_id vs asset_metadata mismatch
+_orig_get_stream_info = AppleMusicSongInterface._get_stream_info
+
+async def _patched_get_stream_info(self, m3u8_master_url, codec):
+    try:
+        return await _orig_get_stream_info(self, m3u8_master_url, codec)
+    except KeyError:
+        import m3u8
+        from gamdl.interface.types import StreamInfo, StreamInfoAv, MediaFileFormat
+        from gamdl.interface.constants import MP4_FORMAT_CODECS
+        m3u8_master_obj = m3u8.loads((await self.base.get_response(m3u8_master_url)).text)
+        data = m3u8_master_obj.data
+        playlist = self._get_playlist_from_codec(data, codec)
+        if not playlist:
+            return None
+        stream_info = StreamInfo(use_single_content_key=False)
+        stream_info.stream_url = f"{m3u8_master_url.rpartition('/')[0]}/{playlist['uri']}"
+        stream_info.codec = playlist['stream_info']['codecs']
+        is_mp4 = any(stream_info.codec.startswith(c) for c in MP4_FORMAT_CODECS)
+        session_key_metadata = self._get_audio_session_key_metadata(data)
+        if session_key_metadata:
+            asset_metadata = self._get_asset_metadata(data) or {}
+            audio_group = playlist['stream_info'].get('audio')
+            target_asset = None
+            for v in asset_metadata.values():
+                if v.get('GROUP-ID') == audio_group or v.get('AUDIO-FORMAT-ID') == codec.value:
+                    target_asset = v
+                    break
+            if target_asset and 'AUDIO-SESSION-KEY-IDS' in target_asset:
+                drm_ids = target_asset['AUDIO-SESSION-KEY-IDS']
+                stream_info.widevine_pssh = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed')
+                stream_info.playready_pssh = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'com.microsoft.playready')
+                stream_info.fairplay_key = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'com.apple.streamingkeydelivery')
+        return StreamInfoAv(audio_track=stream_info, file_format=MediaFileFormat.MP4 if is_mp4 else MediaFileFormat.M4A)
+
+AppleMusicSongInterface._get_stream_info = _patched_get_stream_info
+
 # Global singleton storage for the AppleMusicBaseInterface
 _base_interface: Optional[AppleMusicBaseInterface] = None
 _base_api: Optional[AppleMusicApi] = None
@@ -39,28 +76,45 @@ _cookies_resolved_path: Optional[str] = None
 
 def get_wrapper_config() -> tuple[bool, Optional[str]]:
     """
-    Checks environment variables and ~/.gamdl/config.ini for wrapper settings.
+    Checks environment variables, ~/.gamdl/config.ini, and local port 10020 for wrapper settings.
     Returns (use_wrapper: bool, wrapper_url: Optional[str]).
     """
     env_use_wrapper = os.getenv("USE_WRAPPER")
     env_wrapper_url = os.getenv("WRAPPER_URL")
     if env_use_wrapper is not None or env_wrapper_url is not None:
         use_w = env_use_wrapper.lower() in ("true", "1", "yes") if env_use_wrapper else bool(env_wrapper_url)
-        return use_w, env_wrapper_url
+        return use_w, env_wrapper_url or "http://127.0.0.1:10020"
 
     try:
         from pathlib import Path
         import configparser
-        cfg_path = Path.home() / ".gamdl" / "config.ini"
-        if cfg_path.exists():
-            cp = configparser.ConfigParser(interpolation=None)
-            cp.read(cfg_path, encoding="utf-8")
-            if cp.has_section("gamdl"):
-                use_w = cp.getboolean("gamdl", "use_wrapper", fallback=False)
-                w_url = cp.get("gamdl", "wrapper_url", fallback=None)
-                if w_url in ("null", "none", ""):
-                    w_url = None
-                return use_w, w_url
+        candidates = [
+            Path.home() / ".gamdl" / "config.ini",
+            Path("/root/.gamdl/config.ini"),
+            Path("/home/gana/.gamdl/config.ini"),
+        ]
+        for cfg_path in candidates:
+            if cfg_path.exists():
+                cp = configparser.ConfigParser(interpolation=None)
+                cp.read(cfg_path, encoding="utf-8")
+                if cp.has_section("gamdl"):
+                    use_w = cp.getboolean("gamdl", "use_wrapper", fallback=False)
+                    w_url = cp.get("gamdl", "wrapper_url", fallback=None)
+                    if use_w:
+                        return use_w, w_url or "http://127.0.0.1:10020"
+    except Exception as e:
+        logger.warning("Failed to read ~/.gamdl/config.ini", error=str(e))
+
+    # Auto-detect if wrapper server is running locally on 127.0.0.1:10020
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        res = sock.connect_ex(('127.0.0.1', 10020))
+        sock.close()
+        if res == 0:
+            logger.info("Auto-detected local Apple Music wrapper running on 127.0.0.1:10020")
+            return True, "http://127.0.0.1:10020"
     except Exception:
         pass
 

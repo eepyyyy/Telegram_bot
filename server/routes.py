@@ -9,6 +9,7 @@ from pathlib import Path
 from aiohttp import web
 from sqlmodel import select, or_, func, col, case
 import crud
+import gamdlUrl
 import gamdlHelpUrl
 from database import Tracks, AACTracks, AtmosTracks, Albums, async_session
 from server import config
@@ -965,6 +966,79 @@ async def download_track(request: web.Request):
         as_attachment=True,
         override_filename=filename
     )
+
+
+@routes.delete("/api/tracks/{format_type}/{song_id}")
+async def delete_track(request: web.Request):
+    """
+    Deletes a track from the vault database by song_id and format.
+    """
+    format_type = request.match_info.get("format_type", "alac").lower()
+    song_id = request.match_info.get("song_id")
+    if not song_id:
+        return web.json_response({"success": False, "error": "song_id is required"}, status=400)
+
+    if format_type == "all":
+        models = [Tracks, AACTracks, AtmosTracks]
+    else:
+        models = [crud.get_track_model(format_type)]
+
+    deleted_count = 0
+    async with async_session() as session:
+        for model_cls in models:
+            stmt = select(model_cls).where(model_cls.song_id == str(song_id))
+            res = await session.exec(stmt)
+            track = res.first()
+            if track:
+                await session.delete(track)
+                deleted_count += 1
+        if deleted_count > 0:
+            await session.commit()
+
+    if deleted_count == 0:
+        return web.json_response({"success": False, "error": f"Track {song_id} not found in database"}, status=404)
+
+    return web.json_response({
+        "success": True,
+        "message": f"Track {song_id} removed from vault ({deleted_count} entry deleted)"
+    })
+
+
+@routes.post("/api/tracks/add")
+async def add_track_url(request: web.Request):
+    """
+    Adds Apple Music track(s), album, or playlist to the vault database from URL.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON payload"}, status=400)
+
+    url = (data.get("url") or "").strip()
+    format_type = (data.get("format") or "alac").lower()
+
+    if not url:
+        return web.json_response({"success": False, "error": "URL parameter is required"}, status=400)
+
+    try:
+        tracks = await gamdlUrl.get_any_url(url)
+        if not tracks:
+            return web.json_response({"success": False, "error": "No tracks found for the provided URL"}, status=404)
+
+        async with async_session() as session:
+            await crud.save_albums(session, tracks)
+            await crud.save_tracks(session, tracks, format_type=format_type)
+            await session.commit()
+
+        return web.json_response({
+            "success": True,
+            "message": f"Successfully added {len(tracks)} track(s) to {format_type.upper()} vault",
+            "count": len(tracks),
+            "tracks": [{"song_id": t.song_id, "title": t.title, "artist": t.artist, "album": t.album} for t in tracks]
+        })
+    except Exception as e:
+        logger.error(f"Error adding track from URL: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
 # Static File & UI Routes
