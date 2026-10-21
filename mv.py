@@ -291,7 +291,8 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
                     [InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_mv.gofile_url)]
                 ])
 
-            from utils import bot
+            import bot_control
+            bot = getattr(bot_control, "bot_instance", None) or (msg.bot if msg else None)
             if cached_mv.chat_id and cached_mv.message_id:
                 try:
                     await bot.copy_message(
@@ -665,7 +666,8 @@ async def process_mv_download(task: dict) -> None:
                             except Exception:
                                 duration_sec = 0
 
-                        from utils import bot
+                        import bot_control
+                        bot = getattr(bot_control, "bot_instance", None) or (msg.bot if msg else None)
                         try:
                             sent_msg, saved_chat_id, saved_message_id = await utils.upload_and_deliver_video(
                                 bot=bot,

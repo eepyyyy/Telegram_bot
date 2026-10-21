@@ -957,7 +957,8 @@ async def handle_search_download_callback(call: types.CallbackQuery) -> None:
                     f"💿 <i>{html.escape(track.album or '')}</i>\n"
                     f"⚡ <i>Delivered from cache (ALAC Lossless)</i>"
                 )
-                from utils import bot
+                import bot_control
+                bot = getattr(bot_control, "bot_instance", None) or (msg.bot if msg else None)
                 await bot.send_audio(
                     chat_id=user_id_local,
                     audio=track.file_id,

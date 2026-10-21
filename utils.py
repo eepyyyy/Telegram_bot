@@ -884,4 +884,13 @@ async def upload_and_deliver_zip_document(
         return None, 0, 0, None, gofile_url, file_size
 
 
+def __getattr__(name: str):
+    """Dynamically exports bot instance from bot_control to prevent missing import errors."""
+    if name == "bot":
+        import bot_control
+        return getattr(bot_control, "bot_instance", None)
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+
 
