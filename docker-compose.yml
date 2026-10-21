@@ -1,0 +1,25 @@
+services:
+  tbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tbot
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/app/downloads
+      - ./backups:/app/backups
+      - ./cookies.txt:/app/cookies.txt:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2500M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
