@@ -281,15 +281,66 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
         result = await session.exec(statement)
         db_tracks = result.all()
 
+    input_lookup = {}
+    for t_in in track_lists:
+        if t_in.song_id:
+            input_lookup[str(t_in.song_id)] = t_in
+        if t_in.isrc:
+            input_lookup[str(t_in.isrc)] = t_in
+        if t_in.url:
+            input_lookup[str(t_in.url)] = t_in
+
     cache_dict = {}
-    for track in db_tracks:
-        if track.file_id is not None:
-            if track.isrc:
-                cache_dict[track.isrc] = track.file_id
-            if track.song_id:
-                cache_dict[track.song_id] = track.file_id
-            if getattr(track, "url", None):
-                cache_dict[str(track.url)] = track.file_id
+    async with async_session() as session:
+        for track in db_tracks:
+            if track.file_id is not None:
+                # If checking ALAC cache, verify track bitrate does not indicate AAC
+                if format_type.lower() in ("alac", "lossless"):
+                    matched_in = None
+                    if track.song_id and str(track.song_id) in input_lookup:
+                        matched_in = input_lookup[str(track.song_id)]
+                    elif track.isrc and str(track.isrc) in input_lookup:
+                        matched_in = input_lookup[str(track.isrc)]
+                    elif getattr(track, "url", None) and str(track.url) in input_lookup:
+                        matched_in = input_lookup[str(track.url)]
+
+                    track_duration = getattr(matched_in, "duration", None) if matched_in else None
+                    if track_duration and track_duration > 30 and track.size:
+                        bitrate_kbps = (track.size * 8) / (track_duration * 1000)
+                        if bitrate_kbps < 450:
+                            # False ALAC (AAC bitrate)! Migrate to aac_tracks and purge from tracks
+                            try:
+                                aac_track = database.AACTracks(
+                                    artist=track.artist,
+                                    album=track.album,
+                                    album_id=track.album_id,
+                                    song_id=track.song_id,
+                                    file_id=track.file_id,
+                                    file_unique_id=track.file_unique_id,
+                                    title=track.title,
+                                    url=track.url,
+                                    size=track.size,
+                                    storefront=track.storefront,
+                                    isrc=track.isrc,
+                                    artwork=track.artwork,
+                                    chat_id=track.chat_id,
+                                    message_id=track.message_id,
+                                    updated_at=track.updated_at,
+                                )
+                                await session.merge(aac_track)
+                                await session.delete(track)
+                                await session.commit()
+                                print(f"[crud] Migrated fake ALAC track to AACTracks ({bitrate_kbps:.1f} kbps): {track.title}")
+                            except Exception as me:
+                                print(f"[crud] Failed to migrate fake ALAC track: {me}")
+                            continue
+
+                if track.isrc:
+                    cache_dict[track.isrc] = track.file_id
+                if track.song_id:
+                    cache_dict[track.song_id] = track.file_id
+                if getattr(track, "url", None):
+                    cache_dict[str(track.url)] = track.file_id
 
     file_ids_to_send: List[str] = []
     urls_to_download: List[str] = []
@@ -304,8 +355,28 @@ async def check_db_for_urls(track_lists: List[schema.TrackInputSchema], format_t
         elif track.url:
             urls_to_download.append(str(track.url))
 
-            
     return file_ids_to_send, urls_to_download
+
+
+async def purge_fake_alac_tracks() -> int:
+    """
+    Scans the 'tracks' (ALAC) table. For any track that already exists in 'aac_tracks'
+    with the exact same file_id or size, or if size < 18MB for songs longer than 3 minutes,
+    deletes it from 'tracks' so it is not misrepresented as ALAC.
+    """
+    purged_count = 0
+    async with async_session() as session:
+        result = await session.exec(select(Tracks))
+        tracks = result.all()
+        for t in tracks:
+            # Check if this exact file_id or song_id is in AACTracks
+            aac_match = (await session.exec(select(AACTracks).where(AACTracks.song_id == t.song_id))).first()
+            if aac_match and (aac_match.file_id == t.file_id or aac_match.size == t.size):
+                await session.delete(t)
+                purged_count += 1
+        if purged_count > 0:
+            await session.commit()
+    return purged_count
 
 
 async def log_download(

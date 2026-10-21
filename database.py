@@ -210,6 +210,12 @@ async def init_db():
         "CREATE INDEX IF NOT EXISTS idx_aac_combined_search ON aac_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
         "CREATE INDEX IF NOT EXISTS idx_atmos_combined_search ON atmos_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
         "CREATE INDEX IF NOT EXISTS idx_mv_combined_search ON mv_tracks USING gin ((LOWER(title || ' ' || artist || ' ' || COALESCE(album, '') || ' ' || COALESCE(isrc, ''))) gin_trgm_ops);",
+        # Auto-migrate false ALAC tracks (size < 18MB, typical for 256kbps AAC) to aac_tracks and remove from tracks
+        "INSERT INTO aac_tracks (file_id, file_unique_id, song_id, title, album, artist, url, album_id, size, storefront, isrc, artwork, chat_id, message_id, updated_at) "
+        "SELECT file_id, file_unique_id, song_id, title, album, artist, url, album_id, size, storefront, isrc, artwork, chat_id, message_id, updated_at "
+        "FROM tracks WHERE size > 0 AND size < 18874368 AND song_id NOT IN (SELECT song_id FROM aac_tracks) "
+        "ON CONFLICT (song_id) DO NOTHING;",
+        "DELETE FROM tracks WHERE file_id IN (SELECT file_id FROM aac_tracks WHERE file_id IS NOT NULL AND file_id != '');",
     ]
 
     for stmt in migration_stmts:

@@ -1324,6 +1324,23 @@ async def deliver_single_default_track(
             if transcoded_path and os.path.exists(transcoded_path):
                 file_path = transcoded_path
 
+        # Check actual audio format of downloaded file
+        actual_codec, actual_fmt = utils.get_audio_codec_and_format(orig_file_path)
+        if requested_fmt in ("alac", "lossless"):
+            if actual_fmt == "alac":
+                save_format = "alac"
+            elif actual_fmt in ("aac", "atmos"):
+                save_format = actual_fmt
+                print(f"[index.py] Warning: Requested ALAC but downloaded file is {actual_codec}/{actual_fmt}. Saving to DB as {save_format}.")
+            else:
+                save_format = "alac"
+        elif requested_fmt in ("aac", "aac-web"):
+            save_format = "aac"
+        elif requested_fmt in ("atmos", "spatial"):
+            save_format = "atmos"
+        else:
+            save_format = actual_fmt if actual_fmt in ("alac", "aac", "atmos") else "alac"
+
         # Extract metadata and upload
         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
             utils.extract_track_metadata, file_path
@@ -1386,7 +1403,7 @@ async def deliver_single_default_track(
                     track_input.size = tbot.size
                     track_input.chat_id = tbot.chat_id
                     track_input.message_id = tbot.message_id
-                    await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                    await crud.save_single_track(session=session, track_data=track_input, format_type=save_format)
                     await session.commit()
                     
                     try:
@@ -1394,7 +1411,7 @@ async def deliver_single_default_track(
                             session=session,
                             user_id=user_id_local,
                             song_id=track_input.song_id,
-                            format_type="alac",
+                            format_type=save_format,
                             size=tbot.size,
                             is_cached=False
                         )
@@ -1414,7 +1431,7 @@ async def deliver_single_default_track(
                     track_input.size = tbot.size
                     track_input.chat_id = tbot.chat_id
                     track_input.message_id = tbot.message_id
-                    await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                    await crud.save_single_track(session=session, track_data=track_input, format_type=save_format)
                     await session.commit()
                     
                     try:
@@ -1422,7 +1439,7 @@ async def deliver_single_default_track(
                             session=session,
                             user_id=user_id_local,
                             song_id=track_input.song_id,
-                            format_type="alac",
+                            format_type=save_format,
                             size=tbot.size,
                             is_cached=False
                         )

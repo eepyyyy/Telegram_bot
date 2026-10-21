@@ -389,8 +389,18 @@ async def deliver_single_lossless_track(
                         pass
                 return False
 
-        # Check sample rate & remux Hi-Res to 48kHz ALAC if necessary
-        was_remuxed = await remux_to_48k_alac(file_path)
+        # Inspect actual codec & format
+        actual_codec, actual_fmt = utils.get_audio_codec_and_format(file_path)
+        is_alac = (actual_fmt == "alac")
+
+        # Check sample rate & remux Hi-Res to 48kHz ALAC if necessary (only if ALAC)
+        was_remuxed = False
+        if is_alac:
+            was_remuxed = await remux_to_48k_alac(file_path)
+        else:
+            print(f"[Lossless Deliver] Warning: received non-ALAC track: {file_path} (codec: {actual_codec}, format: {actual_fmt})")
+
+        save_fmt = "alac" if is_alac else (actual_fmt if actual_fmt in ("aac", "atmos") else "aac")
 
         # Extract metadata & tags
         track_title, artist, thumbnail, duration, isrc = await asyncio.to_thread(
@@ -456,7 +466,7 @@ async def deliver_single_lossless_track(
                     track_input.message_id = tbot.message_id
 
                     if not was_remuxed:
-                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                        await crud.save_single_track(session=session, track_data=track_input, format_type=save_fmt)
                         await session.commit()
 
                     try:
@@ -464,7 +474,7 @@ async def deliver_single_lossless_track(
                             session=session,
                             user_id=user_id_local,
                             song_id=track_input.song_id,
-                            format_type="alac",
+                            format_type=save_fmt,
                             size=tbot.size,
                             is_cached=False
                         )
@@ -486,7 +496,7 @@ async def deliver_single_lossless_track(
                     track_input.message_id = tbot.message_id
 
                     if not was_remuxed:
-                        await crud.save_single_track(session=session, track_data=track_input, format_type="alac")
+                        await crud.save_single_track(session=session, track_data=track_input, format_type=save_fmt)
                         await session.commit()
 
                     try:
@@ -494,7 +504,7 @@ async def deliver_single_lossless_track(
                             session=session,
                             user_id=user_id_local,
                             song_id=track_input.song_id,
-                            format_type="alac",
+                            format_type=save_fmt,
                             size=tbot.size,
                             is_cached=False
                         )

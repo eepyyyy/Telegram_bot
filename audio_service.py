@@ -84,35 +84,32 @@ def get_codec_priority(format_type: str) -> List[SongCodec]:
     if fmt in ("aac", "aac-web"):
         return [SongCodec.AAC_WEB]
     elif fmt in ("atmos", "spatial"):
-        return [SongCodec.ATMOS, SongCodec.ALAC, SongCodec.AAC_WEB]
+        return [SongCodec.ATMOS]
     elif fmt in ("lossless", "alac", "hi-res", "flac"):
-        return [SongCodec.ALAC, SongCodec.AAC_WEB]
+        return [SongCodec.ALAC]
     else:
-        # Default fallback
-        return [SongCodec.ALAC, SongCodec.AAC_WEB]
+        return [SongCodec.ALAC]
 
 
 def format_gamdl_error(err: Exception) -> str:
     """Translates internal gamdl and HTTP exceptions into user-friendly messages."""
     err_str = str(err)
-    if "wrapper" in err_str.lower():
-        return f"Apple Music Wrapper error: {err_str}"
+    if "wrapper" in err_str.lower() or "502" in err_str:
+        return f"Apple Music Wrapper error (required for ALAC/Atmos): {err_str}\nPlease verify wrapper service status or use /aac for 256kbps."
     if "-1002" in err_str or "license exchange data" in err_str.lower():
         return (
             "Apple Music DRM license error (-1002): Playback license refused by Apple.\n\n"
             "Possible causes:\n"
             "1. The cookies.txt on the server has expired or has an inactive subscription.\n"
             "2. Another device/app is actively streaming on this Apple Music account (1 stream limit).\n"
-            "3. The requested track or codec is restricted for web playback in this storefront."
+            "3. ALAC Lossless decryption requires an active Apple Music Wrapper."
         )
     if isinstance(err, GamdlInterfaceFormatNotAvailableError) or "format is not available" in err_str.lower():
-        return "Requested audio format is not available for this track/album."
+        return "Requested audio format (ALAC Lossless) is not available for this track/album on Apple Music."
     if isinstance(err, GamdlInterfaceDecryptionNotAvailableError) or "decryption" in err_str.lower():
-        return "Decryption key could not be obtained from Apple Music for this format. Try downloading in AAC."
+        return "Decryption key could not be obtained from Apple Music for ALAC Lossless. The wrapper service may be offline. Try /aac for AAC 256kbps."
     if isinstance(err, GamdlInterfaceMediaNotStreamableError) or "streamable" in err_str.lower():
         return "This track is not streamable in the current storefront."
-    if "502" in err_str or "playback_dispatch_failed" in err_str or "1830087704" in err_str:
-        return "Apple Music server error (502 Bad Gateway / Playback error). Please try again shortly."
     if "subscription" in err_str.lower() or "no active subscription" in err_str.lower():
         return "Apple Music subscription error (No Active Subscription). Please check or renew your cookies.txt."
     return f"Download failed: {err_str}"
@@ -292,44 +289,8 @@ async def download_audio(
                     final_path = getattr(item, "final_path", None)
                     if on_track_done and final_path:
                         await on_track_done(item, str(final_path))
-                except (GamdlInterfaceDecryptionNotAvailableError, Exception) as dl_err:
-                    dl_err_str = str(dl_err).lower()
-                    has_wrapper = False
-                    try:
-                        base_dl = getattr(downloader, "base", None)
-                        if base_dl and getattr(base_dl, "interface", None):
-                            base_itf = getattr(base_dl.interface, "base", None)
-                            if base_itf and getattr(base_itf, "wrapper_api", None):
-                                has_wrapper = True
-                    except Exception:
-                        pass
-                    if not has_wrapper:
-                        use_w, w_url = get_wrapper_config()
-                        has_wrapper = bool(use_w and w_url)
-
-                    # If requesting lossless/atmos and decryption is unavailable (e.g. without wrapper or key rejected), auto fallback to AAC
-                    if format_type.lower() in ("lossless", "alac", "atmos", "spatial") and (
-                        isinstance(dl_err, GamdlInterfaceDecryptionNotAvailableError)
-                        or "-1002" in dl_err_str
-                        or "decryption is not available" in dl_err_str
-                        or "decryption" in dl_err_str
-                        or "license" in dl_err_str
-                        or not has_wrapper
-                    ):
-                        logger.warning("Decryption unavailable for format; auto-falling back to AAC-web", url=url, error=str(dl_err))
-                        aac_downloader = await create_task_downloader(
-                            format_type="aac",
-                            output_dir=output_dir,
-                            temp_dir=temp_dir,
-                            cookies_path=cookies_path,
-                        )
-                        async for aac_item in aac_downloader.get_download_item_from_url(url):
-                            await aac_downloader.download(aac_item)
-                            downloaded_items.append(aac_item)
-                            final_path = getattr(aac_item, "final_path", None)
-                            if on_track_done and final_path:
-                                await on_track_done(aac_item, str(final_path))
-                        continue
+                except Exception as dl_err:
+                    logger.error("Download or decryption failed for track", url=url, error=str(dl_err))
                     raise
 
     except Exception as e:

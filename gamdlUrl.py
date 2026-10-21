@@ -148,6 +148,7 @@ async def get_track_schema(url: str) -> List[TrackInputSchema]:
             url=attrs["url"],
             storefront=storefront,
             isrc=attrs.get("isrc"),
+            duration=int(attrs.get("durationInMillis", 0) / 1000) if attrs.get("durationInMillis") else None,
             artwork=get_artwork_url(attrs.get("artwork")),
             audio_traits=attrs.get("audioTraits", [])
         )
@@ -188,6 +189,7 @@ async def get_album_urls(url: str) -> List[TrackInputSchema]:
                 url=album_url_to_song_url(attrs["url"]),
                 storefront=storefront,
                 isrc=attrs.get("isrc"),
+                duration=int(attrs.get("durationInMillis", 0) / 1000) if attrs.get("durationInMillis") else None,
                 artwork=get_artwork_url(attrs.get("artwork")),
                 audio_traits=attrs.get("audioTraits", [])
             )
@@ -283,6 +285,7 @@ async def get_playlist_urls(url: str) -> List[TrackInputSchema]:
                 url=album_url_to_song_url(attrs["url"]),
                 storefront=playlist_storefront,
                 isrc=attrs.get("isrc"),
+                duration=int(attrs.get("durationInMillis", 0) / 1000) if attrs.get("durationInMillis") else None,
                 artwork=get_artwork_url(attrs.get("artwork")),
                 audio_traits=attrs.get("audioTraits", [])
             )

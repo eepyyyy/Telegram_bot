@@ -36,7 +36,7 @@ def get_codec_args(format_type: str) -> List[str]:
     elif fmt in ("mv", "video"):
         return ["--music-video-resolution", "2160p", "--music-video-codec-priority", "h265,h264"]
     else:  # alac (default)
-        return []
+        return ["--song-codec-priority", "alac"]
 
 
 def get_target_subfolder(format_type: str) -> str:
@@ -207,17 +207,22 @@ async def download_track_web(
             )
 
 
-            async with database.async_session() as session:
-                await crud.save_single_track(session, track_schema, format_type=target_subfolder)
-                await session.commit()
+            save_fmt = target_subfolder
+            if target_subfolder != "mv":
+                actual_codec, actual_fmt = utils.get_audio_codec_and_format(str(target_file))
+                if actual_fmt in ("alac", "aac", "atmos"):
+                    save_fmt = actual_fmt
 
+            async with database.async_session() as session:
+                await crud.save_single_track(session, track_schema, format_type=save_fmt)
+                await session.commit()
 
             results.append({
                 "song_id": song_id,
                 "title": title,
                 "artist": artist,
                 "album": album,
-                "format": target_subfolder,
+                "format": save_fmt,
                 "filename": fname,
                 "size": file_size,
                 "file_path": str(dest_path),

@@ -100,6 +100,41 @@ def extract_track_metadata(file_path: str) -> Tuple[str, str, Optional[BufferedI
         return fallback_stem, "Unknown Artist", None, None, None
 
 
+def get_audio_codec_and_format(file_path: str) -> Tuple[str, str]:
+    """
+    Inspects an audio file and returns (codec_name, detected_format).
+    detected_format will be one of: 'alac', 'aac', 'atmos', 'flac', 'mp3', or 'unknown'.
+    """
+    if not file_path or not os.path.exists(file_path):
+        return "unknown", "unknown"
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".caf":
+        return "atmos", "atmos"
+    elif ext == ".flac":
+        return "flac", "flac"
+    elif ext == ".mp3":
+        return "mp3", "mp3"
+    elif ext in (".m4a", ".mp4"):
+        try:
+            audio = MP4(file_path)
+            if audio.info:
+                codec = str(getattr(audio.info, "codec", "") or "").lower()
+                desc = str(getattr(audio.info, "codec_description", "") or "").lower()
+                if "alac" in codec or "alac" in desc:
+                    return "alac", "alac"
+                elif "mp4a" in codec or "aac" in desc:
+                    return "aac", "aac"
+                elif "ec-3" in codec or "ac-4" in codec or "atmos" in desc:
+                    return "atmos", "atmos"
+                elif codec:
+                    return codec, ("alac" if "alac" in codec else "aac")
+        except Exception as e:
+            print(f"[utils] Error inspecting MP4 audio codec for {file_path}: {e}")
+
+    return "unknown", "unknown"
+
+
 STORAGE_CHANNEL_ID_STR = os.getenv("STORAGE_CHANNEL_ID", "").strip().strip('"').strip("'")
 if not STORAGE_CHANNEL_ID_STR:
     STORAGE_CHANNEL_ID = None
