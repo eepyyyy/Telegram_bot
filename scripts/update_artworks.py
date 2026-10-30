@@ -1,6 +1,11 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from typing import List
 from database import Albums, Tracks, async_session
 from gamdlUrl import get_api, get_artwork_url

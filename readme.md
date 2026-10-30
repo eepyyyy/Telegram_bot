@@ -41,40 +41,40 @@
 
 ```mermaid
 flowchart TD
-    subgraph Telegram_Network [Telegram Ecosystem]
-        User([👤 User / Client])
-        StorageChannel[📦 Private Storage Channel]
+    subgraph Telegram_Network ["Telegram Ecosystem"]
+        User(["👤 User / Client"])
+        StorageChannel["📦 Private Telegram Storage Channel"]
     end
 
-    subgraph Bot_Core [Telegram Bot Service (index.py)]
-        WebhookReceiver[🌐 Webhook Receiver / FastHTTP]
-        Dispatcher[⚡ Aiogram 3 Dispatcher]
-        CrossResolver[🔀 Cross-Platform Matcher<br/>(Spotify / YouTube / Tidal)]
+    subgraph Bot_Core ["Telegram Bot Core Engine"]
+        WebhookReceiver["🌐 Webhook Receiver (FastHTTP)"]
+        Dispatcher["⚡ Aiogram 3 Dispatcher"]
+        CrossResolver["🔀 Cross-Platform Matcher (Spotify / YouTube / Tidal)"]
         
-        subgraph Queue_Engine [In-Memory Queues & Worker Pools]
-            Q_ALAC[Queue: ALAC Lossless]
-            Q_Atmos[Queue: Dolby Atmos]
-            Q_AAC[Queue: AAC 256k]
-            Q_MV[Queue: Music Videos]
+        subgraph Queue_Engine ["In-Memory Format Queues"]
+            Q_ALAC["ALAC Lossless Queue"]
+            Q_Atmos["Dolby Atmos Queue"]
+            Q_AAC["AAC 256k Queue"]
+            Q_MV["Music Video Queue"]
         end
     end
 
-    subgraph Processing_Layer [Downloader & Remuxer Engine]
-        GamdlEngine[📥 gamdl / yt-dlp Core]
-        Remuxer[🎬 Bento4 & FFmpeg Pipeline]
+    subgraph Processing_Layer ["Media Processing Engine"]
+        GamdlEngine["📥 gamdl / yt-dlp Core"]
+        Remuxer["🎬 Bento4 & FFmpeg Pipeline"]
     end
 
-    subgraph Data_Storage [Data & Storage Tier]
-        Postgres[(🐘 PostgreSQL Database<br/>SQLModel / AsyncPG)]
-        GoFile[☁️ GoFile High-Speed Fallback]
+    subgraph Data_Storage ["Data & Storage Tier"]
+        Postgres[("🐘 PostgreSQL Database")]
+        GoFile["☁️ GoFile High-Speed Fallback"]
     end
 
-    subgraph Companion_Services [Companion Services]
-        AdminUI[🖥️ Admin Dashboard (React / Vite)]
-        StreamServer[📻 HTTP Stream Server<br/>(Pyrogram MTProto Range Requests)]
+    subgraph Companion_Services ["Companion Services"]
+        AdminUI["🖥️ Admin Dashboard (React / Vite)"]
+        StreamServer["📻 HTTP Stream Server (Pyrogram)"]
     end
 
-    User <-->|Bot Commands & Links| WebhookReceiver
+    User <-->|"Bot Commands & Links"| WebhookReceiver
     WebhookReceiver --> Dispatcher
     Dispatcher --> CrossResolver
     CrossResolver --> Queue_Engine
@@ -85,14 +85,14 @@ flowchart TD
     Q_MV --> GamdlEngine
     
     GamdlEngine --> Remuxer
-    Remuxer -->|Upload Media| StorageChannel
-    Remuxer -->|Large Files >2GB| GoFile
-    StorageChannel -->|Cache File ID & Message ID| Postgres
-    StorageChannel -->|Forward / Copy Cached Media| User
+    Remuxer -->|"Upload Media"| StorageChannel
+    Remuxer -->|"Large Files (>2GB)"| GoFile
+    StorageChannel -->|"Cache Message ID"| Postgres
+    StorageChannel -->|"Forward / Copy Media"| User
 
-    AdminUI <-->|REST API + Telemetry| Bot_Core
-    StreamServer <-->|Query Cached IDs| Postgres
-    StreamServer <-->|Stream Audio Chunks| StorageChannel
+    AdminUI <-->|"REST API + Telemetry"| Bot_Core
+    StreamServer <-->|"Query Cached IDs"| Postgres
+    StreamServer <-->|"Stream Audio Chunks"| StorageChannel
 ```
 
 ---
@@ -102,37 +102,33 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as 👤 User
-    participant Bot as 🤖 Bot Handler (index.py)
-    participant DB as 🐘 PostgreSQL
-    participant Queue as 📋 Format Queue
-    participant Worker as ⚙️ Worker Pool
-    participant Apple as 🍏 Apple Music API
-    participant Telegram as 📦 Telegram Storage Channel
+    actor User as "👤 User"
+    participant Bot as "🤖 Bot Service"
+    participant DB as "🐘 PostgreSQL"
+    participant Queue as "📋 Format Queue"
+    participant Worker as "⚙️ Worker Pool"
+    participant Apple as "🍏 Apple Music API"
+    participant Telegram as "📦 Telegram Channel"
 
     User->>Bot: Send Apple Music URL (or Spotify/YouTube link)
-    Bot->>Bot: Normalize URL & Parse Options (-n / --no-cache)
+    Bot->>Bot: Normalize URL & Parse Flags (-n / --no-cache)
     
-    alt Cache Lookup (Unless -n specified)
+    alt Cache Hit (Instant Delivery)
         Bot->>DB: Query track by song_id / format
         DB-->>Bot: Return cached chat_id & message_id
-        alt Already in Database
-            Bot->>Telegram: copy_message() to User
-            Telegram-->>User: ⚡ Instant Media Delivery (0s delay)
-        end
-    end
-
-    opt Not in Cache or No-Cache Flag
+        Bot->>Telegram: copy_message() to User
+        Telegram-->>User: Instant Media Delivery (0s delay)
+    else Cache Miss or -n Flag
         Bot->>Queue: Enqueue Task (Per-User Serialized Lock)
         Queue->>Worker: Dispatch Job to Free Worker
-        Worker->>Apple: Fetch Track / Album Metadata & Decryption Keys
+        Worker->>Apple: Fetch Metadata & Decryption Keys
         Worker->>Worker: Download Audio Streams (gamdl / yt-dlp)
         Worker->>Worker: Remux, Embed Cover Artwork & Tags (FFmpeg)
-        Worker->>Telegram: send_audio() / send_document() to Storage Channel
+        Worker->>Telegram: Send to Storage Channel
         Telegram-->>Worker: Return message_id & file_id
-        Worker->>DB: Save Track, File ID, Format & Media Size
-        Worker->>Telegram: Forward or Copy to User Chat
-        Telegram-->>User: 🎧 Completed Audio / Video Delivered
+        Worker->>DB: Save Track, File ID, Format & Size
+        Worker->>Telegram: Forward / Copy to User Chat
+        Telegram-->>User: Completed Media Delivered
     end
 ```
 
@@ -145,7 +141,7 @@ stateDiagram-v2
     [*] --> Idle
 
     Idle --> Queued: User Submits URL
-    Queued --> Active: Worker Slot Available & User Lock Acquired
+    Queued --> Active: Worker Slot Available
     
     state Active {
         [*] --> FetchingMetadata
@@ -156,9 +152,9 @@ stateDiagram-v2
     }
 
     Active --> Completed: Success & Cached
-    Active --> Failed: Exception / DRM Timeout
+    Active --> Failed: Exception or Error
     Active --> Cancelled: User / Admin Cancelled
-    Active --> SelfHealed: Inactivity Timeout (>15m)
+    Active --> SelfHealed: Inactivity Timeout (15m+)
 
     Completed --> Idle: Release User Lock
     Failed --> Idle: Notify User & Release Lock
@@ -172,20 +168,171 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A[External Link<br/>Spotify / YouTube / Tidal] --> B{URL Parser}
-    B -->|Spotify| C[Extract Track/Artist/ISRC]
-    B -->|YouTube| D[Extract Video Title & Channel]
-    B -->|Tidal| E[Extract Title & Artist]
+    A["External Link<br/>(Spotify / YouTube / Tidal)"] --> B{"URL Parser"}
+    B -->|"Spotify"| C["Extract Track/Artist/ISRC"]
+    B -->|"YouTube"| D["Extract Video Title & Channel"]
+    B -->|"Tidal"| E["Extract Title & Artist"]
     
-    C --> F[Apple Music Storefront Search API]
+    C --> F["Apple Music Storefront Search API"]
     D --> F
     E --> F
     
-    F --> G{Match Found?}
-    G -->|Yes| H[Resolve Canonical Apple Music ID]
-    G -->|No| I[Report Not Found to User]
-    H --> J[Trigger Lossless Download Pipeline]
+    F --> G{"Match Found?"}
+    G -->|"Yes"| H["Resolve Canonical Apple Music ID"]
+    G -->|"No"| I["Report Not Found to User"]
+    H --> J["Trigger Lossless Download Pipeline"]
 ```
+
+---
+
+## 🗄️ Database Architecture & Schema
+
+The persistent layer is built on **PostgreSQL** using **SQLModel** (SQLAlchemy + Pydantic async ORM) with high-performance connection pooling via `asyncpg`.
+
+### Entity-Relationship Diagram
+
+```mermaid
+erDiagram
+    ALBUMS ||--o{ TRACKS : "contains (1:N)"
+    ALBUMS ||--o{ AAC_TRACKS : "contains (1:N)"
+    ALBUMS ||--o{ ATMOS_TRACKS : "contains (1:N)"
+    USER ||--o{ DOWNLOAD_HISTORY : "logs (1:N)"
+
+    ALBUMS {
+        string album_id PK "Unique Apple Music album identifier"
+        string artist "Artist display name"
+        string album "Album title"
+        string artwork "Cover artwork URL"
+        string alac_zip_file_id "Telegram file_id for ALAC ZIP"
+        string aac_zip_file_id "Telegram file_id for AAC ZIP"
+        string atmos_zip_file_id "Telegram file_id for Atmos ZIP"
+        string alac_gofile_url "High-speed GoFile URL (ALAC)"
+        string aac_gofile_url "High-speed GoFile URL (AAC)"
+        string atmos_gofile_url "High-speed GoFile URL (Atmos)"
+        bigint alac_zip_size "File size in bytes"
+        bigint aac_zip_size "File size in bytes"
+        bigint atmos_zip_size "File size in bytes"
+    }
+
+    TRACKS {
+        string song_id PK "Unique Apple Music song identifier"
+        string album_id FK "References albums.album_id"
+        string file_id "Telegram document file_id"
+        string file_unique_id "Telegram unique file identifier"
+        string title "Song title"
+        string album "Album name"
+        string artist "Artist name"
+        string url "Canonical Apple Music URL"
+        bigint size "File size in bytes"
+        string storefront "Apple Music storefront (e.g. us, jp)"
+        string isrc "International Standard Recording Code"
+        string artwork "High-resolution artwork URL"
+        bigint chat_id "Storage channel ID"
+        integer message_id "Telegram storage message ID"
+        datetime updated_at "Timestamp of last cache update"
+    }
+
+    AAC_TRACKS {
+        string song_id PK "Unique Apple Music song identifier"
+        string album_id FK "References albums.album_id"
+        string file_id "Telegram document file_id"
+        string file_unique_id "Telegram unique file identifier"
+        string title "Song title"
+        string album "Album name"
+        string artist "Artist name"
+        string url "Canonical Apple Music URL"
+        bigint size "File size in bytes"
+        string storefront "Apple Music storefront"
+        string isrc "ISRC identifier"
+        string artwork "Artwork URL"
+        bigint chat_id "Storage channel ID"
+        integer message_id "Telegram storage message ID"
+        datetime updated_at "Timestamp of last cache update"
+    }
+
+    ATMOS_TRACKS {
+        string song_id PK "Unique Apple Music song identifier"
+        string album_id FK "References albums.album_id"
+        string file_id "Telegram document file_id"
+        string file_unique_id "Telegram unique file identifier"
+        string title "Song title"
+        string album "Album name"
+        string artist "Artist name"
+        string url "Canonical Apple Music URL"
+        bigint size "File size in bytes"
+        string storefront "Apple Music storefront"
+        string isrc "ISRC identifier"
+        string artwork "Artwork URL"
+        bigint chat_id "Storage channel ID"
+        integer message_id "Telegram storage message ID"
+        datetime updated_at "Timestamp of last cache update"
+    }
+
+    MV_TRACKS {
+        string song_id PK "Unique Apple Music video identifier"
+        string album_id "Associated album identifier"
+        string file_id "Telegram document file_id"
+        string file_unique_id "Telegram unique file identifier"
+        string title "Video title"
+        string album "Album name"
+        string artist "Artist name"
+        string url "Canonical Apple Music URL"
+        bigint size "File size in bytes"
+        string storefront "Apple Music storefront"
+        string isrc "ISRC identifier"
+        string artwork "Artwork URL"
+        bigint chat_id "Storage channel ID"
+        integer message_id "Telegram storage message ID"
+        string resolution "Video resolution (e.g. 1080p, 4k)"
+        string codec "Video codec (e.g. h265, h264)"
+        string gofile_url "Direct GoFile fallback link"
+        datetime updated_at "Timestamp of last cache update"
+    }
+
+    USER {
+        bigint user_id PK "Telegram User ID"
+        boolean is_premium "VIP/Premium access flag"
+        integer daily_limit "Max daily allowed downloads"
+        integer downloaded_today "Count of downloads today"
+        date last_download "Date of last recorded download"
+        integer download_count "Total lifetime downloads"
+        string preferred_format "Default audio format preference"
+    }
+
+    DOWNLOAD_HISTORY {
+        integer id PK "Primary auto-incrementing key"
+        bigint user_id FK "Telegram User ID"
+        string song_id "Downloaded song identifier"
+        string format_type "Format type (alac, aac, atmos, mv)"
+        datetime downloaded_at "Timestamp of download request"
+    }
+```
+
+### Table Breakdown
+
+| Table | Model Class | Primary Purpose | Key Fields |
+| :--- | :--- | :--- | :--- |
+| `albums` | `Albums` | Album metadata, artwork, and full-discography ZIP cache | `album_id`, `alac_zip_file_id`, `alac_gofile_url`, `alac_zip_size` |
+| `tracks` | `Tracks` | Hi-Res Lossless / ALAC individual track cache | `song_id`, `album_id`, `file_id`, `chat_id`, `message_id`, `size` |
+| `aac_tracks` | `AACTracks` | High-efficiency AAC 256kbps audio track cache | `song_id`, `album_id`, `file_id`, `chat_id`, `message_id`, `size` |
+| `atmos_tracks` | `AtmosTracks`| Dolby Atmos spatial audio track cache | `song_id`, `album_id`, `file_id`, `chat_id`, `message_id`, `size` |
+| `mv_tracks` | `MVTracks` | Full HD / 4K music video cache | `song_id`, `resolution`, `codec`, `gofile_url`, `file_id` |
+| `user` | `User` | User authorization, premium flags, and daily quotas | `user_id`, `is_premium`, `daily_limit`, `downloaded_today` |
+| `download_history` | `DownloadHistory`| Audit log of all completed user downloads | `id`, `user_id`, `song_id`, `format_type`, `downloaded_at` |
+
+---
+
+### 📬 Database Access & Snapshots via Email
+
+The PostgreSQL database houses a continuously growing archive of verified Apple Music metadata, artwork references, and indexed Telegram media files across ALAC, AAC, Dolby Atmos, and Music Video formats.
+
+If you are a developer, researcher, or archivist interested in accessing our indexed database, obtaining a sanitized database dump (`.sql.gz`), or collaborating on media cataloguing:
+
+> **📨 Request Database Access via Email:**
+> - **Primary Contact:** [eepyyeepyyeepyy@gmail.com](mailto:eepyyeepyyeepyy@gmail.com)
+> - **Secondary Contact:** [ganakarsha@gmail.com](mailto:ganakarsha@gmail.com)
+> 
+> *Please include your project name, intended use case, or environment details in your message. Database dumps or read-only connection credentials can be provided upon request.*
 
 ---
 
@@ -202,6 +349,8 @@ flowchart LR
 ---
 
 ## 📂 Repository Layout
+
+The codebase is organized cleanly into modular components, background worker services, companion web microservices, and dedicated test/script suites:
 
 ```text
 .
@@ -222,13 +371,26 @@ flowchart LR
 ├── gamdlHelpUrl.py            # Detailed track/album inspection handlers
 ├── help.py                    # User command handlers, interactive menus, and help messages
 ├── artist.py                  # Artist discography browser and batch selection UI
-├── dashboard/                 # React 18 + Vite + Tailwind/Lucide administrator dashboard
+│
+├── dashboard/                 # React 18 + Vite + Tailwind administrator dashboard
 ├── server/                    # Standalone Pyrogram MTProto HTTP range streaming microservice
 ├── web/                       # Alternative local web downloader service
-├── scripts/                   # Database backup, restore, and maintenance utilities
+│
+├── scripts/                   # Database maintenance, migrations, and operations
+│   ├── backup_db.py           # Automated and manual PostgreSQL backup utility
+│   ├── migrate_to_channel.py  # Media migration to private Telegram storage channel
+│   ├── backfill_zip_sizes.py  # Historical ZIP file size calculator & backfill
+│   └── update_artworks.py     # High-resolution artwork metadata backfill tool
+│
+├── tests/                     # Unit, integration, and stress test suites
+│   ├── test_practical_queue.py# Realistic queue lifecycle & failure simulation test
+│   ├── test_stress_queue.py   # High-concurrency load and race-condition test
+│   └── test_channel_message.py# Telegram storage channel verification test
+│
 ├── docker-compose.yml         # Containerized production multi-service deployment
 ├── Dockerfile                 # Multi-stage production container image
 ├── pyproject.toml             # Python 3.14 dependencies and project manifest
+├── LICENSE                    # MIT Open Source License
 └── .env.example               # Environment variable blueprint
 ```
 
