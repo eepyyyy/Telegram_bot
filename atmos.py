@@ -29,11 +29,12 @@ atmos = Router()
 
 @atmos.message(Command("atmos"))
 async def atmos_download(msg: types.Message, command: CommandObject) -> None:
-    url = (command.args or "").strip()
+    raw_args = (command.args or "").strip()
+    url, no_cache = utils.extract_no_cache_flag(raw_args)
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
-            await msg.answer("Usage:\n/atmos &lt;Apple Music URL&gt;")
+            await msg.answer("Usage:\n/atmos &lt;Apple Music URL&gt; [-n]")
         except Exception:
             pass
         return
@@ -59,7 +60,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             songs = await get_any_url(norm_url)
         except Exception as e:
             try:
-                await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+                await status_msg.edit_text("❌ Unable to fetch album details. Please check the link or try again later.")
             except Exception:
                 pass
             return
@@ -91,7 +92,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         artist = songs[0].artist or "Unknown Artist"
         track_count = len(songs)
 
-        prompt_key = f"{user_id_local}_{album_id}_atmos"
+        prompt_key = f"{user_id_local}_{album_id}_atmos{'_nc' if no_cache else ''}"
         pending_album_prompts[prompt_key] = {
             "url": norm_url,
             "songs": songs,
@@ -100,7 +101,8 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             "format": "atmos",
             "album_id": album_id,
             "album_title": album_title,
-            "artist": artist
+            "artist": artist,
+            "no_cache": no_cache,
         }
 
         kb = InlineKeyboardBuilder()
@@ -113,11 +115,12 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             types.InlineKeyboardButton(text="✖ Cancel", callback_data=f"alb_mode:cancel:{prompt_key}")
         )
 
+        cache_line = "\n⚡ <b>Cache:</b> Disabled (Fresh Download)" if no_cache else ""
         prompt_text = (
             f"💿 <b>Album:</b> {hcode(album_title)}\n"
             f"👤 <b>Artist:</b> {hcode(artist)}\n"
             f"🎵 <b>Tracks:</b> {track_count} track(s)\n"
-            f"🎛 <b>Format:</b> Dolby Atmos\n\n"
+            f"🎛 <b>Format:</b> Dolby Atmos{cache_line}\n\n"
             f"<b>Please choose delivery option:</b>"
         )
         try:
@@ -136,7 +139,7 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
     except Exception as e:
         atmos_in_queue.discard(user_id_local)
         try:
-            await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            await status_msg.edit_text("❌ Unable to fetch track details. Please check the link or try again later.")
         except Exception:
             pass
         return
@@ -167,7 +170,10 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     # Check database for existing Atmos cached tracks
-    file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="atmos")
+    if not no_cache:
+        file_ids, tracks_to_download = await crud.check_db_for_urls(songs, format_type="atmos")
+    else:
+        file_ids, tracks_to_download = [], [str(s.url) for s in songs if s.url]
 
     for file_id in file_ids:
         try:
@@ -224,7 +230,8 @@ async def atmos_download(msg: types.Message, command: CommandObject) -> None:
             "msg": msg,
             "user_id": user_id_local,
             "status_msg": status_msg,
-            "download_mode": "tracks"
+            "download_mode": "tracks",
+            "no_cache": no_cache,
         })
 
 
@@ -386,27 +393,42 @@ async def process_atmos_download(task: dict) -> None:
         "progress": 0,
     }
 
+    no_cache = task.get("no_cache", False)
+
     # If ZIP only mode, check DB cache first
     album_id = album_id_task or (songs[0].album_id if songs else None)
-    if download_mode == "zip" and album_id:
+    if download_mode == "zip" and album_id and not no_cache:
         async with async_session() as session:
             cached_zip_fid, cached_gofile_url, cached_zip_size = await crud.get_cached_album_zip(session, album_id, format_type="atmos")
             size_line = f"\n💾 <b>Size:</b> {utils.human_size(cached_zip_size)}" if cached_zip_size else ""
             gf_line = f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{cached_gofile_url}'>High-Speed Link</a>" if cached_gofile_url else ""
             gf_markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=cached_gofile_url)]]) if cached_gofile_url else None
             delivered = False
+            alb_name = songs[0].album or "Album"
+            art_name = songs[0].artist or "Unknown Artist"
+            esc_alb = html.escape(alb_name)
+            esc_art = html.escape(art_name)
             if cached_zip_fid:
                 if msg:
                     try:
                         await msg.answer_document(
                             document=cached_zip_fid,
-                            caption=f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n👤 <i>{songs[0].artist}</i>{size_line}{gf_line}\n⚡ <i>Delivered from cache</i>",
+                            caption=f"📦 <b>{esc_alb}</b> (Dolby Atmos)\n👤 <i>{esc_art}</i>{size_line}{gf_line}\n⚡ <i>Delivered from cache</i>",
                             parse_mode="HTML",
                             reply_markup=gf_markup
                         )
                         delivered = True
                     except Exception as e:
                         print(f"Failed to deliver cached Atmos zip document: {e}")
+                        try:
+                            await msg.answer_document(
+                                document=cached_zip_fid,
+                                caption=f"📦 {alb_name} (Dolby Atmos)\n👤 {art_name}\n⚡ Delivered from cache",
+                                reply_markup=gf_markup
+                            )
+                            delivered = True
+                        except Exception:
+                            pass
                 if status_msg and delivered:
                     try:
                         await status_msg.edit_text("✅ Dolby Atmos Album ZIP delivered from cache!")
@@ -417,19 +439,34 @@ async def process_atmos_download(task: dict) -> None:
                 if msg:
                     try:
                         await msg.answer(
-                            f"📦 <b>{songs[0].album}</b> (Dolby Atmos)\n"
-                            f"👤 <i>{songs[0].artist}</i>{size_line}\n\n"
+                            f"📦 <b>{esc_alb}</b> (Dolby Atmos)\n"
+                            f"👤 <i>{esc_art}</i>{size_line}\n\n"
                             f"⚡ <i>Delivered from cache:</i>\n"
                             f"🌐 <a href='{cached_gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
                             parse_mode="HTML",
                             reply_markup=gf_markup
                         )
                         delivered = True
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Failed to deliver cached Atmos GoFile link: {e}")
+                        try:
+                            await msg.answer(
+                                f"📦 {alb_name} (Dolby Atmos)\n"
+                                f"👤 {art_name}{size_line}\n\n"
+                                f"⚡ Delivered from cache:\n"
+                                f"🌐 Download Album ZIP on GoFile: {cached_gofile_url}",
+                                reply_markup=gf_markup
+                            )
+                            delivered = True
+                        except Exception:
+                            pass
                 if status_msg and delivered:
                     try:
-                        await status_msg.edit_text("✅ Cached Album ZIP link delivered!")
+                        await status_msg.edit_text(
+                            f"✅ Cached Album ZIP link delivered!\n\n🌐 <a href='{cached_gofile_url}'>Download on GoFile</a>",
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
+                        )
                     except Exception:
                         pass
 
@@ -600,9 +637,12 @@ async def process_atmos_download(task: dict) -> None:
             await utils.create_album_zip(output_dir, zip_path)
             zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
 
+            esc_album_title = html.escape(album_title)
+            esc_artist = html.escape(artist)
+
             caption = (
-                f"📦 <b>{album_title}</b> (Dolby Atmos)\n"
-                f"👤 <i>{artist}</i>\n"
+                f"📦 <b>{esc_album_title}</b> (Dolby Atmos)\n"
+                f"👤 <i>{esc_artist}</i>\n"
                 f"💾 <b>Size:</b> {utils.human_size(zip_size)}\n"
                 f"🎵 {len(songs)} Tracks • Max-Res Cover • Lyrics (.lrc)"
             )
@@ -610,11 +650,7 @@ async def process_atmos_download(task: dict) -> None:
             thumb_data = None
             cover_file = os.path.join(output_dir, "Cover.jpg")
             if os.path.exists(cover_file):
-                try:
-                    with open(cover_file, "rb") as cf:
-                        thumb_data = types.BufferedInputFile(cf.read(), filename="thumb.jpg")
-                except Exception:
-                    pass
+                thumb_data = types.FSInputFile(cover_file)
 
             if msg:
                 sent_doc, saved_cid, saved_mid, zip_fid, gofile_url, uploaded_zip_size = await utils.upload_and_deliver_zip_document(
@@ -643,14 +679,39 @@ async def process_atmos_download(task: dict) -> None:
                     )
 
             if gofile_url and not zip_fid and msg:
-                await msg.answer(
-                    f"📦 <b>{album_title}</b> (Dolby Atmos)\n"
-                    f"👤 <i>{artist}</i>\n"
-                    f"💾 <b>Size:</b> {utils.human_size(final_zip_size)}\n\n"
-                    f"⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
-                    f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
-                    parse_mode="HTML"
-                )
+                try:
+                    reason_msg = (
+                        "⚡ <i>File size exceeds 2GB Telegram limit. Uploaded to GoFile:</i>\n"
+                        if final_zip_size > 2000 * 1024 * 1024
+                        else "⚡ <i>Telegram upload failed or skipped. Uploaded to GoFile:</i>\n"
+                    )
+                    gf_markup = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🌐 Download Album ZIP (GoFile)", url=gofile_url)]
+                    ])
+                    await msg.answer(
+                        f"📦 <b>{esc_album_title}</b> (Dolby Atmos)\n"
+                        f"👤 <i>{esc_artist}</i>\n"
+                        f"💾 <b>Size:</b> {utils.human_size(final_zip_size)}\n\n"
+                        f"{reason_msg}"
+                        f"🌐 <a href='{gofile_url}'><b>Download Album ZIP on GoFile</b></a>",
+                        parse_mode="HTML",
+                        reply_markup=gf_markup
+                    )
+                except Exception as e:
+                    print(f"Failed to send GoFile fallback message: {e}")
+                    try:
+                        gf_markup = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🌐 Download Album ZIP (GoFile)", url=gofile_url)]
+                        ])
+                        await msg.answer(
+                            f"📦 {album_title} (Dolby Atmos)\n"
+                            f"👤 {artist}\n"
+                            f"💾 Size: {utils.human_size(final_zip_size)}\n\n"
+                            f"🌐 Download Album ZIP on GoFile: {gofile_url}",
+                            reply_markup=gf_markup
+                        )
+                    except Exception as e2:
+                        print(f"Plain text GoFile fallback failed: {e2}")
 
             if os.path.exists(zip_path):
                 try:
@@ -660,17 +721,40 @@ async def process_atmos_download(task: dict) -> None:
 
             if status_msg:
                 try:
+                    gf_markup = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🌐 Download Album ZIP (GoFile)", url=gofile_url)]
+                    ]) if gofile_url else None
+                    gf_line = f"\n📁 <b>GoFile Download:</b> <a href='{gofile_url}'>High-Speed Link</a>" if gofile_url else ""
+
                     if len(uploaded_files) < total_atmos_tracks:
                         await status_msg.edit_text(
                             f"⚠️ <b>Partial Dolby Atmos Album Completed:</b> {len(uploaded_files)}/{total_atmos_tracks} tracks packaged.\n"
-                            f"Some tracks failed to download from Apple Music.\n\n"
+                            f"Some tracks failed to download from Apple Music.{gf_line}\n\n"
                             f"🌐 Link can also be downloaded at: https://stream.eepy.in/",
-                            parse_mode="HTML"
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
                         )
                     else:
-                        await status_msg.edit_text("✅ Dolby Atmos Album ZIP completed and delivered successfully!\n\n🌐 Link can also be downloaded at: https://stream.eepy.in/")
-                except Exception:
-                    pass
+                        await status_msg.edit_text(
+                            f"✅ Dolby Atmos Album ZIP completed and delivered successfully!{gf_line}\n\n"
+                            f"🌐 Link can also be downloaded at: https://stream.eepy.in/",
+                            parse_mode="HTML",
+                            reply_markup=gf_markup
+                        )
+                except Exception as e:
+                    print(f"Failed to edit status_msg: {e}")
+                    try:
+                        gf_markup = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🌐 Download Album ZIP (GoFile)", url=gofile_url)]
+                        ]) if gofile_url else None
+                        gf_line_plain = f"\n📁 GoFile: {gofile_url}" if gofile_url else ""
+                        await status_msg.edit_text(
+                            f"✅ Dolby Atmos Album ZIP completed and delivered successfully!{gf_line_plain}\n\n"
+                            f"🌐 Link can also be downloaded at: https://stream.eepy.in/",
+                            reply_markup=gf_markup
+                        )
+                    except Exception:
+                        pass
             return
 
         if not active_tasks.get(unique_task_id, {}).get("cancelled"):
@@ -704,7 +788,7 @@ async def process_atmos_download(task: dict) -> None:
         print(f"Dolby Atmos download error: {error}")
         if status_msg:
             try:
-                await status_msg.edit_text(f"Dolby Atmos download failed: {error}")
+                await status_msg.edit_text("❌ Dolby Atmos download failed. Please try again later.")
             except Exception:
                 pass
     finally:
@@ -715,11 +799,26 @@ async def process_atmos_download(task: dict) -> None:
                     await asyncio.to_thread(shutil.rmtree, d_clean)
                 except Exception as e:
                     print(f"Failed to delete {d_clean}: {e}")
+        import gc
+        gc.collect()
+
+
+async def _run_atmos_download_task(task: dict) -> None:
+    """Executes process_atmos_download in an isolated child task so cancellation never kills the worker."""
+    job_task = asyncio.create_task(process_atmos_download(task))
+    task["_job_task"] = job_task
+    try:
+        await job_task
+    except asyncio.CancelledError:
+        print(f"[Atmos Worker] Download task for {task.get('url')} was cancelled.")
+    except Exception as exc:
+        print(f"[Atmos Worker] Error processing Atmos download: {exc}")
 
 
 async def atmos_worker() -> None:
     """
     Worker function to process the atmos download queue. Up to 10 run concurrently.
+    Runs continuously and will not crash on download cancellations or errors.
     """
     while True:
         try:
@@ -730,32 +829,32 @@ async def atmos_worker() -> None:
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"Error fetching from atmos_queue: {e}")
+            print(f"[Atmos Worker] Error fetching from atmos_queue: {e}")
             await asyncio.sleep(1)
             continue
 
         user_id = task.get("user_id", 999999999)
         msg = task.get("msg")
-
-        user_lock = atmos_locks.setdefault(user_id, asyncio.Lock())
+        is_headless = task.get("is_admin_cache") or (msg is None) or (user_id == 999999999)
 
         try:
-            async with user_lock:
-                try:
-                    await process_atmos_download(task)
-                except Exception as e:
-                    print(f"Atmos worker caught execution exception: {e}")
-                finally:
-                    remaining = atmos_pending_jobs.get(user_id, 1) - 1
-                    if remaining <= 0:
-                        atmos_pending_jobs.pop(user_id, None)
-                        atmos_in_queue.discard(user_id)
-                        atmos_locks.pop(user_id, None)
-                    else:
-                        atmos_pending_jobs[user_id] = remaining
+            if is_headless:
+                await _run_atmos_download_task(task)
+            else:
+                user_lock = atmos_locks.setdefault(user_id, asyncio.Lock())
+                async with user_lock:
+                    await _run_atmos_download_task(task)
         except Exception as lock_err:
-            print(f"Error handling user lock in atmos_worker: {lock_err}")
+            print(f"[Atmos Worker] Error handling user lock in atmos_worker: {lock_err}")
         finally:
+            if not is_headless and user_id:
+                remaining = atmos_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    atmos_pending_jobs.pop(user_id, None)
+                    atmos_in_queue.discard(user_id)
+                    atmos_locks.pop(user_id, None)
+                else:
+                    atmos_pending_jobs[user_id] = remaining
             try:
                 atmos_queue.task_done()
             except Exception:

@@ -54,6 +54,25 @@ export const AlbumZipManager: React.FC = () => {
   const [inspectDetails, setInspectDetails] = useState<AlbumDetailsResponse | null>(null);
   const [inspectLoading, setInspectLoading] = useState<boolean>(false);
 
+  // Track Deletion State
+  const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
+  const [deletingTrackId, setDeletingTrackId] = useState<string | null>(null);
+  const [batchDeletingTracks, setBatchDeletingTracks] = useState<boolean>(false);
+  const [trackDeleteConfirm, setTrackDeleteConfirm] = useState<{
+    song_id: string;
+    title: string;
+    formats: string[];
+  } | null>(null);
+  const [deleteTrackFormat, setDeleteTrackFormat] = useState<string>('all');
+  const [deleteTrackHistory, setDeleteTrackHistory] = useState<boolean>(false);
+
+  // Direct Track Deletion Modal State (by ID or URL)
+  const [showDirectTrackDelete, setShowDirectTrackDelete] = useState<boolean>(false);
+  const [directTrackInput, setDirectTrackInput] = useState<string>('');
+  const [directTrackFormat, setDirectTrackFormat] = useState<string>('all');
+  const [directTrackHistory, setDirectTrackHistory] = useState<boolean>(false);
+  const [directTrackLoading, setDirectTrackLoading] = useState<boolean>(false);
+
   const [verifyingKey, setVerifyingKey] = useState<string | null>(null); // "albumId:format"
   const [verifyResult, setVerifyResult] = useState<{ key: string; result: VerifyZipResponse } | null>(null);
 
@@ -213,6 +232,91 @@ export const AlbumZipManager: React.FC = () => {
     }
   };
 
+  // Track Deletion Handlers
+  const handleDeleteTrackConfirm = async () => {
+    if (!trackDeleteConfirm) return;
+    const { song_id, title } = trackDeleteConfirm;
+    setDeletingTrackId(song_id);
+    try {
+      const res = await api.deleteTrack(song_id, deleteTrackFormat, deleteTrackHistory);
+      showNotification(res.message || `Deleted track "${title}".`, 'success');
+
+      // Update inspectDetails state
+      if (inspectDetails) {
+        if (deleteTrackFormat === 'all') {
+          setInspectDetails({
+            ...inspectDetails,
+            tracks: inspectDetails.tracks.filter((t) => t.song_id !== song_id),
+          });
+        } else {
+          const fmtUpper = deleteTrackFormat.toUpperCase();
+          const updatedTracks = inspectDetails.tracks
+            .map((t) => {
+              if (t.song_id !== song_id) return t;
+              const remainingFormats = t.formats.filter((f) => f.toUpperCase() !== fmtUpper);
+              return { ...t, formats: remainingFormats };
+            })
+            .filter((t) => t.formats.length > 0);
+          setInspectDetails({ ...inspectDetails, tracks: updatedTracks });
+        }
+      }
+      setSelectedTrackIds((prev) => prev.filter((id) => id !== song_id));
+      setTrackDeleteConfirm(null);
+    } catch (err: any) {
+      showNotification(`Failed to delete track: ${err.message || err}`, 'error');
+    } finally {
+      setDeletingTrackId(null);
+    }
+  };
+
+  const handleBatchDeleteTracks = async () => {
+    if (selectedTrackIds.length === 0) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to delete ${selectedTrackIds.length} selected track(s) from the database cache?`
+      )
+    ) {
+      return;
+    }
+    setBatchDeletingTracks(true);
+    try {
+      const res = await api.batchDeleteTracks(selectedTrackIds, 'all', false);
+      showNotification(res.message || `Deleted ${selectedTrackIds.length} track(s).`, 'success');
+      if (inspectDetails) {
+        setInspectDetails({
+          ...inspectDetails,
+          tracks: inspectDetails.tracks.filter((t) => !t.song_id || !selectedTrackIds.includes(t.song_id)),
+        });
+      }
+      setSelectedTrackIds([]);
+    } catch (err: any) {
+      showNotification(`Failed to batch delete tracks: ${err.message || err}`, 'error');
+    } finally {
+      setBatchDeletingTracks(false);
+    }
+  };
+
+  const handleDirectTrackDelete = async () => {
+    if (!directTrackInput.trim()) {
+      alert('Please enter a valid Song ID or Apple Music Track URL.');
+      return;
+    }
+    setDirectTrackLoading(true);
+    try {
+      const res = await api.deleteTrack(directTrackInput.trim(), directTrackFormat, directTrackHistory);
+      showNotification(res.message || 'Track successfully deleted from database cache.', 'success');
+      setDirectTrackInput('');
+      setShowDirectTrackDelete(false);
+      if (inspectAlbumId) {
+        handleInspectAlbum(inspectAlbumId);
+      }
+    } catch (err: any) {
+      showNotification(`Failed to delete track: ${err.message || err}`, 'error');
+    } finally {
+      setDirectTrackLoading(false);
+    }
+  };
+
   const totalPages = data ? Math.max(1, Math.ceil(data.total / limit)) : 1;
 
   return (
@@ -229,6 +333,14 @@ export const AlbumZipManager: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              className="mt-btn danger"
+              onClick={() => setShowDirectTrackDelete(true)}
+              title="Remove an individual track from database cache by ID or Apple Music URL"
+            >
+              <Trash2 size={14} />
+              <span>Remove Track</span>
+            </button>
             <button
               className="mt-btn"
               onClick={handleBackfillSizes}
@@ -1605,9 +1717,22 @@ export const AlbumZipManager: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Tracks Table */}
-                <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: '0.5rem', color: 'var(--text-color)' }}>
-                  Cached Tracks ({inspectDetails.tracks.length})
+                {/* Tracks Table Header with Batch Actions */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-color)' }}>
+                    Cached Tracks ({inspectDetails.tracks.length})
+                  </div>
+                  {selectedTrackIds.length > 0 && (
+                    <button
+                      className="mt-btn danger"
+                      style={{ padding: '0.28rem 0.65rem', fontSize: '0.72rem' }}
+                      onClick={handleBatchDeleteTracks}
+                      disabled={batchDeletingTracks}
+                    >
+                      <Trash2 size={12} />
+                      <span>Delete Selected ({selectedTrackIds.length})</span>
+                    </button>
+                  )}
                 </div>
 
                 {inspectDetails.tracks.length === 0 ? (
@@ -1619,65 +1744,303 @@ export const AlbumZipManager: React.FC = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.76rem' }}>
                       <thead>
                         <tr style={{ color: 'var(--sub-color)', borderBottom: '1px solid var(--sub-alt-color)' }}>
-                          <th style={{ padding: '0.6rem 0.8rem' }}>#</th>
+                          <th style={{ padding: '0.6rem 0.6rem', width: '32px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={inspectDetails.tracks.length > 0 && selectedTrackIds.length === inspectDetails.tracks.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedTrackIds(
+                                    inspectDetails.tracks
+                                      .map((t) => t.song_id)
+                                      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+                                  );
+                                } else {
+                                  setSelectedTrackIds([]);
+                                }
+                              }}
+                            />
+                          </th>
+                          <th style={{ padding: '0.6rem 0.6rem', width: '30px' }}>#</th>
                           <th style={{ padding: '0.6rem 0.8rem' }}>Track Title</th>
                           <th style={{ padding: '0.6rem 0.8rem' }}>Artist</th>
                           <th style={{ padding: '0.6rem 0.8rem' }}>Formats Available</th>
                           <th style={{ padding: '0.6rem 0.8rem' }}>Size</th>
                           <th style={{ padding: '0.6rem 0.8rem' }}>ISRC</th>
+                          <th style={{ padding: '0.6rem 0.8rem', width: '60px', textAlign: 'center' }}>Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {inspectDetails.tracks.map((t, idx) => (
-                          <tr key={t.song_id || idx} style={{ borderBottom: '1px solid var(--sub-alt-color)' }}>
-                            <td style={{ padding: '0.55rem 0.8rem', color: 'var(--sub-color)' }}>{idx + 1}</td>
-                            <td style={{ padding: '0.55rem 0.8rem', fontWeight: 600, color: 'var(--text-color)' }}>
-                              {t.title}
-                            </td>
-                            <td style={{ padding: '0.55rem 0.8rem', color: 'var(--sub-color)' }}>{t.artist}</td>
-                            <td style={{ padding: '0.55rem 0.8rem' }}>
-                              <div style={{ display: 'flex', gap: '3px' }}>
-                                {t.formats.map((fmt) => (
-                                  <span
-                                    key={fmt}
-                                    style={{
-                                      fontSize: '0.65rem',
-                                      fontWeight: 700,
-                                      padding: '1px 5px',
-                                      borderRadius: '4px',
-                                      backgroundColor:
-                                        fmt === 'ALAC'
-                                          ? 'rgba(226, 183, 20, 0.15)'
-                                          : fmt === 'ATMOS'
-                                          ? 'rgba(97, 218, 251, 0.15)'
-                                          : 'rgba(189, 147, 249, 0.15)',
-                                      color:
-                                        fmt === 'ALAC'
-                                          ? 'var(--main-color)'
-                                          : fmt === 'ATMOS'
-                                          ? '#61dafb'
-                                          : '#bd93f9',
-                                    }}
-                                  >
-                                    {fmt}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td style={{ padding: '0.55rem 0.8rem', color: 'var(--sub-color)' }}>
-                              {formatBytes(t.alac_size || t.aac_size || t.atmos_size)}
-                            </td>
-                            <td style={{ padding: '0.55rem 0.8rem', fontFamily: 'var(--font-mono)', color: 'var(--sub-color)', fontSize: '0.7rem' }}>
-                              {t.isrc || '—'}
-                            </td>
-                          </tr>
-                        ))}
+                        {inspectDetails.tracks.map((t, idx) => {
+                          const isSelected = Boolean(t.song_id && selectedTrackIds.includes(t.song_id));
+                          return (
+                            <tr
+                              key={t.song_id || idx}
+                              style={{
+                                borderBottom: '1px solid var(--sub-alt-color)',
+                                backgroundColor: isSelected ? 'rgba(239, 68, 68, 0.08)' : undefined,
+                              }}
+                            >
+                              <td style={{ padding: '0.55rem 0.6rem', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={!t.song_id}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      if (t.song_id) {
+                                        const sid = t.song_id;
+                                        setSelectedTrackIds((prev) => [...prev, sid]);
+                                      }
+                                    } else {
+                                      setSelectedTrackIds((prev) => prev.filter((id) => id !== t.song_id));
+                                    }
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '0.55rem 0.6rem', color: 'var(--sub-color)' }}>{idx + 1}</td>
+                              <td style={{ padding: '0.55rem 0.8rem', fontWeight: 600, color: 'var(--text-color)' }}>
+                                {t.title}
+                              </td>
+                              <td style={{ padding: '0.55rem 0.8rem', color: 'var(--sub-color)' }}>{t.artist}</td>
+                              <td style={{ padding: '0.55rem 0.8rem' }}>
+                                <div style={{ display: 'flex', gap: '3px' }}>
+                                  {t.formats.map((fmt) => (
+                                    <span
+                                      key={fmt}
+                                      style={{
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        padding: '1px 5px',
+                                        borderRadius: '4px',
+                                        backgroundColor:
+                                          fmt === 'ALAC'
+                                            ? 'rgba(226, 183, 20, 0.15)'
+                                            : fmt === 'ATMOS'
+                                            ? 'rgba(97, 218, 251, 0.15)'
+                                            : 'rgba(189, 147, 249, 0.15)',
+                                        color:
+                                          fmt === 'ALAC'
+                                            ? 'var(--main-color)'
+                                            : fmt === 'ATMOS'
+                                            ? '#61dafb'
+                                            : '#bd93f9',
+                                      }}
+                                    >
+                                      {fmt}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.55rem 0.8rem', color: 'var(--sub-color)' }}>
+                                {formatBytes(t.alac_size || t.aac_size || t.atmos_size)}
+                              </td>
+                              <td style={{ padding: '0.55rem 0.8rem', fontFamily: 'var(--font-mono)', color: 'var(--sub-color)', fontSize: '0.7rem' }}>
+                                {t.isrc || '—'}
+                              </td>
+                              <td style={{ padding: '0.55rem 0.8rem', textAlign: 'center' }}>
+                                <button
+                                  className="mt-btn danger"
+                                  style={{ padding: '0.22rem 0.45rem', fontSize: '0.68rem' }}
+                                  disabled={!t.song_id}
+                                  onClick={() => {
+                                    if (t.song_id) {
+                                      setDeleteTrackFormat('all');
+                                      setDeleteTrackHistory(false);
+                                      setTrackDeleteConfirm({ song_id: t.song_id, title: t.title, formats: t.formats });
+                                    }
+                                  }}
+                                  title={`Delete "${t.title}" from cache`}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Track Delete Confirm Modal */}
+      {trackDeleteConfirm && (
+        <div className="mt-modal-backdrop" onClick={() => setTrackDeleteConfirm(null)}>
+          <div
+            className="mt-modal"
+            style={{ maxWidth: '440px', width: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error-color)', fontWeight: 700 }}>
+                <Trash2 size={16} />
+                <span>Delete Track from Cache</span>
+              </div>
+              <button className="mt-icon-btn" onClick={() => setTrackDeleteConfirm(null)}>
+                <X size={15} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-color)', margin: '1rem 0' }}>
+              Are you sure you want to remove track <strong>{trackDeleteConfirm.title}</strong>?
+              <div style={{ marginTop: '0.4rem', fontSize: '0.74rem', color: 'var(--sub-color)', fontFamily: 'var(--font-mono)' }}>
+                Song ID: {trackDeleteConfirm.song_id}
+              </div>
+
+              {/* Format selection */}
+              <div style={{ marginTop: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--sub-color)', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  REMOVE FORMAT
+                </label>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  {['all', ...trackDeleteConfirm.formats.map((f) => f.toLowerCase())].map((fmt) => (
+                    <button
+                      key={fmt}
+                      className={`mt-btn ${deleteTrackFormat === fmt ? 'primary' : ''}`}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem', textTransform: 'uppercase' }}
+                      onClick={() => setDeleteTrackFormat(fmt)}
+                    >
+                      {fmt === 'all' ? 'All Formats' : fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* History purge option */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginTop: '1rem',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  color: 'var(--text-color)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={deleteTrackHistory}
+                  onChange={(e) => setDeleteTrackHistory(e.target.checked)}
+                />
+                <span>Also purge download history logs for this track</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+              <button className="mt-btn" onClick={() => setTrackDeleteConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="mt-btn danger"
+                onClick={handleDeleteTrackConfirm}
+                disabled={deletingTrackId === trackDeleteConfirm.song_id}
+              >
+                {deletingTrackId === trackDeleteConfirm.song_id ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                <span>Remove Track</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Direct Track Deletion Modal (By ID or URL) */}
+      {showDirectTrackDelete && (
+        <div className="mt-modal-backdrop" onClick={() => setShowDirectTrackDelete(false)}>
+          <div
+            className="mt-modal"
+            style={{ maxWidth: '460px', width: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error-color)', fontWeight: 700 }}>
+                <Trash2 size={16} />
+                <span>Remove Track from Cache</span>
+              </div>
+              <button className="mt-icon-btn" onClick={() => setShowDirectTrackDelete(false)}>
+                <X size={15} />
+              </button>
+            </div>
+
+            <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--sub-color)', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  APPLE MUSIC TRACK URL OR SONG ID
+                </label>
+                <input
+                  type="text"
+                  className="mt-input"
+                  style={{ width: '100%' }}
+                  placeholder="e.g. 1160082046 or https://music.apple.com/..."
+                  value={directTrackInput}
+                  onChange={(e) => setDirectTrackInput(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--sub-color)', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  FORMAT TO REMOVE
+                </label>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  {['all', 'alac', 'aac', 'atmos', 'mv'].map((fmt) => (
+                    <button
+                      key={fmt}
+                      className={`mt-btn ${directTrackFormat === fmt ? 'primary' : ''}`}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem', textTransform: 'uppercase' }}
+                      onClick={() => setDirectTrackFormat(fmt)}
+                    >
+                      {fmt === 'all' ? 'All Formats' : fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  color: 'var(--text-color)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={directTrackHistory}
+                  onChange={(e) => setDirectTrackHistory(e.target.checked)}
+                />
+                <span>Also purge download history logs for this track</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.5rem' }}>
+              <button className="mt-btn" onClick={() => setShowDirectTrackDelete(false)}>
+                Cancel
+              </button>
+              <button
+                className="mt-btn danger"
+                onClick={handleDirectTrackDelete}
+                disabled={directTrackLoading || !directTrackInput.trim()}
+              >
+                {directTrackLoading ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                <span>Delete Track</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

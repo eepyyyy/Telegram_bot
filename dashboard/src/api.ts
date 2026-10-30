@@ -307,5 +307,36 @@ export const api = {
       body: JSON.stringify({}),
     });
   },
+
+  async deleteTrack(
+    songId: string,
+    format: string = 'all',
+    deleteHistory: boolean = false
+  ): Promise<{ success: boolean; message: string; deleted_count: number }> {
+    return request<{ success: boolean; message: string; deleted_count: number }>(
+      `/api/admin/tracks/${encodeURIComponent(songId)}?format=${encodeURIComponent(format)}&delete_history=${deleteHistory}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  },
+
+  async batchDeleteTracks(
+    songIds: string[],
+    format: string = 'all',
+    deleteHistory: boolean = false
+  ): Promise<{ success: boolean; message: string; deleted_count: number }> {
+    return request<{ success: boolean; message: string; deleted_count: number }>(
+      '/api/admin/tracks/batch-delete',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          song_ids: songIds,
+          format,
+          delete_history: deleteHistory,
+        }),
+      }
+    );
+  },
 };
 

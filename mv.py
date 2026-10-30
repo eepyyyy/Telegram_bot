@@ -5,7 +5,6 @@ import re
 import shutil
 import json
 import html
-import requests
 from datetime import datetime, timezone
 
 from aiogram import Router, types, F
@@ -157,7 +156,8 @@ async def mv_download(msg: types.Message, command: CommandObject) -> None:
         return
 
     raw_args = (command.args or "").strip()
-    resolution, codec, url = parse_mv_args(raw_args)
+    clean_args, no_cache = utils.extract_no_cache_flag(raw_args)
+    resolution, codec, url = parse_mv_args(clean_args)
 
     if not re.fullmatch(r"https?://\S+", url):
         try:
@@ -168,17 +168,24 @@ async def mv_download(msg: types.Message, command: CommandObject) -> None:
                 "• <code>/mv 1080p &lt;URL&gt;</code> (Force 1080p)\n"
                 "• <code>/mv h265 &lt;URL&gt;</code> (Force H.265 / HEVC)\n"
                 "• <code>/mv h264 &lt;URL&gt;</code> (Force H.264 / AVC)\n"
-                "• <code>/mv 4k h265 &lt;URL&gt;</code> (Force 4K H.265)",
+                "• <code>/mv 4k h265 &lt;URL&gt;</code> (Force 4K H.265)\n"
+                "• Append <code>-n</code> to download fresh without cache",
                 parse_mode="HTML"
             )
         except Exception:
             pass
         return
 
-    await process_mv_enqueue(msg, url, codec=codec, resolution=resolution)
+    await process_mv_enqueue(msg, url, codec=codec, resolution=resolution, no_cache=no_cache)
 
 
-async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = None, resolution: str | None = None) -> None:
+async def process_mv_enqueue(
+    msg: types.Message,
+    url: str,
+    codec: str | None = None,
+    resolution: str | None = None,
+    no_cache: bool = False
+) -> None:
     """
     Validates limits, checks cache, and queues Music Video download tasks.
     """
@@ -240,7 +247,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
     except Exception as e:
         mv_in_queue.discard(user_id_local)
         try:
-            await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            await status_msg.edit_text("❌ Unable to fetch music video details. Please check the link or try again later.")
         except Exception:
             pass
         return
@@ -264,7 +271,7 @@ async def process_mv_enqueue(msg: types.Message, url: str, codec: str | None = N
         return
 
     # Check cache for video (checks GoFile aliveness and Telegram cache)
-    if len(songs) == 1:
+    if not no_cache and len(songs) == 1:
         song = songs[0]
         cached_mv = await crud.get_cached_mv_track(
             song_id=song.song_id,
@@ -426,14 +433,19 @@ async def run_gamdl_mv_subprocess(output_dir: str, temp_dir: str, track_url: str
 
     ansi_escapes = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
     format_unavailable = False
-
     while True:
         try:
             line_bytes = await asyncio.wait_for(process.stdout.readline(), timeout=300)
         except asyncio.TimeoutError:
-            if process.returncode is not None:
-                break
-            continue
+            print("[gamdl MV] Process timed out after 300s of inactivity. Terminating...")
+            try:
+                process.terminate()
+                await asyncio.sleep(1)
+                if process.returncode is None:
+                    process.kill()
+            except Exception:
+                pass
+            break
         except (ValueError, asyncio.LimitOverrunError):
             try:
                 line_bytes = await process.stdout.read(8192)
@@ -803,11 +815,26 @@ async def process_mv_download(task: dict) -> None:
                     await asyncio.to_thread(shutil.rmtree, d_clean)
                 except Exception as e:
                     print(f"Failed to delete {d_clean}: {e}")
+            import gc
+            gc.collect()
+
+
+async def _run_mv_download_task(task: dict) -> None:
+    """Executes process_mv_download in an isolated child task so cancellation never kills the worker."""
+    job_task = asyncio.create_task(process_mv_download(task))
+    task["_job_task"] = job_task
+    try:
+        await job_task
+    except asyncio.CancelledError:
+        print(f"[MV Worker] Download task for {task.get('url')} was cancelled.")
+    except Exception as exc:
+        print(f"[MV Worker] Error processing Music Video download: {exc}")
 
 
 async def mv_worker() -> None:
     """
     Worker function to process the Music Video download queue.
+    Runs continuously and will not crash on download cancellations or errors.
     """
     while True:
         try:
@@ -818,61 +845,56 @@ async def mv_worker() -> None:
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"Error fetching from mv_queue: {e}")
+            print(f"[MV Worker] Error fetching from mv_queue: {e}")
             await asyncio.sleep(1)
             continue
 
         user_id = task.get("user_id", 999999999)
-
-        user_lock = mv_locks.setdefault(user_id, asyncio.Lock())
+        msg = task.get("msg")
+        is_headless = task.get("is_admin_cache") or (msg is None) or (user_id == 999999999)
 
         try:
-            async with user_lock:
-                # Check database limit before starting download subprocess
-                async with async_session() as session:
-                    result = await session.exec(select(User).where(User.user_id == user_id))
-                    user = result.first()
-                    current_date = datetime.now(timezone.utc).date()
-                    if user:
-                        if user.last_download != current_date:
-                            user.downloaded_today = 0
-                            user.last_download = current_date
-                            session.add(user)
-                            await session.commit()
-                            await session.refresh(user)
+            if is_headless:
+                await _run_mv_download_task(task)
+            else:
+                user_lock = mv_locks.setdefault(user_id, asyncio.Lock())
+                async with user_lock:
+                    # Check database limit before starting download subprocess
+                    try:
+                        async with async_session() as session:
+                            result = await session.exec(select(User).where(User.user_id == user_id))
+                            user = result.first()
+                            current_date = datetime.now(timezone.utc).date()
+                            if user:
+                                if user.last_download != current_date:
+                                    user.downloaded_today = 0
+                                    user.last_download = current_date
+                                    session.add(user)
+                                    await session.commit()
+                                    await session.refresh(user)
 
-                        if not user.is_premium and user.downloaded_today >= user.daily_limit:
-                            msg = task.get("msg")
-                            if msg:
-                                try:
-                                    await msg.answer("❌ Daily limit reached. Skipping queued Music Video.")
-                                except Exception:
-                                    pass
-                            remaining = mv_pending_jobs.get(user_id, 1) - 1
-                            if remaining <= 0:
-                                mv_pending_jobs.pop(user_id, None)
-                                mv_in_queue.discard(user_id)
-                                mv_locks.pop(user_id, None)
-                            else:
-                                mv_pending_jobs[user_id] = remaining
-                            mv_queue.task_done()
-                            continue
+                                if not user.is_premium and user.downloaded_today >= user.daily_limit:
+                                    if msg:
+                                        try:
+                                            await msg.answer("❌ Daily limit reached. Skipping queued Music Video.")
+                                        except Exception:
+                                            pass
+                                    continue
+                    except Exception as db_err:
+                        print(f"[MV Worker] Database error checking limits: {db_err}")
 
-                try:
-                    await process_mv_download(task)
-                except Exception as e:
-                    print(f"Error processing Music Video download: {e}")
-                finally:
-                    remaining = mv_pending_jobs.get(user_id, 1) - 1
-                    if remaining <= 0:
-                        mv_pending_jobs.pop(user_id, None)
-                        mv_in_queue.discard(user_id)
-                        mv_locks.pop(user_id, None)
-                    else:
-                        mv_pending_jobs[user_id] = remaining
+                    await _run_mv_download_task(task)
         except Exception as lock_err:
-            print(f"Error handling user lock in mv_worker: {lock_err}")
+            print(f"[MV Worker] Error handling user lock in mv_worker: {lock_err}")
         finally:
+            if not is_headless and user_id:
+                remaining = mv_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    mv_pending_jobs.pop(user_id, None)
+                    mv_in_queue.discard(user_id)
+                    mv_locks.pop(user_id, None)
+                else:
+                    mv_pending_jobs[user_id] = remaining
             try:
                 mv_queue.task_done()
             except Exception:

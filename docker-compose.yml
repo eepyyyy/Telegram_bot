@@ -14,10 +14,28 @@ services:
       - ./downloads:/app/downloads
       - ./backups:/app/backups
       - ./cookies.txt:/app/cookies.txt:ro
+      - ./audio_service.py:/app/audio_service.py
+      - ./lossless.py:/app/lossless.py
+      - ./queues.py:/app/queues.py
+      - ./aac.py:/app/aac.py
+      - ./atmos.py:/app/atmos.py
+      - ./mv.py:/app/mv.py
+      - ./index.py:/app/index.py
+      - ./utils.py:/app/utils.py
+      - ./crud.py:/app/crud.py
+      - ./database.py:/app/database.py
+      - ./gamdlUrl.py:/app/gamdlUrl.py
+      - ./gamdlHelpUrl.py:/app/gamdlHelpUrl.py
+      - ./help.py:/app/help.py
+      - ./server:/app/server
+      - ./app:/app/app
+      - ./admin_routes.py:/app/admin_routes.py
+      - ./dashboard:/app/dashboard
+      - ./.env:/app/.env
     deploy:
       resources:
         limits:
-          memory: 15000M
+          memory: 2500M
     logging:
       driver: "json-file"
       options:

@@ -49,9 +49,13 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
             "• <code>/aac &lt;Apple Music URL&gt;</code> - Download AAC 256kbps audio format.\n"
             "• <code>/atmos &lt;Apple Music URL&gt;</code> - Download Spatial Audio / Dolby Atmos.\n"
             "• <code>/mv &lt;Apple Music URL&gt;</code> - Download Music Video in H.265 / H.264 HD video format.\n"
+            "• <code>&lt;link&gt; -n</code> - Download fresh media without cache (append <code>-n</code> to any link).\n"
             "• <code>/artist &lt;Artist URL&gt;</code> - Browse and select artist albums/singles.\n"
             "• <code>/info</code> - View your download statistics, format breakdown, and remaining limits.\n"
             "• <code>/help &lt;URL&gt;</code> - Get detailed track/album metadata.\n\n"
+            "<b>⚠️ Deprecated Commands:</b>\n"
+            "• <code>/nocache &lt;URL&gt;</code> - <i>Deprecated:</i> Please use <code>&lt;link&gt; -n</code> instead.\n"
+            "• <code>/lossless &lt;URL&gt;</code> - <i>Deprecated:</i> Please send links directly for lossless audio.\n\n"
             "<b>✨ Cross-Platform Link Resolver:</b>\n"
             "Send any <b>Spotify</b>, <b>YouTube</b>, or <b>Tidal</b> link directly! The bot will automatically match it on Apple Music and download in lossless.\n\n"
             "<b>⚡ Inline Search:</b>\n"
@@ -81,7 +85,7 @@ async def help_command(msg: types.Message, command: CommandObject) -> None:
         meta = await get_url_metadata(url)
     except Exception as e:
         try:
-            await status_msg.edit_text(f"❌ Failed to fetch metadata: {escape_html(str(e))}", parse_mode=ParseMode.HTML)
+            await status_msg.edit_text("❌ Unable to fetch details. Please check the link or try again later.")
         except Exception:
             pass
         return

@@ -21,4 +21,10 @@ node_modules/
 .wrangler/
 dashboard/node_modules/
 dashboard/.wrangler/
+*.deb
+*.session-journal
+gamdl_temp_*/
+docker-compose.backup.yml
+cookies.txt
+cookies*.txt
 

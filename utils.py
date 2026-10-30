@@ -1,4 +1,5 @@
 import asyncio
+import html
 import os
 import re
 import time
@@ -218,13 +219,14 @@ async def upload_and_deliver_video(
     from aiogram.types import FSInputFile
     abs_path = os.path.abspath(file_path)
 
+    safe_caption = caption[:1024] if caption else caption
     if STORAGE_CHANNEL_ID:
         try:
             # 1. Upload directly to storage channel first
             channel_msg = await bot.send_video(
                 chat_id=STORAGE_CHANNEL_ID,
                 video=FSInputFile(abs_path),
-                caption=caption,
+                caption=safe_caption,
                 parse_mode="HTML",
                 thumbnail=thumbnail,
                 duration=duration or 0,
@@ -237,28 +239,74 @@ async def upload_and_deliver_video(
 
             # 2. Copy/deliver to user's chat if different from storage channel
             if user_chat_id != STORAGE_CHANNEL_ID:
-                await bot.copy_message(
-                    chat_id=user_chat_id,
-                    from_chat_id=STORAGE_CHANNEL_ID,
-                    message_id=channel_msg.message_id
-                )
+                try:
+                    await bot.copy_message(
+                        chat_id=user_chat_id,
+                        from_chat_id=STORAGE_CHANNEL_ID,
+                        message_id=channel_msg.message_id
+                    )
+                except Exception as ce:
+                    print(f"Failed to copy video to user chat {user_chat_id}: {ce}")
             return channel_msg, saved_chat_id, saved_message_id
         except Exception as e:
             print(f"Direct channel video upload failed for STORAGE_CHANNEL_ID ({STORAGE_CHANNEL_ID}): {e}")
+            if any(k in str(e).lower() for k in ("can't parse entities", "entity", "tag", "parse")):
+                try:
+                    plain_caption = re.sub(r'<[^>]*>', '', caption)[:1024] if caption else None
+                    channel_msg = await bot.send_video(
+                        chat_id=STORAGE_CHANNEL_ID,
+                        video=FSInputFile(abs_path),
+                        caption=plain_caption,
+                        parse_mode=None,
+                        thumbnail=thumbnail,
+                        duration=duration or 0,
+                        width=width,
+                        height=height,
+                        supports_streaming=supports_streaming
+                    )
+                    saved_chat_id = channel_msg.chat.id
+                    saved_message_id = channel_msg.message_id
+                    if user_chat_id != STORAGE_CHANNEL_ID:
+                        await bot.copy_message(
+                            chat_id=user_chat_id,
+                            from_chat_id=STORAGE_CHANNEL_ID,
+                            message_id=channel_msg.message_id
+                        )
+                    return channel_msg, saved_chat_id, saved_message_id
+                except Exception as e2:
+                    print(f"Fallback plain video upload failed: {e2}")
 
     # Fallback to direct user PM answer
-    user_msg = await bot.send_video(
-        chat_id=user_chat_id,
-        video=FSInputFile(abs_path),
-        caption=caption,
-        parse_mode="HTML",
-        thumbnail=thumbnail,
-        duration=duration or 0,
-        width=width,
-        height=height,
-        supports_streaming=supports_streaming
-    )
-    return user_msg, user_msg.chat.id, user_msg.message_id
+    try:
+        user_msg = await bot.send_video(
+            chat_id=user_chat_id,
+            video=FSInputFile(abs_path),
+            caption=safe_caption,
+            parse_mode="HTML",
+            thumbnail=thumbnail,
+            duration=duration or 0,
+            width=width,
+            height=height,
+            supports_streaming=supports_streaming
+        )
+        return user_msg, user_msg.chat.id, user_msg.message_id
+    except Exception as e:
+        print(f"Direct video PM upload failed: {e}")
+        if any(k in str(e).lower() for k in ("can't parse entities", "entity", "tag", "parse")):
+            plain_caption = re.sub(r'<[^>]*>', '', caption)[:1024] if caption else None
+            user_msg = await bot.send_video(
+                chat_id=user_chat_id,
+                video=FSInputFile(abs_path),
+                caption=plain_caption,
+                parse_mode=None,
+                thumbnail=thumbnail,
+                duration=duration or 0,
+                width=width,
+                height=height,
+                supports_streaming=supports_streaming
+            )
+            return user_msg, user_msg.chat.id, user_msg.message_id
+        raise
 
 
 async def copy_to_storage_channel(bot, sent_msg) -> Tuple[int, int]:
@@ -382,36 +430,51 @@ async def is_gofile_link_alive(gofile_url: str, token: str = GOFILE_TOKEN) -> bo
 
 async def upload_to_gofile_full(file_path: str, token: str = GOFILE_TOKEN) -> Optional[dict]:
     """
-    Uploads a file to GoFile.io using the account token (via requests in a thread executor)
-    and returns a file info dict with name, size, mimeType, downloadPage, and direct id.
+    Uploads a file to GoFile.io using streaming curl subprocess.
+    Streams directly from disk to network with zero RAM buffering to prevent OOM on large (2GB+) files.
     """
     if not os.path.exists(file_path):
         return None
 
-    import requests
-    loop = asyncio.get_running_loop()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    import json
+    import gc
+    abs_path = os.path.abspath(file_path)
+    file_size = os.path.getsize(abs_path)
 
-    def _do_upload():
-        with open(file_path, "rb") as f:
-            files = {"file": (os.path.basename(file_path), f, "application/octet-stream")}
-            return requests.post(
-                "https://upload.gofile.io/uploadfile",
-                files=files,
-                headers=headers,
-                timeout=1800,
-            )
+    cmd = [
+        "curl",
+        "-sS",
+        "--connect-timeout", "30",
+        "--max-time", "1800",
+        "-X", "POST",
+        "https://upload.gofile.io/uploadfile",
+        "-F", f"file=@{abs_path}",
+    ]
+    if token:
+        cmd.extend(["-H", f"Authorization: Bearer {token}"])
 
     try:
-        resp = await loop.run_in_executor(None, _do_upload)
-        data = resp.json()
-        if resp.status_code == 200 and data.get("status") == "ok":
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            err_msg = stderr.decode("utf-8", errors="replace").strip()
+            print(f"GoFile curl upload failed (exit {proc.returncode}): {err_msg}")
+            return None
+
+        stdout_str = stdout.decode("utf-8", errors="replace").strip()
+        data = json.loads(stdout_str)
+        if data.get("status") == "ok":
             file_info = data.get("data", {})
             download_page = file_info.get("downloadPage")
-            print(f"GoFile upload successful: {download_page}")
+            print(f"GoFile upload successful: {download_page} ({file_size} bytes)")
             return {
-                "name": file_info.get("name", os.path.basename(file_path)),
-                "size": file_info.get("size", os.path.getsize(file_path)),
+                "name": file_info.get("name", os.path.basename(abs_path)),
+                "size": file_info.get("size", file_size),
                 "mimeType": file_info.get("mimetype", "unknown"),
                 "link": download_page,
                 "downloadPage": download_page,
@@ -421,6 +484,8 @@ async def upload_to_gofile_full(file_path: str, token: str = GOFILE_TOKEN) -> Op
             print(f"GoFile upload returned error: {data}")
     except Exception as e:
         print(f"Failed to upload {file_path} to GoFile: {e}")
+    finally:
+        gc.collect()
     return None
 
 
@@ -867,10 +932,16 @@ async def upload_and_deliver_zip_document(
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     reply_markup = None
     if gofile_url:
-        caption = f"{caption}\n🌐 <b>Fast Download (GoFile):</b> <a href='{gofile_url}'>High-Speed Link</a>"
+        gf_caption_line = f"\n🌐 <b>Fast Download (GoFile):</b> <a href='{gofile_url}'>High-Speed Link</a>"
+        if len(caption) + len(gf_caption_line) <= 1024:
+            caption = f"{caption}{gf_caption_line}"
+        else:
+            caption = f"{caption[:1024 - len(gf_caption_line)]}{gf_caption_line}"
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🌐 Fast Download (GoFile)", url=gofile_url)]
         ])
+
+    safe_caption = caption[:1024] if caption else caption
 
     # Attempt Telegram Document Upload
     if STORAGE_CHANNEL_ID:
@@ -878,7 +949,7 @@ async def upload_and_deliver_zip_document(
             channel_msg = await bot.send_document(
                 chat_id=STORAGE_CHANNEL_ID,
                 document=FSInputFile(abs_path),
-                caption=caption,
+                caption=safe_caption,
                 parse_mode="HTML",
                 thumbnail=thumbnail,
                 reply_markup=reply_markup
@@ -889,23 +960,64 @@ async def upload_and_deliver_zip_document(
 
             user_msg = None
             if user_chat_id != STORAGE_CHANNEL_ID:
-                user_msg = await bot.copy_message(
-                    chat_id=user_chat_id,
-                    from_chat_id=STORAGE_CHANNEL_ID,
-                    message_id=channel_msg.message_id,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup
-                )
+                try:
+                    user_msg = await bot.copy_message(
+                        chat_id=user_chat_id,
+                        from_chat_id=STORAGE_CHANNEL_ID,
+                        message_id=channel_msg.message_id,
+                        caption=safe_caption,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                except Exception as ce:
+                    print(f"Storage channel copy_message to user failed: {ce}. Retrying without HTML parse_mode...")
+                    try:
+                        user_msg = await bot.copy_message(
+                            chat_id=user_chat_id,
+                            from_chat_id=STORAGE_CHANNEL_ID,
+                            message_id=channel_msg.message_id,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as ce2:
+                        print(f"Storage channel copy_message plain retry failed: {ce2}")
             return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, gofile_url, file_size
         except Exception as e:
-            print(f"Storage channel ZIP upload failed: {e}. Trying direct Telegram...")
+            print(f"Storage channel ZIP upload failed: {e}.")
+            if any(k in str(e).lower() for k in ("can't parse entities", "entity", "tag", "parse")):
+                try:
+                    print("Retrying storage channel ZIP upload without HTML parse_mode...")
+                    plain_caption = re.sub(r'<[^>]*>', '', caption)[:1024] if caption else None
+                    channel_msg = await bot.send_document(
+                        chat_id=STORAGE_CHANNEL_ID,
+                        document=FSInputFile(abs_path),
+                        caption=plain_caption,
+                        parse_mode=None,
+                        thumbnail=thumbnail,
+                        reply_markup=reply_markup
+                    )
+                    saved_chat_id = channel_msg.chat.id
+                    saved_message_id = channel_msg.message_id
+                    file_id = channel_msg.document.file_id if channel_msg.document else None
+
+                    user_msg = None
+                    if user_chat_id != STORAGE_CHANNEL_ID:
+                        user_msg = await bot.copy_message(
+                            chat_id=user_chat_id,
+                            from_chat_id=STORAGE_CHANNEL_ID,
+                            message_id=channel_msg.message_id,
+                            reply_markup=reply_markup
+                        )
+                    return user_msg or channel_msg, saved_chat_id, saved_message_id, file_id, gofile_url, file_size
+                except Exception as e2:
+                    print(f"Storage channel fallback upload without HTML failed: {e2}. Trying direct Telegram...")
+            else:
+                print("Trying direct Telegram...")
 
     try:
         user_msg = await bot.send_document(
             chat_id=user_chat_id,
             document=FSInputFile(abs_path),
-            caption=caption,
+            caption=safe_caption,
             parse_mode="HTML",
             thumbnail=thumbnail,
             reply_markup=reply_markup
@@ -913,10 +1025,48 @@ async def upload_and_deliver_zip_document(
         file_id = user_msg.document.file_id if user_msg.document else None
         return user_msg, user_msg.chat.id, user_msg.message_id, file_id, gofile_url, file_size
     except Exception as e:
-        print(f"Direct Telegram ZIP upload failed: {e}. Falling back to GoFile upload...")
+        print(f"Direct Telegram ZIP upload failed: {e}.")
+        if any(k in str(e).lower() for k in ("can't parse entities", "entity", "tag", "parse")):
+            try:
+                print("Retrying direct Telegram ZIP upload without HTML parse_mode...")
+                plain_caption = re.sub(r'<[^>]*>', '', caption)[:1024] if caption else None
+                user_msg = await bot.send_document(
+                    chat_id=user_chat_id,
+                    document=FSInputFile(abs_path),
+                    caption=plain_caption,
+                    parse_mode=None,
+                    thumbnail=thumbnail,
+                    reply_markup=reply_markup
+                )
+                file_id = user_msg.document.file_id if user_msg.document else None
+                return user_msg, user_msg.chat.id, user_msg.message_id, file_id, gofile_url, file_size
+            except Exception as e2:
+                print(f"Direct Telegram upload without HTML failed: {e2}")
+
+        print("Falling back to GoFile upload...")
         if not gofile_url:
             gofile_url = await upload_to_gofile(abs_path)
         return None, 0, 0, None, gofile_url, file_size
+    finally:
+        import gc
+        gc.collect()
+
+
+def extract_no_cache_flag(text: str) -> Tuple[str, bool]:
+    """
+    Checks if a string contains cache-bypass flags (-n, --no-cache, -nocache, --nocache).
+    Returns (cleaned_text, no_cache_bool).
+    """
+    if not text:
+        return "", False
+
+    pattern = r"(?i)(?:^|\s)(?:-n|--no-cache|-nocache|--nocache)(?=\s|$)"
+    has_flag = bool(re.search(pattern, text))
+    if has_flag:
+        cleaned = re.sub(pattern, " ", text).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned, True
+    return text.strip(), False
 
 
 def __getattr__(name: str):

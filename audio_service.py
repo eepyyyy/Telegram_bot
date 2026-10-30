@@ -28,44 +28,60 @@ from gamdl.interface.enums import CoverFormat, SongCodec
 
 logger = structlog.get_logger(__name__)
 
-# Monkey patch AppleMusicSongInterface._get_stream_info to handle Apple Music variant_id vs asset_metadata mismatch
-_orig_get_stream_info = AppleMusicSongInterface._get_stream_info
+# Monkey patch AppleMusicSongInterface.get_stream_info to ensure FairPlay tracks use WrapperApi instead of failing on Widevine
+_orig_get_stream_info = AppleMusicSongInterface.get_stream_info
 
-async def _patched_get_stream_info(self, m3u8_master_url, codec):
-    try:
-        return await _orig_get_stream_info(self, m3u8_master_url, codec)
-    except KeyError:
-        import m3u8
-        from gamdl.interface.types import StreamInfo, StreamInfoAv, MediaFileFormat
-        from gamdl.interface.constants import MP4_FORMAT_CODECS
-        m3u8_master_obj = m3u8.loads((await self.base.get_response(m3u8_master_url)).text)
-        data = m3u8_master_obj.data
-        playlist = self._get_playlist_from_codec(data, codec)
-        if not playlist:
-            return None
-        stream_info = StreamInfo(use_single_content_key=False)
-        stream_info.stream_url = f"{m3u8_master_url.rpartition('/')[0]}/{playlist['uri']}"
-        stream_info.codec = playlist['stream_info']['codecs']
-        is_mp4 = any(stream_info.codec.startswith(c) for c in MP4_FORMAT_CODECS)
-        session_key_metadata = self._get_audio_session_key_metadata(data)
-        if session_key_metadata:
-            asset_metadata = self._get_asset_metadata(data) or {}
-            audio_group = playlist['stream_info'].get('audio')
-            target_asset = None
-            for v in asset_metadata.values():
-                if v.get('GROUP-ID') == audio_group or v.get('AUDIO-FORMAT-ID') == codec.value:
-                    target_asset = v
-                    break
-            if target_asset and 'AUDIO-SESSION-KEY-IDS' in target_asset:
-                drm_ids = target_asset['AUDIO-SESSION-KEY-IDS']
-                stream_info.widevine_pssh = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed')
-                stream_info.playready_pssh = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'com.microsoft.playready')
-                stream_info.fairplay_key = self._get_drm_uri_from_session_key(session_key_metadata, drm_ids, 'com.apple.streamingkeydelivery')
-        return StreamInfoAv(audio_track=stream_info, file_format=MediaFileFormat.MP4 if is_mp4 else MediaFileFormat.M4A)
+async def _patched_get_stream_info(
+    self,
+    media_id: str,
+    is_library: bool,
+    webplayback: Optional[dict] = None,
+    playback: Optional[dict] = None,
+):
+    stream_info = await _orig_get_stream_info(self, media_id, is_library, webplayback, playback)
+    # When using wrapper_api with FairPlay (ALAC / Atmos), suppress widevine_pssh
+    # so gamdl delegates decryption to WrapperApi/FairPlay instead of requesting Widevine license from Apple (which returns -1002)
+    if self.base.wrapper_api and stream_info and stream_info.audio_track and stream_info.audio_track.fairplay_key:
+        stream_info.audio_track.widevine_pssh = None
+    return stream_info
 
-AppleMusicSongInterface._get_stream_info = _patched_get_stream_info
+AppleMusicSongInterface.get_stream_info = _patched_get_stream_info
 
-# Global singleton storage for the AppleMusicBaseInterface
+# Monkey patch WrapperApi.get_playback to handle transient 502 / playback_dispatch_failed errors with retry & backoff
+_orig_wrapper_get_playback = WrapperApi.get_playback
+
+async def _patched_wrapper_get_playback(self, media_id: str) -> dict:
+    max_retries = 3
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await _orig_wrapper_get_playback(self, media_id)
+        except Exception as e:
+            last_exc = e
+            err_str = str(e).lower()
+            is_transient = (
+                "502" in err_str
+                or "503" in err_str
+                or "504" in err_str
+                or "playback_dispatch_failed" in err_str
+                or "1988401752" in err_str
+                or "1246138264" in err_str
+            )
+            if is_transient and attempt < max_retries:
+                backoff = attempt * 1.5
+                logger.warning(
+                    f"Wrapper playback dispatch failed (attempt {attempt}/{max_retries}), retrying in {backoff}s...",
+                    media_id=media_id,
+                    error=str(e),
+                )
+                await asyncio.sleep(backoff)
+            else:
+                raise
+    if last_exc:
+        raise last_exc
+
+WrapperApi.get_playback = _patched_wrapper_get_playback
+
 _base_interface: Optional[AppleMusicBaseInterface] = None
 _base_api: Optional[AppleMusicApi] = None
 _base_lock: Optional[asyncio.Lock] = None
@@ -76,14 +92,14 @@ _cookies_resolved_path: Optional[str] = None
 
 def get_wrapper_config() -> tuple[bool, Optional[str]]:
     """
-    Checks environment variables, ~/.gamdl/config.ini, and local port 10020 for wrapper settings.
+    Checks environment variables, ~/.gamdl/config.ini, and local wrapper ports for settings.
     Returns (use_wrapper: bool, wrapper_url: Optional[str]).
     """
     env_use_wrapper = os.getenv("USE_WRAPPER")
     env_wrapper_url = os.getenv("WRAPPER_URL")
     if env_use_wrapper is not None or env_wrapper_url is not None:
         use_w = env_use_wrapper.lower() in ("true", "1", "yes") if env_use_wrapper else bool(env_wrapper_url)
-        return use_w, env_wrapper_url or "http://127.0.0.1:10020"
+        return use_w, env_wrapper_url or "http://127.0.0.1"
 
     try:
         from pathlib import Path
@@ -101,20 +117,21 @@ def get_wrapper_config() -> tuple[bool, Optional[str]]:
                     use_w = cp.getboolean("gamdl", "use_wrapper", fallback=False)
                     w_url = cp.get("gamdl", "wrapper_url", fallback=None)
                     if use_w:
-                        return use_w, w_url or "http://127.0.0.1:10020"
+                        return use_w, w_url or "http://127.0.0.1"
     except Exception as e:
         logger.warning("Failed to read ~/.gamdl/config.ini", error=str(e))
 
-    # Auto-detect if wrapper server is running locally on 127.0.0.1:10020
+    # Auto-detect if wrapper server is running locally (HTTP port 80 or decrypt port 10020)
     try:
         import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.3)
-        res = sock.connect_ex(('127.0.0.1', 10020))
-        sock.close()
-        if res == 0:
-            logger.info("Auto-detected local Apple Music wrapper running on 127.0.0.1:10020")
-            return True, "http://127.0.0.1:10020"
+        for port in (80, 10020):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.3)
+            res = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            if res == 0:
+                logger.info("Auto-detected local Apple Music wrapper running", port=port)
+                return True, "http://127.0.0.1"
     except Exception:
         pass
 
@@ -146,27 +163,13 @@ def get_codec_priority(format_type: str) -> List[SongCodec]:
 
 
 def format_gamdl_error(err: Exception) -> str:
-    """Translates internal gamdl and HTTP exceptions into user-friendly messages."""
-    err_str = str(err)
-    if "wrapper" in err_str.lower() or "502" in err_str:
-        return f"Apple Music Wrapper error (required for ALAC/Atmos): {err_str}\nPlease verify wrapper service status or use /aac for 256kbps."
-    if "-1002" in err_str or "license exchange data" in err_str.lower():
-        return (
-            "Apple Music DRM license error (-1002): Playback license refused by Apple.\n\n"
-            "Possible causes:\n"
-            "1. The cookies.txt on the server has expired or has an inactive subscription.\n"
-            "2. Another device/app is actively streaming on this Apple Music account (1 stream limit).\n"
-            "3. ALAC Lossless decryption requires an active Apple Music Wrapper."
-        )
-    if isinstance(err, GamdlInterfaceFormatNotAvailableError) or "format is not available" in err_str.lower():
-        return "Requested audio format (ALAC Lossless) is not available for this track/album on Apple Music."
-    if isinstance(err, GamdlInterfaceDecryptionNotAvailableError) or "decryption" in err_str.lower():
-        return "Decryption key could not be obtained from Apple Music for ALAC Lossless. The wrapper service may be offline. Try /aac for AAC 256kbps."
-    if isinstance(err, GamdlInterfaceMediaNotStreamableError) or "streamable" in err_str.lower():
-        return "This track is not streamable in the current storefront."
-    if "subscription" in err_str.lower() or "no active subscription" in err_str.lower():
-        return "Apple Music subscription error (No Active Subscription). Please check or renew your cookies.txt."
-    return f"Download failed: {err_str}"
+    """Translates internal errors into clean, user-friendly messages without technical jargon."""
+    err_str = str(err).lower()
+    if isinstance(err, GamdlInterfaceFormatNotAvailableError) or "format is not available" in err_str:
+        return "Requested format is not available for this track."
+    if isinstance(err, GamdlInterfaceMediaNotStreamableError) or "not streamable" in err_str or "streamable" in err_str:
+        return "This track is unavailable in the current region."
+    return "Unable to download this track. It may be restricted or temporarily unavailable."
 
 
 def invalidate_base_interface() -> None:
@@ -336,13 +339,16 @@ async def download_audio(
                     break
 
                 try:
-                    # Download, decrypt, and apply tags
-                    await downloader.download(item)
+                    # Download, decrypt, and apply tags with a generous 5-minute timeout per track to prevent infinite hangs
+                    await asyncio.wait_for(downloader.download(item), timeout=300)
                     downloaded_items.append(item)
 
                     final_path = getattr(item, "final_path", None)
                     if on_track_done and final_path:
                         await on_track_done(item, str(final_path))
+
+                    # Gentle pacing between tracks to avoid triggering Apple Store concurrency rate limits
+                    await asyncio.sleep(0.5)
                 except Exception as dl_err:
                     logger.error("Download or decryption failed for track", url=url, error=str(dl_err))
                     raise

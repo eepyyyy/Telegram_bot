@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RecentDownloadsResponse } from '../types';
+import { RecentDownloadsResponse, RecentDownloadItem } from '../types';
 import { api } from '../api';
 import {
   Download,
@@ -11,6 +11,8 @@ import {
   Music,
   Tv,
   Clock,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 const formatBytes = (bytes: number): string => {
@@ -99,6 +101,29 @@ export const RecentDownloads: React.FC = () => {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [selectedArtwork, setSelectedArtwork] = useState<string | null>(null);
+
+  // Track deletion state
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<RecentDownloadItem | null>(null);
+  const [deleteHistory, setDeleteHistory] = useState<boolean>(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteNotification, setDeleteNotification] = useState<string | null>(null);
+
+  const handleDeleteTrack = async () => {
+    if (!deleteConfirmItem || !deleteConfirmItem.song_id) return;
+    const { song_id, format_type, title } = deleteConfirmItem;
+    setDeletingId(song_id);
+    try {
+      const res = await api.deleteTrack(song_id, format_type, deleteHistory);
+      setDeleteNotification(res.message || `Deleted "${title}" from cache.`);
+      setTimeout(() => setDeleteNotification(null), 4000);
+      setDeleteConfirmItem(null);
+      fetchRecentDownloads();
+    } catch (err: any) {
+      alert(`Failed to delete track: ${err.message || err}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const fetchRecentDownloads = useCallback(async () => {
     setLoading(true);
@@ -330,6 +355,28 @@ export const RecentDownloads: React.FC = () => {
         </div>
       </div>
 
+      {/* Delete Notification Toast */}
+      {deleteNotification && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid var(--error-color)',
+            color: 'var(--text-color)',
+            borderRadius: 'var(--border-radius)',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>{deleteNotification}</span>
+          <button className="mt-icon-btn" onClick={() => setDeleteNotification(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* 4. Recent Downloads Data Table */}
       <div className="mt-table-container">
         <table className="mt-table">
@@ -342,12 +389,13 @@ export const RecentDownloads: React.FC = () => {
               <th>File Size</th>
               <th>Requested By</th>
               <th>Time</th>
+              <th style={{ width: '60px', textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {!data || data.downloads.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--sub-color)' }}>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--sub-color)' }}>
                   {loading ? 'Loading recent download history...' : 'No downloads found matching current query.'}
                 </td>
               </tr>
@@ -526,6 +574,25 @@ export const RecentDownloads: React.FC = () => {
                         <span>{formatRelativeTime(item.downloaded_at)}</span>
                       </div>
                     </td>
+
+                    {/* Action */}
+                    <td style={{ textAlign: 'center' }}>
+                      {item.song_id ? (
+                        <button
+                          className="mt-btn danger"
+                          style={{ padding: '0.22rem 0.45rem', fontSize: '0.68rem' }}
+                          onClick={() => {
+                            setDeleteHistory(false);
+                            setDeleteConfirmItem(item);
+                          }}
+                          title={`Delete "${item.title}" from cache`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      ) : (
+                        <span style={{ color: 'var(--sub-color)' }}>—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -615,6 +682,70 @@ export const RecentDownloads: React.FC = () => {
             <div style={{ padding: '0.5rem', textAlign: 'center', backgroundColor: 'var(--bg-color)' }}>
               <button className="mt-btn primary" onClick={() => setSelectedArtwork(null)}>
                 Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Delete Track Modal */}
+      {deleteConfirmItem && (
+        <div className="mt-modal-backdrop" onClick={() => setDeleteConfirmItem(null)}>
+          <div
+            className="mt-modal"
+            style={{ maxWidth: '420px', width: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error-color)', fontWeight: 700 }}>
+                <Trash2 size={16} />
+                <span>Delete Track from Cache</span>
+              </div>
+              <button className="mt-icon-btn" onClick={() => setDeleteConfirmItem(null)}>
+                <X size={15} />
+              </button>
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-color)', margin: '1rem 0' }}>
+              Are you sure you want to remove track <strong>{deleteConfirmItem.title}</strong>?
+              <div style={{ marginTop: '0.35rem', fontSize: '0.74rem', color: 'var(--sub-color)' }}>
+                Format: <span style={{ fontWeight: 700, color: 'var(--main-color)' }}>{deleteConfirmItem.format_type.toUpperCase()}</span>
+                {' • '}
+                Song ID: <code>{deleteConfirmItem.song_id}</code>
+              </div>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginTop: '1rem',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  color: 'var(--text-color)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={deleteHistory}
+                  onChange={(e) => setDeleteHistory(e.target.checked)}
+                />
+                <span>Also purge this download history record</span>
+              </label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className="mt-btn" onClick={() => setDeleteConfirmItem(null)}>
+                Cancel
+              </button>
+              <button
+                className="mt-btn danger"
+                onClick={handleDeleteTrack}
+                disabled={deletingId === deleteConfirmItem.song_id}
+              >
+                {deletingId === deleteConfirmItem.song_id ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                <span>Remove Track</span>
               </button>
             </div>
           </div>

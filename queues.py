@@ -36,14 +36,45 @@ lossless_locks: dict[int, asyncio.Lock] = {}
 def is_user_busy(user_id: int) -> bool:
     """
     Checks if a user has an active download task in any queue (ALAC, Regular Lossless, AAC, Dolby Atmos, or Music Video).
+    Includes auto-healing: if a user is marked in *_in_queue but has no active tasks and no items in any queue,
+    the stale flag is automatically cleared to prevent users from ever getting stuck.
     """
-    return (
+    if not user_id or user_id == 999999999:
+        return False
+
+    marked_busy = (
         user_id in user_in_queue
         or user_id in lossless_in_queue
         or user_id in aac_in_queue
         or user_id in atmos_in_queue
         or user_id in mv_in_queue
     )
+
+    if not marked_busy:
+        return False
+
+    # Check if user actually has an active running task or pending queue item
+    status = get_user_queue_status(user_id)
+    if status["active_count"] == 0 and status["queued_count"] == 0:
+        # Self-heal stale busy state!
+        user_in_queue.discard(user_id)
+        lossless_in_queue.discard(user_id)
+        aac_in_queue.discard(user_id)
+        atmos_in_queue.discard(user_id)
+        mv_in_queue.discard(user_id)
+        user_pending_jobs.pop(user_id, None)
+        lossless_pending_jobs.pop(user_id, None)
+        aac_pending_jobs.pop(user_id, None)
+        atmos_pending_jobs.pop(user_id, None)
+        mv_pending_jobs.pop(user_id, None)
+        user_locks.pop(user_id, None)
+        lossless_locks.pop(user_id, None)
+        aac_locks.pop(user_id, None)
+        atmos_locks.pop(user_id, None)
+        mv_locks.pop(user_id, None)
+        return False
+
+    return True
 
 
 def get_queue_stats() -> dict[str, int]:
@@ -279,8 +310,13 @@ def clear_user_pending_queue(user_id: int) -> int:
             else:
                 q.put_nowait(item)
 
-        in_q.discard(user_id)
-        pending.pop(user_id, None)
+        has_active = any(
+            t.get("user_id") == user_id and not t.get("cancelled")
+            for t in active_tasks.values()
+        )
+        if not has_active:
+            in_q.discard(user_id)
+            pending.pop(user_id, None)
 
     return queued_removed
 
@@ -293,7 +329,11 @@ def cancel_user_queue(user_id: int) -> dict[str, int]:
     active_cancelled = cancel_user_active_downloads(user_id)
     queued_removed = clear_user_pending_queue(user_id)
 
-    # Clean up locks if user has nothing left
+    # Clean up all locks, pending counters, and busy flags unconditionally
+    for in_q in (user_in_queue, lossless_in_queue, aac_in_queue, atmos_in_queue, mv_in_queue):
+        in_q.discard(user_id)
+    for pending in (user_pending_jobs, lossless_pending_jobs, aac_pending_jobs, atmos_pending_jobs, mv_pending_jobs):
+        pending.pop(user_id, None)
     for locks in (user_locks, lossless_locks, aac_locks, atmos_locks, mv_locks):
         locks.pop(user_id, None)
 

@@ -20,6 +20,7 @@ import database
 import schema
 import utils
 import audio_service
+import bot_control
 from database import User, async_session
 import time
 from gamdl.interface import AppleMusicInterface
@@ -134,7 +135,8 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     Handles /lossless command for downloading regular Lossless (up to 24-bit / 48kHz ALAC).
     Automatically downsamples Hi-Res tracks to 48kHz and avoids storing remuxed tracks in DB.
     """
-    url = (command.args or "").strip()
+    raw_args = (command.args or "").strip()
+    url, no_cache = utils.extract_no_cache_flag(raw_args)
 
     if not re.search(r"https?://\S+", url):
         usage_text = (
@@ -208,7 +210,7 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     except Exception as e:
         lossless_in_queue.discard(user_id_local)
         try:
-            await status_msg.edit_text(f"❌ Failed to fetch metadata: {str(e)}")
+            await status_msg.edit_text("❌ Unable to fetch track details. Please check the link or try again later.")
         except Exception:
             pass
         return
@@ -271,7 +273,7 @@ async def lossless_download(msg: types.Message, command: CommandObject) -> None:
     ]
 
     file_ids_cached = []
-    if cached_candidate_songs:
+    if not no_cache and cached_candidate_songs:
         file_ids_cached, _ = await crud.check_db_for_urls(cached_candidate_songs, format_type="alac")
 
     total_tracks = len(songs)
@@ -782,7 +784,7 @@ async def process_lossless_download(task: dict) -> None:
         print(f"Error handling regular Lossless download: {e}")
         if msg:
             try:
-                await msg.answer(f"⚠️ An unexpected error occurred during Lossless download: {str(e)}")
+                await msg.answer("⚠️ An unexpected error occurred during download. Please try again later.")
             except Exception:
                 pass
     finally:
@@ -793,44 +795,62 @@ async def process_lossless_download(task: dict) -> None:
                     await asyncio.to_thread(shutil.rmtree, dir_to_clean)
                 except Exception as e:
                     print(f"Failed to delete {dir_to_clean}: {e}")
+        import gc
+        gc.collect()
+
+
+async def _run_lossless_download_task(task: dict) -> None:
+    """Executes process_lossless_download in an isolated child task so cancellation never kills the worker."""
+    job_task = asyncio.create_task(process_lossless_download(task))
+    task["_job_task"] = job_task
+    try:
+        await job_task
+    except asyncio.CancelledError:
+        print(f"[Lossless Worker] Download task for {task.get('url')} was cancelled.")
+    except Exception as exc:
+        print(f"[Lossless Worker] Error processing Lossless download: {exc}")
 
 
 async def lossless_worker() -> None:
     """
     Worker function to process the regular lossless download queue.
+    Runs continuously and will not crash on download cancellations or errors.
     """
     while True:
         try:
+            while bot_control.is_bot_paused:
+                await asyncio.sleep(1)
+
             task = await lossless_queue.get()
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"Error fetching from lossless_queue: {e}")
+            print(f"[Lossless Worker] Error fetching from lossless_queue: {e}")
             await asyncio.sleep(1)
             continue
 
         user_id = task.get("user_id", 999999999)
         msg = task.get("msg")
-
-        user_lock = lossless_locks.setdefault(user_id, asyncio.Lock())
+        is_headless = task.get("is_admin_cache") or (msg is None) or (user_id == 999999999)
 
         try:
-            async with user_lock:
-                try:
-                    await process_lossless_download(task)
-                except Exception as e:
-                    print(f"Lossless worker caught execution exception for user {user_id}: {e}")
-                finally:
-                    remaining = lossless_pending_jobs.get(user_id, 1) - 1
-                    if remaining <= 0:
-                        lossless_pending_jobs.pop(user_id, None)
-                        lossless_in_queue.discard(user_id)
-                        lossless_locks.pop(user_id, None)
-                    else:
-                        lossless_pending_jobs[user_id] = remaining
+            if is_headless:
+                await _run_lossless_download_task(task)
+            else:
+                user_lock = lossless_locks.setdefault(user_id, asyncio.Lock())
+                async with user_lock:
+                    await _run_lossless_download_task(task)
         except Exception as lock_err:
-            print(f"Error handling user lock in lossless_worker: {lock_err}")
+            print(f"[Lossless Worker] Error handling user lock in lossless_worker: {lock_err}")
         finally:
+            if not is_headless and user_id:
+                remaining = lossless_pending_jobs.get(user_id, 1) - 1
+                if remaining <= 0:
+                    lossless_pending_jobs.pop(user_id, None)
+                    lossless_in_queue.discard(user_id)
+                    lossless_locks.pop(user_id, None)
+                else:
+                    lossless_pending_jobs[user_id] = remaining
             try:
                 lossless_queue.task_done()
             except Exception:

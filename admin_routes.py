@@ -1524,3 +1524,153 @@ async def verify_album_zip_endpoint(request: web.Request):
                 "error": str(e),
                 "message": f"Telegram API error: {str(e)}",
             })
+
+
+# ==============================================================================
+# 17. Track Deletion Endpoints
+# ==============================================================================
+
+def _extract_song_id(val: str) -> str:
+    s = (val or "").strip()
+    if "?i=" in s:
+        s = s.split("?i=")[1].split("&")[0].split("#")[0]
+    elif "/" in s:
+        s = s.rstrip("/").split("/")[-1].split("?")[0]
+    return s.strip()
+
+
+def _get_models_for_format(format_type: str):
+    fmt = (format_type or "all").lower().strip()
+    if fmt == "all":
+        return [Tracks, AACTracks, AtmosTracks, MVTracks]
+    elif fmt in ("alac", "lossless"):
+        return [Tracks]
+    elif fmt == "aac":
+        return [AACTracks]
+    elif fmt == "atmos":
+        return [AtmosTracks]
+    elif fmt in ("mv", "video"):
+        return [MVTracks]
+    return [Tracks]
+
+
+@admin_routes.delete("/api/admin/tracks/{song_id}")
+@admin_routes.delete("/api/admin/tracks/{format_type}/{song_id}")
+@require_auth
+async def delete_track_endpoint(request: web.Request):
+    """
+    Deletes a track from the database by song_id (or Apple Music track URL).
+    Optional format_type path or query param: 'all', 'alac', 'aac', 'atmos', 'mv'.
+    Optional query param delete_history=true to also remove DownloadHistory entries.
+    """
+    raw_song_id = request.match_info.get("song_id", "").strip()
+    song_id = _extract_song_id(raw_song_id)
+    if not song_id:
+        return web.json_response({"error": "Song ID required"}, status=400)
+
+    format_type = request.match_info.get("format_type") or request.query.get("format", "all")
+    format_type = format_type.lower().strip()
+    delete_history = request.query.get("delete_history", "false").lower() in ("true", "1", "yes")
+
+    models = _get_models_for_format(format_type)
+    deleted_tracks = []
+    deleted_count = 0
+    deleted_history_count = 0
+
+    async with async_session() as session:
+        for model_cls in models:
+            stmt = select(model_cls).where(model_cls.song_id == str(song_id))
+            records = (await session.exec(stmt)).all()
+            for t in records:
+                fmt_name = model_cls.__tablename__.replace("_tracks", "").replace("tracks", "alac").upper()
+                deleted_tracks.append({
+                    "song_id": t.song_id,
+                    "title": getattr(t, "title", None),
+                    "artist": getattr(t, "artist", None),
+                    "album_id": getattr(t, "album_id", None),
+                    "format": fmt_name,
+                })
+                await session.delete(t)
+                deleted_count += 1
+
+        if delete_history:
+            hist_stmt = select(DownloadHistory).where(DownloadHistory.song_id == str(song_id))
+            if format_type != "all":
+                hist_stmt = hist_stmt.where(DownloadHistory.format_type == format_type)
+            hist_records = (await session.exec(hist_stmt)).all()
+            for h in hist_records:
+                await session.delete(h)
+                deleted_history_count += 1
+
+        if deleted_count > 0 or deleted_history_count > 0:
+            await session.commit()
+
+    if deleted_count == 0 and deleted_history_count == 0:
+        return web.json_response({"error": f"Track {song_id} not found in database"}, status=404)
+
+    logger.info(f"[Admin Tracks] Deleted track {song_id} (format={format_type}, count={deleted_count}, history_count={deleted_history_count}).")
+    return web.json_response({
+        "success": True,
+        "message": f"Successfully deleted track {song_id} ({deleted_count} format cache entries removed).",
+        "deleted_count": deleted_count,
+        "deleted_history_count": deleted_history_count,
+        "tracks": deleted_tracks,
+    })
+
+
+@admin_routes.post("/api/admin/tracks/batch-delete")
+@require_auth
+async def batch_delete_tracks_endpoint(request: web.Request):
+    """
+    Batch deletes multiple tracks from the database.
+    Payload:
+      {
+        "song_ids": ["123", "456"],
+        "format": "all" | "alac" | "aac" | "atmos" | "mv",
+        "delete_history": false
+      }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    song_ids = body.get("song_ids", [])
+    if not isinstance(song_ids, list) or not song_ids:
+        return web.json_response({"error": "song_ids must be a non-empty list of IDs"}, status=400)
+
+    format_type = (body.get("format") or "all").lower().strip()
+    delete_history = bool(body.get("delete_history", False))
+    models = _get_models_for_format(format_type)
+
+    deleted_count = 0
+    deleted_history_count = 0
+    processed_ids = [_extract_song_id(str(sid)) for sid in song_ids if _extract_song_id(str(sid))]
+
+    async with async_session() as session:
+        for model_cls in models:
+            stmt = select(model_cls).where(col(model_cls.song_id).in_(processed_ids))
+            records = (await session.exec(stmt)).all()
+            for t in records:
+                await session.delete(t)
+                deleted_count += 1
+
+        if delete_history:
+            hist_stmt = select(DownloadHistory).where(col(DownloadHistory.song_id).in_(processed_ids))
+            if format_type != "all":
+                hist_stmt = hist_stmt.where(DownloadHistory.format_type == format_type)
+            hist_records = (await session.exec(hist_stmt)).all()
+            for h in hist_records:
+                await session.delete(h)
+                deleted_history_count += 1
+
+        if deleted_count > 0 or deleted_history_count > 0:
+            await session.commit()
+
+    logger.info(f"[Admin Tracks] Batch deleted {deleted_count} track entries across {len(processed_ids)} IDs.")
+    return web.json_response({
+        "success": True,
+        "message": f"Successfully deleted {deleted_count} track entry/entries across {len(processed_ids)} tracks.",
+        "deleted_count": deleted_count,
+        "deleted_history_count": deleted_history_count,
+    })
