@@ -329,8 +329,7 @@ The PostgreSQL database houses a continuously growing archive of verified Apple 
 If you are a developer, researcher, or archivist interested in accessing our indexed database, obtaining a sanitized database dump (`.sql.gz`), or collaborating on media cataloguing:
 
 > **📨 Request Database Access via Email:**
-> - **Primary Contact:** [eepyyeepyyeepyy@gmail.com](mailto:eepyyeepyyeepyy@gmail.com)
-> - **Secondary Contact:** [ganakarsha@gmail.com](mailto:ganakarsha@gmail.com)
+> - **Contact:** [eepyyeepyyeepyy@gmail.com](mailto:eepyyeepyyeepyy@gmail.com)
 > 
 > *Please include your project name, intended use case, or environment details in your message. Database dumps or read-only connection credentials can be provided upon request.*
 
